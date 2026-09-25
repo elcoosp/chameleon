@@ -6,7 +6,7 @@ use cham_core::engine::Action;
 use cham_core::obs::{Agent, Observables};
 use cham_core::rng::Rng;
 
-use crate::factory::{OpponentSpec, build};
+use crate::factory::{build, OpponentSpec};
 use crate::percentile::PercentileChart;
 
 pub struct SwitcherBot {
@@ -17,12 +17,7 @@ pub struct SwitcherBot {
 }
 
 impl SwitcherBot {
-    pub fn new(
-        a: OpponentSpec,
-        b: OpponentSpec,
-        switch_at: u64,
-        chart: &'static PercentileChart,
-    ) -> SwitcherBot {
+    pub fn new(a: OpponentSpec, b: OpponentSpec, switch_at: u64, chart: &'static PercentileChart) -> SwitcherBot {
         SwitcherBot {
             a: build(&a, chart),
             b: build(&b, chart),
@@ -43,10 +38,7 @@ impl Agent for SwitcherBot {
             self.b.act(obs, rng)
         }
     }
-    fn action_probs(
-        &self,
-        obs: &Observables<'_>,
-    ) -> Result<ArrayVec<(Action, f64), 12>, cham_core::obs::AgentError> {
+    fn action_probs(&self, obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, cham_core::obs::AgentError> {
         if self.hands < self.switch_at {
             self.a.action_probs(obs)
         } else {
