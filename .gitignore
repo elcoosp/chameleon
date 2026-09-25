@@ -13,3 +13,6 @@ crates/cham-blueprint/artifacts/runs/snap-test/
 
 # local watchexec reload helper (dev machine only)
 wr.sh
+
+# GPU tables (GPU-PLAN G1.0; large binaries, rebuilt locally)
+artifacts/gpu-tables/

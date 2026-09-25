@@ -3,6 +3,7 @@
 pub mod ab;
 pub mod collect;
 pub mod dashboard;
+pub mod gpu_doctor;
 pub mod guard;
 pub mod hero;
 pub mod ladder;

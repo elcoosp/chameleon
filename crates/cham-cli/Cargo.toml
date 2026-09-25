@@ -26,6 +26,7 @@ cham-router = { path = "../cham-router" }
 cham-search = { path = "../cham-search" }
 cham-agent = { path = "../cham-agent" }
 cham-eval = { path = "../cham-eval" }
+cham-gpu = { path = "../cham-gpu" }
 cham-rec = { path = "../cham-rec" }
 cham-proofs = { path = "../cham-proofs" }
 

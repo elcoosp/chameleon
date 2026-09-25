@@ -1,0 +1,24 @@
+[package]
+name = "cham-gpu"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Feature-gated Apple Metal accelerator (whitelist amendment per docs/GPU-PLAN.md)"
+
+[dependencies]
+serde = { workspace = true }
+blake3 = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+metal = { workspace = true, optional = true }
+
+[features]
+default = []
+metal = ["dep:metal"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

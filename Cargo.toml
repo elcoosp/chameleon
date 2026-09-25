@@ -27,6 +27,10 @@ memmap2 = "0.9" # SPECS/00 pins 0.6; 0.9 is the maintained line with an identica
 bytemuck = "1"
 arrayvec = "0.7"
 blake3 = "1"
+# whitelist amendment (GPU-PLAN, sanctioned): Apple Metal FFI (macOS-only,
+# optional — cham-gpu gates it behind `metal`; FFI unsafe is scoped like
+# memmap2 in D-001)
+metal = "0.31"
 # dev-only
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1"

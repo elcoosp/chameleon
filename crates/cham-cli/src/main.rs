@@ -80,6 +80,8 @@ enum Command {
         #[arg(long, default_value = "full")]
         agent: String,
     },
+    /// Diagnostic: probe Apple Metal device + whitelist amendment status (GPU-PLAN G0.1)
+    GpuDoctor,
     /// Tier 2 screening ladder
     Ladder {
         #[arg(long)]
@@ -182,6 +184,7 @@ fn main() -> anyhow::Result<()> {
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),
         Command::Probe { agent } => cmd::probe::run(&agent),
+        Command::GpuDoctor => cmd::gpu_doctor::run(),
         Command::Ladder {
             fast,
             full,
