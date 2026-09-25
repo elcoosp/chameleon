@@ -1,0 +1,16 @@
+# EXP-005 `bayes-vs-mixture` — the falsification test of the mixture idea (G6).
+id = "EXP-005"
+slug = "bayes-vs-mixture"
+gate = "G6"
+tier = "ab"
+a = "bayes"
+b = "full"
+extra_arms = ["argmax"]
+pool = ["arch:nit", "arch:tag", "arch:lag", "arch:station"]
+deals_per_opp = 25000
+clusters = 3
+seeds = [1, 2, 3]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "report_only" # no promotion requirement (SPECS/10 §6 G6)
