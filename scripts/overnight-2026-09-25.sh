@@ -133,14 +133,14 @@ mark "turn-ehs-wait" "$waited" "done"
 # Phase 1 — tiny robust
 phase tiny-robust 1800 \
   cargo run -q --release -p cham-cli -- train-bp \
-    --mode robust --iters 10000 --depth 100 --seed 7 \
+    --mode robust --iters 500000 --depth 100 --seed 7 \
     --out artifacts/blueprints-tiny --threads 4
 
 # Phase 2 — 4 tiny experts, each into its own subdir
 for opp in nit tag lag station; do
   phase "tiny-expert-$opp" 900 \
     cargo run -q --release -p cham-cli -- train-bp \
-      --mode exploit --opponent "arch:$opp" --iters 10000 --depth 100 --seed 7 \
+      --mode exploit --opponent "arch:$opp" --iters 500000 --depth 100 --seed 7 \
       --out "artifacts/blueprints-tiny/$opp" --threads 4
 done
 
