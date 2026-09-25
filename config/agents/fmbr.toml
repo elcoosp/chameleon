@@ -1,0 +1,4 @@
+routing = "mixture"
+search_enabled = true
+solver = "Fmbr"
+g4_ledger_ref = "EXP-002"     # EXP-002 arms carry a passing G5/G4 reference by construction
