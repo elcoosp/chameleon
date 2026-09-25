@@ -20,7 +20,10 @@ pub fn run(config: &str, out: &str, profile: &str) -> i32 {
         _ => cham_engine::build::BuildParams::tiny(),
     };
     let out_dir = std::path::Path::new(out);
-    println!("train-buckets: flop (k={}, sampled={})…", cfg.buckets.flop_k, params.sample_orbits);
+    println!(
+        "train-buckets: flop (k={}, sampled={})…",
+        cfg.buckets.flop_k, params.sample_orbits
+    );
     if let Err(e) = cham_engine::build::build_street(&cfg, out_dir, "flop", params) {
         eprintln!("flop build: {e}");
         return crate::cmd::EXIT_FAIL;
@@ -38,7 +41,11 @@ pub fn run(config: &str, out: &str, profile: &str) -> i32 {
     for f in ["flop.bin", "turn.bin", "meta.json"] {
         let p = out_dir.join(f);
         if let Ok(bytes) = std::fs::read(&p) {
-            println!("{f}: {} bytes blake3 {}", bytes.len(), &blake3_hash(&bytes)[..16]);
+            println!(
+                "{f}: {} bytes blake3 {}",
+                bytes.len(),
+                &blake3_hash(&bytes)[..16]
+            );
         }
     }
     println!("train-buckets: done → {out}");

@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use cham_engine::build::{build_street, finalize_meta, BuildParams};
+use cham_engine::build::{BuildParams, build_street, finalize_meta};
 use cham_engine::config::AbstractionConfig;
 
 fn main() {

@@ -7,12 +7,16 @@ use cham_core::engine::config::EngineConfig;
 use cham_core::engine::{Action, State, Street};
 use cham_core::obs::{Observables, Player};
 use cham_core::rng::rng_from_seed;
-use cham_engine::build::{kmeans_l1, BuildParams};
-use cham_engine::config::{abstraction_hash, log_bands, AbstractionConfig};
+use cham_engine::build::{BuildParams, kmeans_l1};
+use cham_engine::config::{AbstractionConfig, abstraction_hash, log_bands};
 use cham_engine::encoder::{ActionClass, ActionSeq, Encoder};
-use cham_engine::{canon, tables, RouterFeatures};
+use cham_engine::{RouterFeatures, canon, tables};
 
-const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const CFG: EngineConfig = EngineConfig {
+    start_stack: 10_000,
+    sb: 50,
+    bb: 100,
+};
 
 fn card(s: &str) -> Card {
     Card::parse(s).expect("card")
@@ -35,7 +39,13 @@ const FLOP_PREFIX: [Card; 7] = {
 
 fn flop_prefix() -> Vec<Card> {
     vec![
-        card("Ah"), card("2c"), card("Kd"), card("3s"), card("9h"), card("4d"), card("Js"),
+        card("Ah"),
+        card("2c"),
+        card("Kd"),
+        card("3s"),
+        card("9h"),
+        card("4d"),
+        card("Js"),
     ]
 }
 
@@ -126,17 +136,60 @@ fn river_bucket_board_aware() {
     let cfg = AbstractionConfig::tiny();
     // (a) EXACT suit isomorphism: applying σ=(c s)(d h) to (hero, board) preserves
     // equity exactly (uniform-deck symmetry) — and preserves texture, hence bucket.
-    let p1v = vec![card("As"), card("9c"), card("Ks"), card("9d"), card("2c"), card("3d"), card("4h"), card("5s"), card("7c")];
-    let p2v = vec![card("Ac"), card("9s"), card("Kc"), card("9h"), card("2s"), card("3h"), card("4d"), card("5c"), card("7s")];
+    let p1v = vec![
+        card("As"),
+        card("9c"),
+        card("Ks"),
+        card("9d"),
+        card("2c"),
+        card("3d"),
+        card("4h"),
+        card("5s"),
+        card("7c"),
+    ];
+    let p2v = vec![
+        card("Ac"),
+        card("9s"),
+        card("Kc"),
+        card("9h"),
+        card("2s"),
+        card("3h"),
+        card("4d"),
+        card("5c"),
+        card("7s"),
+    ];
     let mut s1 = state_with(&p1v, CFG);
     let mut s2 = state_with(&p2v, CFG);
-    play(&mut s1, &[Action::Call, Action::Check, Action::Check, Action::Check, Action::Check, Action::Check]);
-    play(&mut s2, &[Action::Call, Action::Check, Action::Check, Action::Check, Action::Check, Action::Check]);
+    play(
+        &mut s1,
+        &[
+            Action::Call,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+        ],
+    );
+    play(
+        &mut s2,
+        &[
+            Action::Call,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+        ],
+    );
     assert_eq!(s1.street(), Street::River);
     assert!(!s1.is_terminal());
     let e1 = tables::river_equity(s1.hole(0), s1.board());
     let e2 = tables::river_equity(s2.hole(0), s2.board());
-    assert!((e1 - e2).abs() < 1e-12, "suit-isomorphic (hero, board) pairs have equal equity: {e1} vs {e2}");
+    assert!(
+        (e1 - e2).abs() < 1e-12,
+        "suit-isomorphic (hero, board) pairs have equal equity: {e1} vs {e2}"
+    );
     let mut enc = Encoder::cfg_only(cfg).expect("enc");
     let o1 = Observables::view(&s1, Player::Bb);
     let o2 = Observables::view(&s2, Player::Bb);
@@ -144,11 +197,35 @@ fn river_bucket_board_aware() {
     let b2 = enc.bucket(&o2);
     assert_eq!(b1, b2, "isomorphic pairs land in the same river bucket");
     // (b) a genuinely different board (broadway) stays different — BOARD-AWARE:
-    let p3v = vec![card("As"), card("8c"), card("Ks"), card("8d"), card("Ad"), card("Qd"), card("Jh"), card("Ts"), card("9c")];
+    let p3v = vec![
+        card("As"),
+        card("8c"),
+        card("Ks"),
+        card("8d"),
+        card("Ad"),
+        card("Qd"),
+        card("Jh"),
+        card("Ts"),
+        card("9c"),
+    ];
     let mut s3 = state_with(&p3v, CFG);
-    play(&mut s3, &[Action::Call, Action::Check, Action::Check, Action::Check, Action::Check, Action::Check]);
+    play(
+        &mut s3,
+        &[
+            Action::Call,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+            Action::Check,
+        ],
+    );
     let o3 = Observables::view(&s3, Player::Bb);
-    assert_ne!(b1, enc.bucket(&o3), "AKs on 2-3-4-5-7 vs A-Q-J-T-9 must differ");
+    assert_ne!(
+        b1,
+        enc.bucket(&o3),
+        "AKs on 2-3-4-5-7 vs A-Q-J-T-9 must differ"
+    );
 }
 
 #[test]
@@ -174,7 +251,10 @@ fn river_eq_quantiles() {
             b5[i] = Card(deck[2 + i]);
         }
         let eq = tables::river_equity(hand, &b5);
-        let bin = edges.partition_point(|&e| e <= eq).saturating_sub(1).min(edges.len() - 2);
+        let bin = edges
+            .partition_point(|&e| e <= eq)
+            .saturating_sub(1)
+            .min(edges.len() - 2);
         counts[bin] += 1;
     }
     let expect = 200_000 / (edges.len() - 1);
@@ -219,14 +299,19 @@ fn ladder_amounts_math() {
     let seq = ActionSeq::default();
     let slots = ladder.slots(&obs, &seq);
     assert!(matches!(slots[0].action, Action::Check));
-    assert!(matches!(slots[1].action, Action::Bet { to: 100 }), "0.5 × pot(200) = 100");
+    assert!(
+        matches!(slots[1].action, Action::Bet { to: 100 }),
+        "0.5 × pot(200) = 100"
+    );
     if let Action::Bet { to } = slots[2].action {
         assert_eq!(to, 9900, "jam = full stack to");
     } else {
         panic!("jam slot expected");
     }
     for i in 1..slots.len() {
-        if let (Action::Bet { to: a }, Action::Bet { to: b }) = (slots[i - 1].action, slots[i].action) {
+        if let (Action::Bet { to: a }, Action::Bet { to: b }) =
+            (slots[i - 1].action, slots[i].action)
+        {
             assert_ne!(a, b, "dedupe bet levels");
         }
     }
@@ -241,7 +326,10 @@ fn ladder_canonical_order() {
     let obs = Observables::view(&state, Player::Sb);
     let seq = ActionSeq::default();
     let slots = ladder.slots(&obs, &seq);
-    assert!(matches!(slots[0].action, Action::Check), "check first facing no bet");
+    assert!(
+        matches!(slots[0].action, Action::Check),
+        "check first facing no bet"
+    );
     let mut last = 0i64;
     for s in slots.iter().skip(1) {
         if let Action::Bet { to } = s.action {
@@ -251,7 +339,10 @@ fn ladder_canonical_order() {
     }
     // facing a bet: [Fold, Call, Raise.., Jam]  (SB faces BB's 500 bet)
     let mut state2 = flop_state(CFG);
-    play(&mut state2, &[Action::Call, Action::Check, Action::Bet { to: 500 }]);
+    play(
+        &mut state2,
+        &[Action::Call, Action::Check, Action::Bet { to: 500 }],
+    );
     let obs2 = Observables::view(&state2, Player::Sb);
     let slots2 = ladder.slots(&obs2, &seq);
     assert!(matches!(slots2[0].action, Action::Fold));
@@ -264,13 +355,38 @@ fn raise_cap_enforced() {
     let cfg = AbstractionConfig::tiny(); // raises_per_street_cap = 1
     let ladder = cham_engine::ActionLadder::new(&cfg);
     let mut state = flop_state(CFG);
-    play(&mut state, &[Action::Call, Action::Check, Action::Bet { to: 200 }, Action::Raise { to: 600 }]);
+    play(
+        &mut state,
+        &[
+            Action::Call,
+            Action::Check,
+            Action::Bet { to: 200 },
+            Action::Raise { to: 600 },
+        ],
+    );
     let obs = Observables::view(&state, Player::Bb);
     let mut seq = ActionSeq::default();
-    seq.push(Street::Flop, cham_engine::ladder::SeqEntryRaw { actor: 1, class: ActionClass::Bet, size_bucket: 2 });
-    seq.push(Street::Flop, cham_engine::ladder::SeqEntryRaw { actor: 0, class: ActionClass::Raise, size_bucket: 3 });
+    seq.push(
+        Street::Flop,
+        cham_engine::ladder::SeqEntryRaw {
+            actor: 1,
+            class: ActionClass::Bet,
+            size_bucket: 2,
+        },
+    );
+    seq.push(
+        Street::Flop,
+        cham_engine::ladder::SeqEntryRaw {
+            actor: 0,
+            class: ActionClass::Raise,
+            size_bucket: 3,
+        },
+    );
     let slots = ladder.slots(&obs, &seq);
-    let raises = slots.iter().filter(|s| matches!(s.action, Action::Raise { .. })).count();
+    let raises = slots
+        .iter()
+        .filter(|s| matches!(s.action, Action::Raise { .. }))
+        .count();
     assert_eq!(raises, 1, "only the jam remains beyond the raise cap");
 }
 
@@ -302,8 +418,18 @@ fn key_composition() {
     play(&mut state, &[Action::Call, Action::Check]);
     let mut enc = Encoder::cfg_only(cfg).expect("enc");
     let mut seq = ActionSeq::default();
-    enc.record(&Observables::view(&state, Player::Sb), Player::Sb, Action::Call, &mut seq);
-    enc.record(&Observables::view(&state, Player::Bb), Player::Bb, Action::Check, &mut seq);
+    enc.record(
+        &Observables::view(&state, Player::Sb),
+        Player::Sb,
+        Action::Call,
+        &mut seq,
+    );
+    enc.record(
+        &Observables::view(&state, Player::Bb),
+        Player::Bb,
+        Action::Check,
+        &mut seq,
+    );
     let obs = Observables::view(&state, Player::Sb);
     let k1 = enc.key(&obs, &seq);
     let k2 = enc.key(&obs, &seq);
@@ -325,7 +451,11 @@ fn key_depth_alignment() {
     let cfg = AbstractionConfig::tiny();
     let prefix = flop_prefix();
     let build = |start: i64| -> (State, Encoder, ActionSeq) {
-        let c = EngineConfig { start_stack: start, sb: 50, bb: 100 };
+        let c = EngineConfig {
+            start_stack: start,
+            sb: 50,
+            bb: 100,
+        };
         let mut st = state_with(&prefix, c);
         let e = Encoder::cfg_only(cfg.clone()).expect("enc");
         let mut sq = ActionSeq::default();
@@ -341,19 +471,44 @@ fn key_depth_alignment() {
     // responder view (BB): geometry is fractionally identical
     let o1 = Observables::view(&st1, Player::Bb);
     let o2 = Observables::view(&st2, Player::Bb);
-    assert_eq!(e1.spr_band(&o1), e2.spr_band(&o2), "post-open SPR bands align (both < 0.3)");
-    assert_eq!(e1.bucket(&o1), e2.bucket(&o2), "preflop bucket = class id (depth-free)");
+    assert_eq!(
+        e1.spr_band(&o1),
+        e2.spr_band(&o2),
+        "post-open SPR bands align (both < 0.3)"
+    );
+    assert_eq!(
+        e1.bucket(&o1),
+        e2.bucket(&o2),
+        "preflop bucket = class id (depth-free)"
+    );
     let k1 = e1.key(&o1, &sq1);
     let k2 = e2.key(&o2, &sq2);
-    assert_eq!(k1, k2, "fractionally-identical sequences align across depths");
+    assert_eq!(
+        k1, k2,
+        "fractionally-identical sequences align across depths"
+    );
 }
 
 #[test]
 fn key_fixed_size_opens_differ() {
     let cfg = AbstractionConfig::tiny();
     let prefix = flop_prefix();
-    let st1 = state_with(&prefix, EngineConfig { start_stack: 2_000, sb: 50, bb: 100 });
-    let st2 = state_with(&prefix, EngineConfig { start_stack: 4_000, sb: 50, bb: 100 });
+    let st1 = state_with(
+        &prefix,
+        EngineConfig {
+            start_stack: 2_000,
+            sb: 50,
+            bb: 100,
+        },
+    );
+    let st2 = state_with(
+        &prefix,
+        EngineConfig {
+            start_stack: 4_000,
+            sb: 50,
+            bb: 100,
+        },
+    );
     let mut e1 = Encoder::cfg_only(cfg.clone()).expect("enc");
     let mut e2 = Encoder::cfg_only(cfg).expect("enc");
     let mut sq1 = ActionSeq::default();
@@ -364,7 +519,10 @@ fn key_fixed_size_opens_differ() {
     e2.record(&o2, Player::Sb, Action::Raise { to: 250 }, &mut sq2);
     let k1 = e1.key(&o1, &sq1);
     let k2 = e2.key(&o2, &sq2);
-    assert_ne!(k1, k2, "fixed-size opens at different depths differ (SPR + size bucket)");
+    assert_ne!(
+        k1, k2,
+        "fixed-size opens at different depths differ (SPR + size bucket)"
+    );
 }
 
 #[test]
@@ -373,7 +531,11 @@ fn key_legal_mask() {
     let cfg = AbstractionConfig::tiny();
     let mut s_big = flop_state(CFG);
     let s_small = {
-        let cfg24 = EngineConfig { start_stack: 2_400, sb: 50, bb: 100 };
+        let cfg24 = EngineConfig {
+            start_stack: 2_400,
+            sb: 50,
+            bb: 100,
+        };
         let mut s = state_with(&flop_prefix(), cfg24);
         play(&mut s, &[Action::Call, Action::Check]);
         s
@@ -387,12 +549,23 @@ fn key_legal_mask() {
     let m_small = enc.legal_mask(&obs_small, &seq);
     let w_big = enc.n_slots(&obs_big, &seq);
     let w_small = enc.n_slots(&obs_small, &seq);
-    assert_eq!(m_big.count_ones() as usize, w_big, "I8: W == popcount(mask)");
-    assert_eq!(m_small.count_ones() as usize, w_small, "I8: W == popcount(mask)");
+    assert_eq!(
+        m_big.count_ones() as usize,
+        w_big,
+        "I8: W == popcount(mask)"
+    );
+    assert_eq!(
+        m_small.count_ones() as usize,
+        w_small,
+        "I8: W == popcount(mask)"
+    );
     assert_eq!(m_big, (1u16 << w_big) - 1, "all slots legal at deep stacks");
     let k_big = enc.key(&obs_big, &seq);
     let k_small = enc.key(&obs_small, &seq);
-    assert_ne!(k_big, k_small, "different stacks → different SPR bands → different keys");
+    assert_ne!(
+        k_big, k_small,
+        "different stacks → different SPR bands → different keys"
+    );
 }
 
 #[test]
@@ -400,10 +573,20 @@ fn no_mc_in_encode() {
     // Structural: the encode path greps clean of equity_mc / rng sampling.
     let manifest = env!("CARGO_MANIFEST_DIR");
     let enc_src = std::fs::read_to_string(Path::new(manifest).join("src/encoder.rs")).expect("src");
-    assert!(!enc_src.contains("equity_mc"), "encoder must not call equity_mc");
-    assert!(!enc_src.contains("next_f64"), "encoder must not sample randomness");
-    assert!(!enc_src.contains("gen_range"), "encoder must not sample randomness");
-    let ladder_src = std::fs::read_to_string(Path::new(manifest).join("src/ladder.rs")).expect("src");
+    assert!(
+        !enc_src.contains("equity_mc"),
+        "encoder must not call equity_mc"
+    );
+    assert!(
+        !enc_src.contains("next_f64"),
+        "encoder must not sample randomness"
+    );
+    assert!(
+        !enc_src.contains("gen_range"),
+        "encoder must not sample randomness"
+    );
+    let ladder_src =
+        std::fs::read_to_string(Path::new(manifest).join("src/ladder.rs")).expect("src");
     assert!(!ladder_src.contains("equity_mc"));
     assert!(!ladder_src.contains("next_f64"));
 }
@@ -427,7 +610,10 @@ fn abstraction_config_roundtrip() {
     let parsed: AbstractionConfig = toml::from_str(&text).expect("parse");
     assert_eq!(parsed, cfg);
     assert_eq!(log_bands(16, 0.3, 40.0).len(), 17);
-    assert_eq!(ActionClass::from_u8(ActionClass::Bet.as_u8()), ActionClass::Bet);
+    assert_eq!(
+        ActionClass::from_u8(ActionClass::Bet.as_u8()),
+        ActionClass::Bet
+    );
 }
 
 #[test]
@@ -436,7 +622,11 @@ fn seq_window_and_raise_count() {
     for i in 0..10 {
         seq.push(
             Street::Preflop,
-            cham_engine::ladder::SeqEntryRaw { actor: (i % 2) as u8, class: ActionClass::Bet, size_bucket: 1 },
+            cham_engine::ladder::SeqEntryRaw {
+                actor: (i % 2) as u8,
+                class: ActionClass::Bet,
+                size_bucket: 1,
+            },
         );
     }
     assert_eq!(seq.lens[0], 8, "window 8 caps per-street entries");
@@ -448,4 +638,63 @@ fn seq_window_and_raise_count() {
 #[allow(dead_code)]
 fn touch() {
     let _ = FLOP_PREFIX;
+}
+
+#[test]
+fn histo_cache_warm_run_byte_identical() {
+    // B9: histogram cache roundtrip — stored features look up bit-identically,
+    // and Lloyd assignment on looked-up features matches the cold run exactly
+    // (warm re-clustering redoes ONLY assignment/centroids → byte-identical
+    // buckets; the expensive feature path is skipped on a hit).
+    use cham_engine::build::{
+        BuildParams, CDF_BINS, histo_cache_dir, histo_cache_lookup, histo_cache_store,
+        histo_fingerprint,
+    };
+    // hermetic by content address: this fingerprint is unique to the test, so
+    // the shared default cache dir cannot collide with real builds (no
+    // process-global env mutation — `set_var` is unsafe on this toolchain and
+    // `unsafe` is forbidden workspace-wide).
+    let params = BuildParams::tiny();
+    let keys: Vec<u64> = (0..64).map(|i| 0x1000 + i).collect();
+    let edges: Vec<f64> = (0..17).map(|i| i as f64 / 16.0).collect();
+    // synthetic deterministic features (stand in for the encode_flop path)
+    let feats: Vec<[f32; CDF_BINS]> = keys
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let mut f = [0f32; CDF_BINS];
+            let mut acc = 0.0;
+            for (j, v) in f.iter_mut().enumerate() {
+                acc += ((i + j) % 4 + 1) as f32;
+                *v = acc;
+            }
+            let t = acc;
+            for v in f.iter_mut() {
+                *v /= t;
+            }
+            f[CDF_BINS - 1] = 1.0;
+            f
+        })
+        .collect();
+    let fp = histo_fingerprint(3, &keys, params, &edges);
+    // start cold: drop any entry a previous run left behind (content-addressed,
+    // so the fingerprint is stable across runs)
+    let _ = std::fs::remove_file(histo_cache_dir().join(format!("{fp}.bin")));
+    assert!(histo_cache_lookup(&fp).is_none(), "cold cache misses");
+    histo_cache_store(&fp, &keys, &feats);
+    let (lk, lf) = histo_cache_lookup(&fp).expect("warm cache hits");
+    assert_eq!(lk, keys, "keys roundtrip exactly");
+    assert_eq!(lf, feats, "features roundtrip bit-exactly");
+    // Lloyd on cold vs cached features → identical assignment (byte-identical
+    // buckets for a different k on a warm run)
+    let cold = kmeans_l1(&feats, 4, 0xD1, 8);
+    let warm = kmeans_l1(&lf, 4, 0xD1, 8);
+    assert_eq!(
+        cold.centroids, warm.centroids,
+        "warm re-clustering identical"
+    );
+    assert_eq!(cold.seeds, warm.seeds);
+    // ... and the fingerprint excludes k: same features serve another profile
+    let fp2 = histo_fingerprint(3, &keys, params, &edges);
+    assert_eq!(fp, fp2, "fingerprint stable for the same content");
 }

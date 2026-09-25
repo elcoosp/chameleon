@@ -87,8 +87,11 @@ fn bench_encode_key_only(c: &mut Criterion) {
 }
 
 criterion_group!(
-    benches,
-    bench_encode_flop_turn,
+    name = benches;
+    // B10.4: slow numeric benches measure ≥ 10 s to silence criterion's
+    // truncation warnings and stabilize the P3 gates.
+    config = Criterion::default().measurement_time(std::time::Duration::from_secs(10));
+    targets = bench_encode_flop_turn,
     bench_encode_river,
     bench_encode_key_only
 );

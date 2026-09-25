@@ -14,11 +14,11 @@ use cham_core::card::{Card, Hand2};
 use cham_core::eval::Range;
 use cham_core::rng::{child, next_f64};
 
+use crate::canon::TABLE_MAGIC;
+use crate::canon::TABLE_VERSION;
 use crate::canon::{canonical_key, encode_table, enumerate_orbits};
 use crate::config::AbstractionConfig;
 use crate::tables::KmeansMeta;
-use crate::canon::TABLE_MAGIC;
-use crate::canon::TABLE_VERSION;
 use crate::tables::MISS_SENTINEL;
 
 /// Builder knobs.
@@ -34,7 +34,6 @@ pub struct BuildParams {
     pub quantile_sample: u32,
     pub lloyd_iters: u32,
 }
-
 
 impl BuildParams {
     /// M1-tiny (fast, sampled; ships fallback misses).
@@ -78,7 +77,102 @@ struct StreetMeta {
 }
 
 /// 16 equal-mass CDF bins: global edges committed in meta (pilot quantiles).
-const CDF_BINS: usize = 16;
+pub const CDF_BINS: usize = 16;
+
+/// Histogram-cache file magic + version (manual LE layout, no new deps).
+const HISTO_MAGIC: u32 = 0x4849_5354; // "HIST"
+const HISTO_VERSION: u32 = 1;
+
+/// Content fingerprint for the equity-histogram cache (B9): EVERYTHING the
+/// per-orbit features depend on EXCEPT k (board length, orbit keys, feature
+/// params, quantile edges — NOT k). Re-running `train-buckets` with a
+/// different `--profile`/k hits the cache and redoes only Lloyd
+/// assignment/centroid steps; the cached run is byte-identical because
+/// `kmeans_l1` is deterministic given identical features.
+pub fn histo_fingerprint(
+    board_len: usize,
+    keys: &[u64],
+    params: BuildParams,
+    edges: &[f64],
+) -> String {
+    let mut h = blake3::Hasher::new();
+    h.update(&(board_len as u64).to_le_bytes());
+    h.update(&params.feature_runs.to_le_bytes());
+    h.update(&params.mc_iters.to_le_bytes());
+    h.update(&params.quantile_sample.to_le_bytes());
+    h.update(&(keys.len() as u64).to_le_bytes());
+    for k in keys {
+        h.update(&k.to_le_bytes());
+    }
+    for e in edges {
+        h.update(&e.to_bits().to_le_bytes());
+    }
+    h.finalize().to_hex().to_string()
+}
+
+/// Cache directory (`CHAMELEON_HISTO_CACHE` overrides the default).
+pub fn histo_cache_dir() -> std::path::PathBuf {
+    std::env::var("CHAMELEON_HISTO_CACHE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("artifacts/histo-cache"))
+}
+
+/// Store features in the histogram cache (best-effort: I/O errors are ignored
+/// so an unwritable cache never fails a build).
+pub fn histo_cache_store(fp: &str, keys: &[u64], feats: &[[f32; CDF_BINS]]) {
+    let dir = histo_cache_dir();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let mut bytes: Vec<u8> = Vec::with_capacity(16 + keys.len() * (8 + 64));
+    bytes.extend_from_slice(&HISTO_MAGIC.to_le_bytes());
+    bytes.extend_from_slice(&HISTO_VERSION.to_le_bytes());
+    bytes.extend_from_slice(&(keys.len() as u64).to_le_bytes());
+    for k in keys {
+        bytes.extend_from_slice(&k.to_le_bytes());
+    }
+    for f in feats {
+        for v in f {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    let _ = std::fs::write(dir.join(format!("{fp}.bin")), &bytes);
+}
+
+/// Look up cached features (None on any misshape — a corrupt cache entry is a
+/// miss, never an error; the build recomputes).
+pub fn histo_cache_lookup(fp: &str) -> Option<(Vec<u64>, Vec<[f32; CDF_BINS]>)> {
+    let bytes = std::fs::read(histo_cache_dir().join(format!("{fp}.bin"))).ok()?;
+    if bytes.len() < 16 {
+        return None;
+    }
+    if u32::from_le_bytes(bytes[0..4].try_into().ok()?) != HISTO_MAGIC {
+        return None;
+    }
+    if u32::from_le_bytes(bytes[4..8].try_into().ok()?) != HISTO_VERSION {
+        return None;
+    }
+    let n = u64::from_le_bytes(bytes[8..16].try_into().ok()?) as usize;
+    if bytes.len() != 16 + n * 8 + n * CDF_BINS * 4 {
+        return None;
+    }
+    let mut keys = Vec::with_capacity(n);
+    let mut o = 16usize;
+    for _ in 0..n {
+        keys.push(u64::from_le_bytes(bytes[o..o + 8].try_into().ok()?));
+        o += 8;
+    }
+    let mut feats = Vec::with_capacity(n);
+    for _ in 0..n {
+        let mut f = [0f32; CDF_BINS];
+        for v in f.iter_mut() {
+            *v = f32::from_le_bytes(bytes[o..o + 4].try_into().ok()?);
+            o += 4;
+        }
+        feats.push(f);
+    }
+    Some((keys, feats))
+}
 
 /// Build bucket artifacts into `out_dir` for `which ∈ {flop, turn}`.
 pub fn build_street(
@@ -98,14 +192,27 @@ pub fn build_street(
     let (keys, coverage): (Vec<u64>, &'static str) = if params.sample_orbits == 0 {
         (enumerate_orbits(board_len), "full")
     } else {
-        (sample_orbits(board_len, params.sample_orbits, 0xB0), "sampled")
+        (
+            sample_orbits(board_len, params.sample_orbits, 0xB0),
+            "sampled",
+        )
     };
 
     // ---- 2. global equal-mass equity quantiles (for the CDF bins) ----
     let edges = equity_quantile_edges(params.quantile_sample, 0xC1);
 
     // ---- 3. features per orbit: 16-bin river-equity CDF over runouts ----
-    let feats = features_for(&keys, board_len, params, &edges);
+    // B9: content-keyed histogram cache — a warm cache skips the expensive
+    // `encode_flop` path and redoes only Lloyd assignment below.
+    let fp = histo_fingerprint(board_len, &keys, params, &edges);
+    let feats: Vec<[f32; CDF_BINS]> = match histo_cache_lookup(&fp) {
+        Some((cached_keys, cached_feats)) if cached_keys == keys => cached_feats,
+        _ => {
+            let feats = features_for(&keys, board_len, params, &edges);
+            histo_cache_store(&fp, &keys, &feats);
+            feats
+        }
+    };
 
     // ---- 4. seeded k-means++ (L1) ----
     let km = kmeans_l1(&feats, k as usize, 0xD1, params.lloyd_iters);
@@ -166,7 +273,11 @@ pub fn build_street(
 }
 
 /// Write meta.json with river edges and hash it into blake3.
-fn write_meta(out_dir: &Path, edges: &[f64], flop: Option<StreetMeta>) -> Result<(), crate::EngineError> {
+fn write_meta(
+    out_dir: &Path,
+    edges: &[f64],
+    flop: Option<StreetMeta>,
+) -> Result<(), crate::EngineError> {
     let meta = MetaOut {
         version: 2,
         river_eq_edges: edges.to_vec(),
@@ -306,7 +417,10 @@ fn features_for(
                 let range = Range::all();
                 let (w, t) = cham_core::eval::equity_exact(hand, &range, &b5);
                 let eq = w + t / 2.0;
-                let bin = edges.partition_point(|&e| e <= eq).saturating_sub(1).min(CDF_BINS - 1);
+                let bin = edges
+                    .partition_point(|&e| e <= eq)
+                    .saturating_sub(1)
+                    .min(CDF_BINS - 1);
                 hist[bin] += 1;
             }
             let total = params.feature_runs as f32;
@@ -358,12 +472,7 @@ fn nearest_centroid(f: &[f32; CDF_BINS], cs: &[[f32; CDF_BINS]]) -> usize {
 }
 
 /// Seeded k-means++ over L1 distance (EMD proxy for 1-D CDFs), deterministic.
-pub fn kmeans_l1(
-    data: &[[f32; CDF_BINS]],
-    k: usize,
-    seed: u64,
-    max_iters: u32,
-) -> Km {
+pub fn kmeans_l1(data: &[[f32; CDF_BINS]], k: usize, seed: u64, max_iters: u32) -> Km {
     assert!(k > 0 && !data.is_empty());
     let mut rng = child(seed, "kmeans");
     let mut seeds = Vec::new();
@@ -455,12 +564,20 @@ pub fn kmeans_l1(
         }
         prev_centroids = centroids.clone();
     }
-    Km { centroids, seeds, inertia: inertia_curve }
+    Km {
+        centroids,
+        seeds,
+        inertia: inertia_curve,
+    }
 }
 
 /// Commit the RIVER quantile edges into an existing meta.json (called once after
 /// both street builds; edges computed from the same pilot as `build_street`).
-pub fn finalize_meta(cfg: &AbstractionConfig, out_dir: &Path, params: BuildParams) -> Result<(), crate::EngineError> {
+pub fn finalize_meta(
+    cfg: &AbstractionConfig,
+    out_dir: &Path,
+    params: BuildParams,
+) -> Result<(), crate::EngineError> {
     let _ = cfg;
     let edges = equity_quantile_edges(params.quantile_sample, 0xC1);
     let path = out_dir.join("meta.json");
@@ -468,7 +585,14 @@ pub fn finalize_meta(cfg: &AbstractionConfig, out_dir: &Path, params: BuildParam
         serde_json::from_str(&std::fs::read_to_string(&path)?)
             .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?
     } else {
-        MetaOut { version: 2, river_eq_edges: edges.clone(), flop: None, turn: None, default_bucket: MISS_SENTINEL, blake3: String::new() }
+        MetaOut {
+            version: 2,
+            river_eq_edges: edges.clone(),
+            flop: None,
+            turn: None,
+            default_bucket: MISS_SENTINEL,
+            blake3: String::new(),
+        }
     };
     meta.river_eq_edges = edges;
     write_meta_struct(out_dir, &meta)?;
