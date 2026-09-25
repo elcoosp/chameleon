@@ -1,0 +1,33 @@
+[package]
+name = "cham-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Abstraction layer: pure-function infoset keys, iso-orbit bucket tables, action ladder, encoder (SPECS/02)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+arrayvec = { workspace = true }
+rustc-hash = { workspace = true }
+memmap2 = { workspace = true }
+blake3 = { workspace = true }
+rayon = { workspace = true }
+rand = { workspace = true }
+cham-core = { path = "../cham-core" }
+
+[dev-dependencies]
+insta = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "encode"
+harness = false
+
+[lints]
+workspace = true
