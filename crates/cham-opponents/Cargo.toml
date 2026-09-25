@@ -1,0 +1,22 @@
+[package]
+name = "cham-opponents"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Scripted opponents as analytic probability oracles + out-of-family evaluation family (SPECS/03)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+arrayvec = { workspace = true }
+thiserror = { workspace = true }
+cham-core = { path = "../cham-core" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
