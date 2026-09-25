@@ -171,3 +171,18 @@ it is a focused piece of work that deserves its own commit.
 
 This is the multi-platform deliverable the amendment promised. The
 Metal-native path stays as a stepping stone; both features are opt-in.
+
+### G1.1 fixture-derivation lesson
+
+Two of the three fixtures I hand-drew were wrong, and both in the same
+way: I mentally counted "villain wins" and then wrote the assertion as
+if those were "hero wins." The `2*wins + ties` numerator uses HERO wins.
+
+- royal on board → correct on first pass (990)
+- royal via hole → correct on first pass (1980)
+- wheel on board → I expected 1160 ("2*170 + 820") but the correct
+  answer is 820 because the 170 pairs are HERO LOSSES, not wins.
+
+The independent Python evaluator caught it. Rule going forward: every
+new fixture in G1.2's P7 set is computed in Python first, and the
+Python value is what the Rust assertion uses. Never re-derive by hand.
