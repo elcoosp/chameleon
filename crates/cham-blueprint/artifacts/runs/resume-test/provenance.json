@@ -1,0 +1,17 @@
+{
+  "mode": "Exploit",
+  "opponent_id": "callbot",
+  "depth_bb": 100,
+  "iters": 200,
+  "train_seed": 4660,
+  "thread_mode": "Deterministic",
+  "threads": 1,
+  "abstraction_hash": 0,
+  "infosets": 768,
+  "wall_s": 0.210603666,
+  "parent": null,
+  "seat_histogram": [
+    90,
+    110
+  ]
+}
