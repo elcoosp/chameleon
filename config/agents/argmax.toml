@@ -1,0 +1,4 @@
+routing = "argmax"            # one-hot weights; ablation arm
+search_enabled = false
+solver = "Rnr"
+g4_ledger_ref = ""
