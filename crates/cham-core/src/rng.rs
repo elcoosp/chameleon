@@ -6,8 +6,8 @@
 //! names its method `gen`. All draws therefore go through the helpers below
 //! (`Standard::sample`), keeping call sites keyword-free.
 
-use rand::SeedableRng;
 use rand::distributions::{Distribution, Standard};
+use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 /// THE rng of the project.
@@ -73,9 +73,6 @@ mod tests {
         let cv: Vec<u32> = (0..8).map(|_| next_u32(&mut c.clone())).collect();
         assert_eq!(av, bv);
         assert_ne!(av, cv);
-        assert_ne!(
-            next_u32(&mut rng_from_seed(7)),
-            next_u32(&mut rng_from_seed(8))
-        );
+        assert_ne!(next_u32(&mut rng_from_seed(7)), next_u32(&mut rng_from_seed(8)));
     }
 }
