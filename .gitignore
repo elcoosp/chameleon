@@ -10,3 +10,6 @@ crates/*/artifacts/runs/*-test-*/
 crates/cham-engine/artifacts/
 crates/cham-blueprint/artifacts/runs/*-test/
 crates/cham-blueprint/artifacts/runs/snap-test/
+
+# local watchexec reload helper (dev machine only)
+wr.sh
