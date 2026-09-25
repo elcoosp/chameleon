@@ -186,3 +186,22 @@ if those were "hero wins." The `2*wins + ties` numerator uses HERO wins.
 The independent Python evaluator caught it. Rule going forward: every
 new fixture in G1.2's P7 set is computed in Python first, and the
 Python value is what the Rust assertion uses. Never re-derive by hand.
+
+## G1.2 full turn EHS build — running
+
+- `gpu-build --kind turn --limit 0` writing `artifacts/gpu-tables/turn.bin`
+  (expected 1,436,673,240 bytes = 270,725 boards × 1326 holes × 4).
+- Measured steady state on limit=2000: **3.29e9 evals/s** (54.5 boards/s).
+- Projected wall: **~1.4 h**. Log at `artifacts/gpu-tables/turn-build.log`.
+- The artifact is git-ignored (`artifacts/gpu-tables/`); the manifest's
+  blake3 goes into this worklog when the run completes.
+- Phase-separation rule (GPU-PLAN Part I): no other GPU work runs while
+  this is in flight. CPU-only prep (flop kernel source drafting) is OK.
+
+### Note on the earlier throughput bug
+
+The first run reported "2.49e6 evals/s" — I'd forgotten the holes factor:
+`(boards × denom) / wall_s` instead of `(boards × holes × denom) / wall_s`.
+Off by 1326×, which would have made the projected full build look like
+76 days instead of 1.4 h. Fixed in commit c0629de; verified against the
+re-measured limit=2000 run.
