@@ -1,0 +1,18 @@
+# EXP-002 `search-arms` — FMBR vs RNR(0.9) vs ReachGadget vs off (G4). After G5.
+id = "EXP-002"
+slug = "search-arms"
+gate = "G4"
+tier = "ab"
+a = "rnr"
+b = "no-search"
+extra_arms = ["fmbr", "reach"]
+pool = ["arch:nit", "arch:tag", "arch:lag", "arch:station"]
+deals_per_opp = 25000
+clusters = 3
+seeds = [1, 2, 3]
+margin_mb = 0.0
+sprt = true
+[expect]
+direction = "a_ge_b"
+primary_ci_lower_mb = 0.0
+reach_gadget_not_lose_mb = -10.0
