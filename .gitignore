@@ -7,3 +7,6 @@ Cargo.lock.bak
 
 # test-run churn: PID-stamped run dirs (e.g. agent-test-16569-0/)
 crates/*/artifacts/runs/*-test-*/
+crates/cham-engine/artifacts/
+crates/cham-blueprint/artifacts/runs/*-test/
+crates/cham-blueprint/artifacts/runs/snap-test/
