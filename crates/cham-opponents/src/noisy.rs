@@ -4,7 +4,7 @@
 
 use arrayvec::ArrayVec;
 use cham_core::engine::Action;
-use cham_core::obs::{Agent, AgentError, Observables, is_legal};
+use cham_core::obs::{is_legal, Observables, Agent, AgentError};
 use cham_core::rng::Rng;
 
 pub struct NoisyAgent {
@@ -16,12 +16,7 @@ pub struct NoisyAgent {
 
 impl NoisyAgent {
     pub fn new(inner: Box<dyn Agent>, epsilon: f64) -> NoisyAgent {
-        NoisyAgent {
-            inner,
-            epsilon: epsilon.clamp(0.0, 1.0),
-            mistakes: 0,
-            decisions: 0,
-        }
+        NoisyAgent { inner, epsilon: epsilon.clamp(0.0, 1.0), mistakes: 0, decisions: 0 }
     }
 
     pub fn realized_mistake_rate(&self) -> f64 {
@@ -61,10 +56,7 @@ impl Agent for NoisyAgent {
         }
         self.inner.act(obs, rng)
     }
-    fn action_probs(
-        &self,
-        obs: &Observables<'_>,
-    ) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
+    fn action_probs(&self, obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
         // the wrapper's TRAINING view is the inner policy (mistakes are execution
         // noise, not intended strategy — matches the spec's read of human noise)
         self.inner.action_probs(obs)
