@@ -33,9 +33,15 @@ impl GpuContext {
         let device = Device::system_default()
             .ok_or_else(|| KernelError::NoDevice("no system-default Metal device".into()))?;
         let queue = device.new_command_queue();
-        let source = include_str!("msl/eval7.msl");
+        // Concatenate the shared inline helpers with the kernel entry
+        // point. MSL has no #include; this is the standard workaround.
+        let source = format!(
+            "{}\n{}",
+            include_str!("msl/eval7_shared.msl"),
+            include_str!("msl/eval7.msl"),
+        );
         let library = device
-            .new_library_with_source(source, &CompileOptions::new())
+            .new_library_with_source(&source, &CompileOptions::new())
             .map_err(|e| KernelError::Metal(format!("MSL compile: {e:?}")))?;
         let function = library
             .get_function("eval7_kernel", None)

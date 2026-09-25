@@ -1,0 +1,121 @@
+// Shared MSL helpers for cham-gpu kernels (GPU-PLAN G5.0 + G1.2).
+//
+// `eval7_msl()` is a direct transcription of cham-core's evaluate7 body,
+// exposed as an inline function so multiple kernels can call it. It does
+// NOT itself read from GPU buffers other than the packed `tables` — all
+// lookups are routed through helpers in this file.
+//
+// Any change to the algorithm must be mirrored in cham-core's evaluate7
+// and validated by the P7 test suite (consistency_eval7 for the standalone
+// kernel; consistency_turn for the EHS builder).
+
+#ifndef EVAL7_SHARED_MSL
+#define EVAL7_SHARED_MSL
+
+#include <metal_stdlib>
+using namespace metal;
+
+constant uint CAT_HIGH           = 0u;
+constant uint CAT_PAIR           = 1u;
+constant uint CAT_TWO_PAIR       = 2u;
+constant uint CAT_TRIPS          = 3u;
+constant uint CAT_STRAIGHT       = 4u;
+constant uint CAT_FLUSH          = 5u;
+constant uint CAT_FULL_HOUSE     = 6u;
+constant uint CAT_QUADS          = 7u;
+constant uint CAT_STRAIGHT_FLUSH = 8u;
+
+constant uchar PRIMES[13] = { 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41 };
+
+inline uint pack5(uint cat, uint k0, uint k1, uint k2, uint k3, uint k4) {
+    uint mul = 15u * 15u * 15u * 15u;
+    uint v   = cat * (15u * 15u * 15u * 15u * 15u);
+    v += k0 * mul; mul /= 15u;
+    v += k1 * mul; mul /= 15u;
+    v += k2 * mul; mul /= 15u;
+    v += k3 * mul; mul /= 15u;
+    v += k4 * mul;
+    return v;
+}
+
+inline ulong lm_hash(ulong x) {
+    ulong z = x * 0x9E3779B97F4A7C15ul;
+    z ^= z >> 29;
+    z = z * 0xBF58476D1CE4E5B9ul;
+    return z ^ (z >> 32);
+}
+
+inline ushort lm_get(
+    device const uchar* tables,
+    ulong offset_bytes,
+    ulong mask,
+    ulong key)
+{
+    ulong i = lm_hash(key) & mask;
+    for (uint guard = 0u; guard < 65536u; ++guard) {
+        ulong base = offset_bytes + i * 16ul;
+        ulong k =
+              (ulong)tables[base]
+            | ((ulong)tables[base + 1] <<  8)
+            | ((ulong)tables[base + 2] << 16)
+            | ((ulong)tables[base + 3] << 24)
+            | ((ulong)tables[base + 4] << 32)
+            | ((ulong)tables[base + 5] << 40)
+            | ((ulong)tables[base + 6] << 48)
+            | ((ulong)tables[base + 7] << 56);
+        ushort v = (ushort)tables[base + 8] | ((ushort)tables[base + 9] << 8);
+        if (k == key) return v;
+        if (k == 0xFFFFFFFFFFFFFFFFul) return 0;
+        i = (i + 1ul) & mask;
+    }
+    return 0;
+}
+
+// Decode card index i (0..6) from a hand packed as 6 bits/card LE in u64.
+inline uint extract_card(ulong packed_hand, uint i) {
+    return (uint)((packed_hand >> (6ul * (ulong)i)) & 0x3Fu);
+}
+
+// Full cham-core evaluate7 transcription operating on a packed u64 hand.
+// `straight` lives at byte offset 0 of `tables`; the two maps are the
+// split (key,val)*16 entries. Returns the dense rank 1..=7462.
+inline ushort eval7_msl(
+    device const uchar* tables,
+    ulong seven_off, ulong seven_mask,
+    ulong flush_off, ulong flush_mask,
+    ulong packed_hand)
+{
+    uint  suit_mask[4]  = {0u, 0u, 0u, 0u};
+    uint  suit_count[4] = {0u, 0u, 0u, 0u};
+    ulong prod = 1ul;
+    for (uint i = 0u; i < 7u; ++i) {
+        uint idx  = extract_card(packed_hand, i);
+        uint rank = idx >> 2;
+        uint suit = idx & 3u;
+        suit_mask[suit]  |= (1u << rank);
+        suit_count[suit] += 1u;
+        prod = prod * (ulong)PRIMES[rank];
+    }
+    int fs = -1;
+    for (uint s = 0u; s < 4u; ++s) {
+        if (suit_count[s] >= 5u) { fs = (int)s; break; }
+    }
+    if (fs < 0) {
+        return lm_get(tables, seven_off, seven_mask, prod);
+    }
+    uint  m  = suit_mask[(uint)fs];
+    uchar st = tables[m];   // straight[8192] at byte offset 0
+    if (st != 0xFFu) {
+        uint p = pack5(CAT_STRAIGHT_FLUSH, (uint)st, 0u, 0u, 0u, 0u);
+        return lm_get(tables, flush_off, flush_mask, (ulong)p);
+    }
+    uint ks[5] = {0u, 0u, 0u, 0u, 0u};
+    uint n = 0u;
+    for (int r = 12; r >= 0 && n < 5; --r) {
+        if (m & (1u << (uint)r)) { ks[n++] = (uint)r; }
+    }
+    uint p = pack5(CAT_FLUSH, ks[0], ks[1], ks[2], ks[3], ks[4]);
+    return lm_get(tables, flush_off, flush_mask, (ulong)p);
+}
+
+#endif // EVAL7_SHARED_MSL

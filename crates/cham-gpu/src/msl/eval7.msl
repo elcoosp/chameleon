@@ -1,88 +1,13 @@
-// MSL transcription of cham-core's `evaluate7` (SPECS/01 §3).
-// GPU-PLAN G0.2: bit-exact-by-construction port — SAME table bytes, SAME op
-// order, SAME index math. Do not "improve" this file; any divergence from
-// cham-core/src/eval/mod.rs::evaluate7 is a P7 failure by definition.
+// Standalone eval7 kernel — see eval7_shared.msl for the algorithm.
 //
-// Buffer layout (little-endian, packed by cham-gpu/src/kernels.rs from
-// cham_core::eval::EvalTables):
-//   buffer(0) `tables`:
-//     [0        .. 8192)                    straight[8192]  (u8)
-//     [8192     .. 8192 + E7*16)            seven_entries  (u64 key LE | u16 val LE | 6 pad)*E7
-//     [8192 + E7*16 .. + E8*16)             flush_entries  (same layout)
-//     E7/E8 are powers of two; empty slots have key == 0xFFFFFFFFFFFFFFFF.
-//   buffer(1) `hands`  : hand_count × u64 (7 card indices, 6 bits each, LE)
-//   buffer(2) `out`    : hand_count × u16
-//   buffer(3) `hand_count` : constant uint&
-//   buffer(4) `seven_off`  : constant ulong& (byte offset of seven_entries)
-//   buffer(5) `seven_mask` : constant ulong& (capacity - 1)
-//   buffer(6) `flush_off`  : constant ulong& (byte offset of flush_entries)
-//   buffer(7) `flush_mask` : constant ulong&
-
-#include <metal_stdlib>
-using namespace metal;
-
-// cham-core/src/eval/mod.rs — same constants
-constant uint CAT_HIGH           = 0u;
-constant uint CAT_PAIR           = 1u;
-constant uint CAT_TWO_PAIR       = 2u;
-constant uint CAT_TRIPS          = 3u;
-constant uint CAT_STRAIGHT       = 4u;
-constant uint CAT_FLUSH          = 5u;
-constant uint CAT_FULL_HOUSE     = 6u;
-constant uint CAT_QUADS          = 7u;
-constant uint CAT_STRAIGHT_FLUSH = 8u;
-
-// primes per rank (mirror cham-core)
-constant uchar PRIMES[13] = { 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41 };
-
-// pack(cat, [k0..k4]) = cat*15^5 + k0*15^4 + k1*15^3 + k2*15^2 + k3*15 + k4
-inline uint pack5(uint cat, uint k0, uint k1, uint k2, uint k3, uint k4) {
-    uint mul = 15u * 15u * 15u * 15u;    // 15^4
-    uint v   = cat * (15u * 15u * 15u * 15u * 15u);   // cat * 15^5
-    v += k0 * mul; mul /= 15u;
-    v += k1 * mul; mul /= 15u;
-    v += k2 * mul; mul /= 15u;
-    v += k3 * mul; mul /= 15u;
-    v += k4 * mul;
-    return v;
-}
-
-// LinearMap hash — splitmix-style finalizer (mirror cham-core
-// crates/cham-core/src/eval/mod.rs: LinearMap::hash).
-inline ulong lm_hash(ulong x) {
-    ulong z = x * 0x9E3779B97F4A7C15ul;
-    z ^= z >> 29;
-    z = z * 0xBF58476D1CE4E5B9ul;
-    return z ^ (z >> 32);
-}
-
-// Open-addressed linear-probe lookup. Entry = 16 bytes: u64 key LE || u16 val LE || 6 pad.
-// Empty slot key = 0xFFFFFFFFFFFFFFFF. Matches LinearMap::get.
-inline ushort lm_get(
-    device const uchar* tables,
-    ulong offset_bytes,
-    ulong mask,
-    ulong key)
-{
-    ulong i = lm_hash(key) & mask;
-    for (uint guard = 0u; guard < 65536u; ++guard) {
-        ulong base = offset_bytes + i * 16ul;
-        ulong k =
-              (ulong)tables[base]
-            | ((ulong)tables[base + 1] <<  8)
-            | ((ulong)tables[base + 2] << 16)
-            | ((ulong)tables[base + 3] << 24)
-            | ((ulong)tables[base + 4] << 32)
-            | ((ulong)tables[base + 5] << 40)
-            | ((ulong)tables[base + 6] << 48)
-            | ((ulong)tables[base + 7] << 56);
-        ushort v = (ushort)tables[base + 8] | ((ushort)tables[base + 9] << 8);
-        if (k == key) return v;
-        if (k == 0xFFFFFFFFFFFFFFFFul) return 0;
-        i = (i + 1ul) & mask;
-    }
-    return 0;
-}
+// Layout (matches what mtl.rs packs and what cham-gpu/src/kernels.rs
+// produces from cham_core::eval::EvalTables):
+//   buffer 0: uchar*  tables  (straight[8192] || seven_entries || flush_entries)
+//   buffer 1: ulong*  hands   (one 6-bits-per-card packed hand each)
+//   buffer 2: ushort* out     (dense rank per hand)
+//   buffers 3-7: uint/ulong offsets and masks
+//
+// The shared file is concatenated above this one in Rust.
 
 kernel void eval7_kernel(
     device const uchar*   tables       [[buffer(0)]],
@@ -96,43 +21,6 @@ kernel void eval7_kernel(
     uint tid [[thread_position_in_grid]])
 {
     if (tid >= hand_count) return;
-
-    ulong packed_hand = hands[tid];
-    uint  suit_mask[4]  = {0u, 0u, 0u, 0u};
-    uint  suit_count[4] = {0u, 0u, 0u, 0u};
-    ulong prod = 1ul;
-    for (uint i = 0u; i < 7u; ++i) {
-        uint idx  = (uint)((packed_hand >> (6ul * (ulong)i)) & 0x3Ful);
-        uint rank = idx >> 2;
-        uint suit = idx & 3u;
-        suit_mask[suit]  |= (1u << rank);
-        suit_count[suit] += 1u;
-        prod *= (ulong)PRIMES[rank];
-    }
-
-    // straight-line flush-suit select (mirrors evaluate7's if-chain)
-    int fs = -1;
-    for (uint s = 0u; s < 4u; ++s) {
-        if (suit_count[s] >= 5u) { fs = (int)s; break; }
-    }
-    if (fs < 0) {
-        out[tid] = lm_get(tables, seven_off, seven_mask, prod);
-        return;
-    }
-
-    uint  m  = suit_mask[(uint)fs];
-    uchar st = tables[m];                 // straight[8192] lives at offset 0
-    if (st != 0xFFu) {
-        uint p = pack5(CAT_STRAIGHT_FLUSH, (uint)st, 0u, 0u, 0u, 0u);
-        out[tid] = lm_get(tables, flush_off, flush_mask, (ulong)p);
-        return;
-    }
-    // flush_top5
-    uint ks[5] = {0u, 0u, 0u, 0u, 0u};
-    uint n = 0u;
-    for (int r = 12; r >= 0 && n < 5; --r) {
-        if (m & (1u << (uint)r)) { ks[n++] = (uint)r; }
-    }
-    uint p = pack5(CAT_FLUSH, ks[0], ks[1], ks[2], ks[3], ks[4]);
-    out[tid] = lm_get(tables, flush_off, flush_mask, (ulong)p);
+    out[tid] = eval7_msl(tables, seven_off, seven_mask,
+                         flush_off, flush_mask, hands[tid]);
 }
