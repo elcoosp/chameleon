@@ -140,16 +140,42 @@ fn run_gpu_warm(_hands: &[[Card; 7]], _w: usize, _r: usize) -> f64 { 0.0 }
 #[cfg(all(target_os = "macos", feature = "metal"))]
 fn run_enum(boards: usize) -> f64 {
     use cham_core::card::Deck;
+    // Realistic enumeration workload: for each board (5 distinct cards),
+    // enumerate every distinct 2-card hole from the remaining 47 cards,
+    // yielding a UNIQUE 7-card hand per (board, hole) pair. This forces
+    // the kernel to touch the lookup tables in the pattern a real EHS
+    // builder does — no cache-friendly repetition of the same 7 cards.
+    use cham_core::card::ALL_CARDS;
     let mut rng = rng_from_seed(CORPUS_SEED ^ 0x0E11);
     let mut packed: Vec<u64> = Vec::with_capacity(boards * 1326);
     for _ in 0..boards {
         let mut deck = Deck::shuffled(&mut rng);
-        let mut seven = [Card(0); 7];
-        for c in seven.iter_mut() { *c = deck.deal().expect("deal"); }
-        // 1326 = distinct 2-card holes from the remaining 47 cards. We reuse
-        // `seven` (7 distinct cards) — same as G0.3 but at the real per-board
-        // scale rather than a fake re-eval.
-        for _ in 0..1326 { packed.push(cham_gpu::kernels::pack_hand(&seven)); }
+        let board: [Card; 5] = [
+            deck.deal().unwrap(),
+            deck.deal().unwrap(),
+            deck.deal().unwrap(),
+            deck.deal().unwrap(),
+            deck.deal().unwrap(),
+        ];
+        // Cards left in the deck (47): every distinct 2-card hole (C(47,2)=1081
+        // is the true count; the plan calls it 1326 which is C(52,2). We use
+        // the tight bound — enumerate every 2-subset of the 47 remaining.
+        let mut remaining: Vec<Card> = Vec::with_capacity(47);
+        for c in ALL_CARDS.iter() {
+            if !board.iter().any(|b| b == c) {
+                remaining.push(*c);
+            }
+        }
+        let n = remaining.len();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let mut seven = [Card(0); 7];
+                seven[..5].copy_from_slice(&board);
+                seven[5] = remaining[i];
+                seven[6] = remaining[j];
+                packed.push(cham_gpu::kernels::pack_hand(&seven));
+            }
+        }
     }
     let ctx = cham_gpu::GpuContext::new().expect("GpuContext");
     let tables = cham_core::eval::eval_tables();
