@@ -17,7 +17,17 @@ pub fn run(
         return print_status(run_dir);
     }
     let engine_cfg = cham_core::engine::config::EngineConfig::depth(depth);
-    let cfg = cham_engine::config::AbstractionConfig::tiny();
+    // Load the tiny abstraction from the same file the agent loader will
+    // parse. MUST be the same values or `abstraction_hash` diverges:
+    // the trainer hashes `serde_json(cfg)` and the loader hashes
+    // `serde_json(cfg_from_toml)`. Same bytes -> same cfg -> same hash.
+    let cfg = match std::fs::read_to_string("config/abstraction-tiny.toml")
+        .ok()
+        .and_then(|t| cham_engine::config::parse_config(&t).ok())
+    {
+        Some(c) => c,
+        None => cham_engine::config::AbstractionConfig::tiny(),
+    };
     let mut enc = match cham_engine::Encoder::from_artifacts_dir(
         Path::new("artifacts/buckets-tiny"),
         cfg.clone(),
