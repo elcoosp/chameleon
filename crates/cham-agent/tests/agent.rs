@@ -502,3 +502,33 @@ fn loader_hash_guards() {
     assert!(err.is_ok() || err.is_err()); // load itself parses
     assert!(err2.is_err(), "abstraction hash mismatch must refuse");
 }
+
+#[test]
+fn loader_refuses_over_budget() {
+    // B8: a synthetic bundle over a tiny budget refuses on the budget path
+    // (naming the largest contributor); a generous budget passes the guard
+    // (then fails on the missing abstraction.toml — proving the guard passed).
+    let dir = tempfile::tempdir().expect("dir");
+    let base = dir.path().join("bundle");
+    std::fs::create_dir_all(base.join("experts/0")).expect("dir");
+    let big = vec![0xABu8; 3 * 1024 * 1024];
+    std::fs::write(base.join("experts/0/policy.bin"), &big).expect("write");
+    let err = match cham_agent::loader::load_agent_with_budget(&base, "mixture", 100, 1) {
+        Ok(_) => panic!("tiny budget must refuse"),
+        Err(e) => e,
+    };
+    let msg = format!("{err}");
+    assert!(msg.contains("budget"), "budget refusal names itself: {msg}");
+    assert!(
+        msg.contains("policy.bin"),
+        "refusal names largest contributor: {msg}"
+    );
+    let err2 = match cham_agent::loader::load_agent_with_budget(&base, "mixture", 100, 4) {
+        Ok(_) => panic!("no abstraction.toml here"),
+        Err(e) => e,
+    };
+    assert!(
+        !format!("{err2}").contains("budget"),
+        "guard must pass first: {err2}"
+    );
+}
