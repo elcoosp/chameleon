@@ -152,10 +152,7 @@ impl Recorder {
             }
         }
         let dir = best.ok_or_else(|| {
-            RecError::Invalid(format!(
-                "no existing run of kind `{kind}` under {}",
-                runs_dir.display()
-            ))
+            RecError::Invalid(format!("no existing run of kind `{kind}` under {}", runs_dir.display()))
         })?;
         Self::open_in_dir(&dir, kind)
     }
@@ -195,18 +192,18 @@ impl Recorder {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let v: serde_json::Value =
-                    serde_json::from_str(line).map_err(|e| RecError::CorruptTail {
+                let v: serde_json::Value = serde_json::from_str(line).map_err(|e| {
+                    RecError::CorruptTail {
                         path: path.clone(),
                         reason: format!("last line unparseable: {e}"),
-                    })?;
-                let s =
-                    v.get("seq")
-                        .and_then(|s| s.as_u64())
-                        .ok_or_else(|| RecError::CorruptTail {
-                            path: path.clone(),
-                            reason: "last line missing seq".into(),
-                        })?;
+                    }
+                })?;
+                let s = v.get("seq").and_then(|s| s.as_u64()).ok_or_else(|| {
+                    RecError::CorruptTail {
+                        path: path.clone(),
+                        reason: "last line missing seq".into(),
+                    }
+                })?;
                 rec.seq = s;
                 break;
             }
@@ -251,11 +248,7 @@ impl Recorder {
     /// The envelope is serialized MANUALLY (not via `json!`) because `serde_json`'s
     /// default `Map` is a `BTreeMap` and would alphabetize the envelope keys — the
     /// line format `{"ts","run","kind","seq","data"}` is a byte-level contract.
-    pub fn record(
-        &mut self,
-        kind: schema::RecordKind,
-        data: serde_json::Value,
-    ) -> Result<(), RecError> {
+    pub fn record(&mut self, kind: schema::RecordKind, data: serde_json::Value) -> Result<(), RecError> {
         schema::check_payload(kind, &data)?;
         self.seq += 1;
         let data_str = serde_json::to_string(&data)?;
