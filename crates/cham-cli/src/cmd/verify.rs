@@ -409,10 +409,10 @@ fn check_gpu_gates(tables: Option<&str>, failures: &mut Vec<String>) {
             );
         }
 
-        // P7 resample: on ANY host (verification is CPU-side). Only the
-        // "turn" layout is implemented; other kinds print SKIP.
+        // P7 resample: on ANY host (verification is CPU-side). Supports
+        // turn (4-card boards) and flop (3-card boards).
         let n_sample: usize = 24;
-        if kind == "turn" && complete {
+        if (kind == "turn" || kind == "flop") && complete {
             use cham_core::card::Card;
             use cham_gpu::reference::{EhsDenom, ehs_reference};
             use std::io::{Read, Seek, SeekFrom};
@@ -443,7 +443,11 @@ fn check_gpu_gates(tables: Option<&str>, failures: &mut Vec<String>) {
                     Some(v) => v,
                     None => continue,
                 };
-                let board = nth_board4(board_i);
+                let board: Vec<cham_core::card::Card> = if kind == "flop" {
+                    nth_board3(board_i).to_vec()
+                } else {
+                    nth_board4(board_i).to_vec()
+                };
                 if board.iter().any(|c| c.0 == lo || c.0 == hi) {
                     continue;
                 }
@@ -457,7 +461,12 @@ fn check_gpu_gates(tables: Option<&str>, failures: &mut Vec<String>) {
                 }
                 let gpu_val = u32::from_le_bytes(buf);
                 let hole = [Card(lo), Card(hi)];
-                let cpu_val = ehs_reference(&board, hole, EhsDenom::Turn) as u64;
+                let street = if kind == "flop" {
+                    EhsDenom::Flop
+                } else {
+                    EhsDenom::Turn
+                };
+                let cpu_val = ehs_reference(&board[..], hole, street) as u64;
                 checked += 1;
                 if gpu_val as u64 != cpu_val {
                     bad.push((board_i, hole_i as u64, gpu_val, cpu_val));
@@ -532,6 +541,22 @@ fn hole2_lo_hi(idx: u16) -> Option<(u8, u8)> {
 
 /// The i-th 4-card board in ascending lexicographic order over card ids.
 /// Matches the ordering produced by `cham-gpu/src/bin/gpu-build.rs`.
+fn nth_board3(i: u64) -> [cham_core::card::Card; 3] {
+    use cham_core::card::Card;
+    let mut count = 0u64;
+    for a in 0u8..52 {
+        for b in (a + 1)..52 {
+            for c in (b + 1)..52 {
+                if count == i {
+                    return [Card(a), Card(b), Card(c)];
+                }
+                count += 1;
+            }
+        }
+    }
+    [Card(0), Card(1), Card(2)]
+}
+
 fn nth_board4(i: u64) -> [cham_core::card::Card; 4] {
     use cham_core::card::Card;
     let mut count = 0u64;

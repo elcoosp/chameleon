@@ -130,17 +130,22 @@ cp -a artifacts/buckets-tiny artifacts/agent/buckets 2>/dev/null || true
 cp -a config/abstraction-tiny.toml artifacts/agent/abstraction.toml 2>/dev/null \
   || cp -a config/abstraction.toml artifacts/agent/abstraction.toml 2>/dev/null || true
 # robust expert (also fills missing experts so loader doesn't refuse)
-if [ -f artifacts/blueprints-tiny/robust-7/policy.bin ]; then
-  cp -a artifacts/blueprints-tiny/robust-7/policy.bin artifacts/agent/robust/policy.bin
+# train-bp writes {out}/{mode}-{seed}/policy/policy.bin
+if [ -f artifacts/blueprints-tiny/robust-7/policy/policy.bin ]; then
+  cp -a artifacts/blueprints-tiny/robust-7/policy/policy.bin artifacts/agent/robust/policy.bin
   for i in 0 1 2 3; do
-    cp -a artifacts/blueprints-tiny/robust-7/policy.bin "artifacts/agent/experts/$i/policy.bin"
+    cp -a artifacts/blueprints-tiny/robust-7/policy/policy.bin "artifacts/agent/experts/$i/policy.bin"
   done
 fi
 # per-opponent experts overwrite when present (paths may carry mode+seed)
 i=0
 for opp in nit tag lag station; do
   found=""
-  for cand in artifacts/blueprints-tiny/exploit-7-*/policy.bin artifacts/blueprints-tiny/*${opp}*/policy.bin; do
+  # Look for exploit-mode output for this opponent: {out}/{mode}-{seed}/policy/policy.bin
+  # train-bp's exploit modes use --opponent; the folder name is not opponent-specific
+  # today, so we glob all exploit-* dirs and pick by mtime, but only the newest
+  # for this opponent run. Fallback: leave robust-initialised policy.
+  for cand in artifacts/blueprints-tiny/exploit-7-*/policy/policy.bin               artifacts/blueprints-tiny/*${opp}*/policy/policy.bin ; do
     [ -f "$cand" ] && found="$cand" && break
   done
   [ -n "$found" ] && cp -a "$found" "artifacts/agent/experts/$i/policy.bin" || true
