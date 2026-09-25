@@ -33,18 +33,28 @@ pub struct SlumbotClient {
     pub base_url: String,
     pub min_spacing_ms: u64,
     last_request: Option<std::time::Instant>,
+    /// B11: one keep-alive agent reused across ALL requests (was: a fresh
+    /// agent per call — a new TCP+TLS handshake on every action).
+    agent: ureq::Agent,
 }
 
 impl SlumbotClient {
     pub fn new(base_url: String) -> SlumbotClient {
-        SlumbotClient { base_url, min_spacing_ms: 1000, last_request: None }
+        SlumbotClient {
+            base_url,
+            min_spacing_ms: 1000,
+            last_request: None,
+            agent: ureq::Agent::new(),
+        }
     }
 
     fn throttle(&mut self) {
         if let Some(t) = self.last_request {
             let elapsed = t.elapsed().as_millis() as u64;
             if elapsed < self.min_spacing_ms {
-                std::thread::sleep(std::time::Duration::from_millis(self.min_spacing_ms - elapsed));
+                std::thread::sleep(std::time::Duration::from_millis(
+                    self.min_spacing_ms - elapsed,
+                ));
             }
         }
         self.last_request = Some(std::time::Instant::now());
@@ -56,7 +66,7 @@ impl SlumbotClient {
         let mut delay = 500u64;
         for _ in 0..3 {
             let url = format!("{}{}", self.base_url, path);
-            match ureq::post(&url).send_string(body) {
+            match self.agent.post(&url).send_string(body) {
                 Ok(resp) => {
                     let mut text = String::new();
                     use std::io::Read;
@@ -74,7 +84,9 @@ impl SlumbotClient {
                 }
             }
         }
-        Err(EvalError::Slumbot(format!("POST {path} failed after backoff")))
+        Err(EvalError::Slumbot(format!(
+            "POST {path} failed after backoff"
+        )))
     }
 }
 
@@ -86,7 +98,10 @@ impl SlumbotApi for SlumbotClient {
         self.post("/api/new_hand", &format!("{{\"token\": \"{token}\"}}"))
     }
     fn act(&mut self, token: &str, action: &str) -> Result<String, EvalError> {
-        self.post("/api/act", &format!("{{\"token\": \"{token}\", \"action\": \"{action}\"}}"))
+        self.post(
+            "/api/act",
+            &format!("{{\"token\": \"{token}\", \"action\": \"{action}\"}}"),
+        )
     }
 }
 
@@ -105,12 +120,14 @@ impl SlumbotApi for MockSlumbot {
         Ok(r#"{"token": "mock-token-1"}"#.into())
     }
     fn new_hand(&mut self, token: &str) -> Result<String, EvalError> {
-        self.requests.push(("POST /api/new_hand".into(), token.into()));
+        self.requests
+            .push(("POST /api/new_hand".into(), token.into()));
         self.hands += 1;
         Ok(r#"{"actions": [], "hole_cards": "AsKd", "winnings": 0, "debug_hash": 0, "in_progress": true}"#.into())
     }
     fn act(&mut self, token: &str, action: &str) -> Result<String, EvalError> {
-        self.requests.push(("POST /api/act".into(), format!("{token} {action}")));
+        self.requests
+            .push(("POST /api/act".into(), format!("{token} {action}")));
         if action == "f" && self.hands % 3 == 0 {
             return Ok(r#"{"actions": ["f"], "winnings": -50, "in_progress": false}"#.into());
         }
@@ -128,11 +145,31 @@ pub fn expected_dialect_fixture() -> Vec<String> {
     ]
 }
 
+/// Bookkeeping event fired immediately after OUR request is sent (B11).
+/// While awaiting the opponent's response no computation is possible (the
+/// protocol is strict request/response) — so recorder flushes and tracker
+/// bookkeeping happen HERE, keeping the response-handler path minimal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendEvent {
+    NewHand,
+    Act,
+}
+
 /// Run a session against any API: verify-first helper (50-hand real gate).
 pub fn run_session(
     api: &mut dyn SlumbotApi,
     seatings: u64,
     actions: &[&str],
+) -> Result<SlumbotSession, EvalError> {
+    run_session_with_hook(api, seatings, actions, &mut |_| {})
+}
+
+/// Session runner with a post-send bookkeeping hook (see [`SendEvent`]).
+pub fn run_session_with_hook(
+    api: &mut dyn SlumbotApi,
+    seatings: u64,
+    actions: &[&str],
+    on_after_send: &mut dyn FnMut(SendEvent),
 ) -> Result<SlumbotSession, EvalError> {
     let token_raw = api.login()?;
     let token = token_raw
@@ -140,10 +177,16 @@ pub fn run_session(
         .nth(3)
         .unwrap_or("mock-token-1")
         .to_string();
-    let mut session =
-        SlumbotSession { token, hands_played: 0, errored_hands: 0, winnings_bb: 0.0, last_response: String::new() };
+    let mut session = SlumbotSession {
+        token,
+        hands_played: 0,
+        errored_hands: 0,
+        winnings_bb: 0.0,
+        last_response: String::new(),
+    };
     for i in 0..seatings {
         let resp = api.new_hand(&session.token)?;
+        on_after_send(SendEvent::NewHand);
         session.last_response = resp.clone();
         // act through the hand until it reports in_progress = false (capped)
         let mut steps = 0;
@@ -154,6 +197,7 @@ pub fn run_session(
                 break;
             }
             let r = api.act(&session.token, actions[action_idx % actions.len()]);
+            on_after_send(SendEvent::Act);
             action_idx += 1;
             match r {
                 Ok(text) => {
