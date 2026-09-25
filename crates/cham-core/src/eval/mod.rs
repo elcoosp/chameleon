@@ -85,6 +85,14 @@ struct Tables {
     flush_map: LinearMap,
     /// sorted distinct packed 5-card values (the dense scale basis; asserted 7462).
     dense: Vec<u32>,
+    // --- u32-native views (added for the WGSL backend, G5.0b) ---
+    // These are pure reindexings of the two maps above for backends that
+    // cannot do u64-keyed lookups. They produce IDENTICAL dense ranks.
+    /// `seven_map` reindexed by multiset rank: `[mrank] -> dense_rank`.
+    /// Length = C(19, 7) = 50388.
+    seven_multiset_ranks: Vec<u32>,
+    /// `flush_map` flattened to `(packed_u32, dense_u16)` sorted by key.
+    flush_sorted: Vec<(u32, u16)>,
 }
 
 /// Minimal power-of-two linear-probe u64→u16 map (in-crate, allocation at build
@@ -243,6 +251,70 @@ fn for_each_multiset(size: usize, maxc: u8, f: &mut impl FnMut(&[u8; 13])) {
     rec(0, size, &mut counts, maxc, f);
 }
 
+/// n choose k with u64 intermediates; covers multiset_rank's C(18, 7).
+fn n_choose_k_u32(n: u32, k: u32) -> u32 {
+    if k > n { return 0; }
+    let k = k.min(n - k);
+    let mut r: u64 = 1;
+    for i in 0..k {
+        r = r * (n - i) as u64 / (i + 1) as u64;
+    }
+    r as u32
+}
+
+/// Multiset combinadic: `counts[0..13]` summing to 7 → unique index
+/// `0..=C(19,7)-1 = 50387`. Uses `w[j] = v[j] + j` (the standard multiset →
+/// combination bijection) then the ordinary combinadic rank.
+fn multiset_rank(counts: &[u8; 13]) -> u32 {
+    let mut rank: u32 = 0;
+    let mut n: u32 = 0;
+    for i in 0..13u32 {
+        for _ in 0..counts[i as usize] {
+            rank += n_choose_k_u32(i + n, n + 1);
+            n += 1;
+        }
+    }
+    rank
+}
+
+/// Canonical index of a 2-card hole (0..=1325). Ascending card ids; the
+/// combinadic rank of the pair `(lo, hi)` is `C(hi, 2) + lo`.
+#[inline]
+pub fn hole2_index(c: [crate::card::Card; 2]) -> u16 {
+    let (a, b) = (c[0].idx() as u32, c[1].idx() as u32);
+    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+    ((hi * (hi - 1)) / 2 + lo) as u16
+}
+
+/// Canonical index of a 3/4/5-card board using lexicographic rank over
+/// ascending k-tuples of card ids. Matches the layout cham-gpu expects.
+pub fn boardk_index(cards: &[crate::card::Card]) -> u32 {
+    let mut v: Vec<u32> = cards.iter().map(|c| c.idx() as u32).collect();
+    v.sort_unstable();
+    let k = v.len() as u32;
+    debug_assert!(k == 3 || k == 4 || k == 5, "boardk_index is for boards");
+    let mut rank: u32 = 0;
+    for i in 0..k {
+        let below = v[i as usize];
+        let choose = k - i;
+        rank += nck_small(below, choose);
+    }
+    rank
+}
+
+fn nck_small(n: u32, k: u32) -> u32 {
+    if k > n { return 0; }
+    match k {
+        0 => 1,
+        1 => n,
+        2 => n * (n - 1) / 2,
+        3 => n * (n - 1) * (n - 2) / 6,
+        4 => n * (n - 1) * (n - 2) * (n - 3) / 24,
+        5 => n * (n - 1) * (n - 2) * (n - 3) * (n - 4) / 120,
+        _ => 0,
+    }
+}
+
 fn build_tables() -> Tables {
     let straight = build_straight_table();
     // ---- dense scale: distinct packed 5-card values (must be exactly 7462) ----
@@ -300,11 +372,38 @@ fn build_tables() -> Tables {
         let best = best_nonflush_packed_from_counts(counts);
         seven_map.insert(prod, rank_of(best));
     });
+    // ---- u32-native views (G5.0b) ----
+    // Reindex seven_map by multiset rank. For each 7-rank multiset we know
+    // both its prime product (the seven_map key) and its multiset rank;
+    // we simply transport the dense rank from one keying to the other.
+    let mut seven_multiset_ranks = vec![0u32; 50388];
+    for_each_multiset(7, 4, &mut |counts| {
+        let mut prod: u64 = 1;
+        for r in 0..13 {
+            for _ in 0..counts[r] {
+                prod = prod.wrapping_mul(PRIMES[r]);
+            }
+        }
+        let mrank = multiset_rank(counts);
+        seven_multiset_ranks[mrank as usize] = seven_map.get(prod) as u32;
+    });
+
+    // Flatten flush_map to a sorted (u32, u16) array. Same dense ranks as
+    // flush_map; the u32 key width is safe (packed 5-card values < 6e6).
+    let mut flush_sorted: Vec<(u32, u16)> = flush_values
+        .iter()
+        .map(|(packed, _)| (*packed, rank_of(*packed)))
+        .collect();
+    flush_sorted.sort_unstable_by_key(|(k, _)| *k);
+    flush_sorted.dedup_by_key(|(k, _)| *k);
+
     Tables {
         straight,
         seven_map,
         flush_map,
         dense: values,
+        seven_multiset_ranks,
+        flush_sorted,
     }
 }
 
@@ -333,6 +432,13 @@ pub struct EvalTables<'a> {
     /// Sorted distinct packed 5-card values, length 7462. Not read by
     /// `evaluate7`; exposed for GPU-side consistency assertions.
     pub dense: &'a [u32],
+    // ---- u32-native views for backends without u64 (WGSL/wgpu) ----
+    /// seven_map reindexed by multiset rank (length 50388, index 0..=50387).
+    /// `seven_multiset_ranks[mrank] == seven_map[prime_product(multiset)]`.
+    pub seven_multiset_ranks: &'a [u32],
+    /// flush_map flattened to sorted `(packed_u32, dense_u16)`. Same dense
+    /// ranks as `flush_entries`, sorted so a backend can binary-search.
+    pub flush_sorted: &'a [(u32, u16)],
 }
 
 /// Borrow cham-core's initialized evaluator tables. The OnceLock initializes
@@ -346,6 +452,8 @@ pub fn eval_tables() -> EvalTables<'static> {
         flush_entries: &t.flush_map.entries,
         flush_mask: t.flush_map.mask,
         dense: &t.dense,
+        seven_multiset_ranks: &t.seven_multiset_ranks,
+        flush_sorted: &t.flush_sorted,
     }
 }
 
