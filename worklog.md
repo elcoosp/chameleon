@@ -73,3 +73,15 @@ Baseline bench capture: see bench-before-gpu.txt (run separately, long).
   #![forbid(unsafe_code)]"; impossible with `metal` FFI. Downgraded to
   #![deny(unsafe_code)]; #[allow(unsafe_code)] scoped to src/mtl.rs only.
   Same pattern as D-001/memmap2.
+
+### G0.2b lint override
+
+- The workspace sets `unsafe_code = "forbid"` (Cargo.toml [workspace.lints.rust]).
+- Forbid cannot be relaxed by any inner #[allow] (E0453); the metal FFI shim
+  needs ONE unsafe block for `contents() -> &[u16]` (the buffer/data/set_bytes
+  APIs in metal 0.31 are already safe wrappers).
+- Fix: cham-gpu replaces `[lints] workspace = true` with an explicit block that
+  mirrors the workspace lints but sets `unsafe_code = "deny"` (deny IS
+  relaxable). All other crates keep forbid; cham-gpu remains deny + scoped allow.
+- Deviation from docs/GPU-PLAN.md Part II ("stays #![forbid(unsafe_code)]") is
+  therefore minimal — one crate opted into deny, one module has one unsafe fn.
