@@ -35,14 +35,10 @@ pub struct WallClockGuard {
 impl WallClockGuard {
     pub fn new(budget: &SearchBudget) -> WallClockGuard {
         match budget {
-            SearchBudget::Iterations { .. } => WallClockGuard {
-                start: Instant::now(),
-                cap: None,
-            },
-            SearchBudget::WallClock { ms } => WallClockGuard {
-                start: Instant::now(),
-                cap: Some(Duration::from_millis(*ms)),
-            },
+            SearchBudget::Iterations { .. } => WallClockGuard { start: Instant::now(), cap: None },
+            SearchBudget::WallClock { ms } => {
+                WallClockGuard { start: Instant::now(), cap: Some(Duration::from_millis(*ms)) }
+            }
         }
     }
     pub fn expired(&self) -> bool {
