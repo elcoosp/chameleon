@@ -1,0 +1,18 @@
+# EXP-001 `mixture-vs-robust` — the thesis verdict (SPECS/10 §8, G2-primary).
+id = "EXP-001"
+slug = "mixture-vs-robust"
+gate = "G2-primary"
+tier = "ab"
+a = "full"
+b = "robust-only"
+pool = ["arch:nit", "arch:tag", "arch:lag", "arch:station"]
+deals_per_opp = 25000
+clusters = 3
+seeds = [1, 2, 3]
+margin_mb = 0.0
+sprt = false
+[expect]
+# FROZEN pre-registration: the mixture must not lose and the primary endpoint
+# CI lower bound must exceed 0 mb/seating (promotion rule SPECS/08 §6).
+direction = "a_ge_b"
+primary_ci_lower_mb = 0.0
