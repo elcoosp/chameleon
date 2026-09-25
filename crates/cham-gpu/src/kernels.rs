@@ -144,6 +144,34 @@ pub fn launch_ehs_turn(
     crate::mtl::dispatch_ehs_turn(ctx, &bytes, boards_packed, out, so, sm, fo, fm)
 }
 
+/// Pack a 3-card flop board into a u32 (3 card bytes, LE).
+pub fn pack_board3(board: &[cham_core::card::Card; 3]) -> u32 {
+    (board[0].0 as u32) | ((board[1].0 as u32) << 8) | ((board[2].0 as u32) << 16)
+}
+
+/// Flop EHS: same shape as `launch_ehs_turn`.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub fn launch_ehs_flop(
+    ctx: &GpuContext,
+    tables: &EvalTables<'_>,
+    boards_packed: &[u32],
+    out: &mut [u32],
+) -> Result<(), KernelError> {
+    let (bytes, so, sm, fo, fm) = pack_tables_metal(tables);
+    crate::mtl::dispatch_ehs_flop(ctx, &bytes, boards_packed, out, so, sm, fo, fm)
+}
+
+/// Non-macOS / feature-off stub for launch_ehs_flop.
+#[cfg(not(all(target_os = "macos", feature = "metal")))]
+pub fn launch_ehs_flop(
+    _ctx: &GpuContext,
+    _tables: &EvalTables<'_>,
+    _boards_packed: &[u32],
+    _out: &mut [u32],
+) -> Result<(), KernelError> {
+    Err(KernelError::NoDevice("metal unavailable".into()))
+}
+
 /// Non-macOS / feature-off stub for launch_ehs_turn.
 #[cfg(not(all(target_os = "macos", feature = "metal")))]
 pub fn launch_ehs_turn(

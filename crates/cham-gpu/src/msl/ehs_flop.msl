@@ -1,0 +1,97 @@
+// Flop EHS builder kernel (GPU-PLAN G1.3).
+//
+// For each flop board (3 cards) and each hero hole (2 cards):
+//   numerator = 2*wins + ties
+// where each term enumerates the full (turn, river, opponent pair) triple:
+//   turn+river: C(47, 2) = 1,081 runouts
+//   opponent pair: C(45, 2) = 990 combos
+// Denominator per (board, hole) = 1,081 * 990 = 1,070,190 (EhsDenom::Flop).
+//
+// Layout:
+//   buffer 0: uchar*  tables  — same packed layout as eval7.msl
+//   buffer 1: uint*   boards  — 3 card bytes packed LE per board
+//   buffer 2: uint*   out     — [n_boards * 1326]
+//   buffer 3: uint&   board_count
+//   buffers 4-7: ulong offsets/masks
+//
+// One thread per (board, hole_index). Threads whose hole overlaps the board
+// return without writing (slot left 0). eval7_msl() comes from eval7_shared.msl.
+
+kernel void ehs_flop_kernel(
+    device const uchar*  tables      [[buffer(0)]],
+    device const uint*   boards      [[buffer(1)]],
+    device       uint*   out         [[buffer(2)]],
+    constant     uint&   board_count [[buffer(3)]],
+    constant     ulong&  seven_off   [[buffer(4)]],
+    constant     ulong&  seven_mask  [[buffer(5)]],
+    constant     ulong&  flush_off   [[buffer(6)]],
+    constant     ulong&  flush_mask  [[buffer(7)]],
+    uint gid [[thread_position_in_grid]])
+{
+    uint board_i = gid / 1326u;
+    uint hole_i  = gid % 1326u;
+    if (board_i >= board_count) return;
+
+    uint bc = boards[board_i];
+    uint f0 = bc & 0xFFu;
+    uint f1 = (bc >> 8) & 0xFFu;
+    uint f2 = (bc >> 16) & 0xFFu;
+
+    // Reverse hole2_index.
+    uint c_hi = 1u;
+    while ((c_hi * (c_hi - 1u)) / 2u <= hole_i && c_hi < 53u) c_hi++;
+    c_hi--;
+    uint c_lo = hole_i - (c_hi * (c_hi - 1u)) / 2u;
+    if (c_lo >= c_hi) return;
+    if (c_lo == f0 || c_lo == f1 || c_lo == f2) return;
+    if (c_hi == f0 || c_hi == f1 || c_hi == f2) return;
+
+    // remaining = 47 cards (52 - 3 flop - 2 hole).
+    uchar remaining[47];
+    uint rn = 0u;
+    for (uint c = 0u; c < 52u; ++c) {
+        if (c != f0 && c != f1 && c != f2 && c != c_lo && c != c_hi) {
+            remaining[rn++] = (uchar)c;
+        }
+    }
+
+    ulong flop_base = ((ulong)f0) | ((ulong)f1 << 6) | ((ulong)f2 << 12);
+
+    uint wins = 0u;
+    uint ties = 0u;
+
+    // Enumerate (turn, river) runout pairs.
+    for (uint ti = 0u; ti < rn; ++ti) {
+        for (uint ri = ti + 1u; ri < rn; ++ri) {
+            uint turn  = remaining[ti];
+            uint river = remaining[ri];
+            ulong hero7 = flop_base
+                        | ((ulong)turn  << 18)
+                        | ((ulong)river << 24)
+                        | ((ulong)c_lo  << 30)
+                        | ((ulong)c_hi  << 36);
+            ushort hero_rank = eval7_msl(tables, seven_off, seven_mask,
+                                         flush_off, flush_mask, hero7);
+            // Opponent pairs from remaining minus turn & river (45 cards).
+            for (uint oi = 0u; oi < rn; ++oi) {
+                if (oi == ti || oi == ri) continue;
+                uint oc_i = remaining[oi];
+                for (uint oj = oi + 1u; oj < rn; ++oj) {
+                    if (oj == ti || oj == ri) continue;
+                    uint oc_j = remaining[oj];
+                    ulong vill7 = flop_base
+                                | ((ulong)turn  << 18)
+                                | ((ulong)river << 24)
+                                | ((ulong)oc_i  << 30)
+                                | ((ulong)oc_j  << 36);
+                    ushort vr = eval7_msl(tables, seven_off, seven_mask,
+                                          flush_off, flush_mask, vill7);
+                    if (hero_rank > vr) wins++;
+                    else if (hero_rank == vr) ties++;
+                }
+            }
+        }
+    }
+
+    out[(ulong)board_i * 1326ul + (ulong)hole_i] = 2u * wins + ties;
+}
