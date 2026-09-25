@@ -20,7 +20,7 @@ use std::path::PathBuf;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 use std::fs::{self, File};
 #[cfg(all(target_os = "macos", feature = "metal"))]
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(all(target_os = "macos", feature = "metal"))]
 use std::time::Instant;
 
@@ -47,6 +47,10 @@ struct Args {
     /// Number of (board, hole) pairs to re-verify against the CPU reference.
     /// 0 = skip.
     sample: usize,
+    /// Resume an in-progress build: read the existing .bin, hash its prefix,
+    /// truncate any partial trailing board, and continue appending. No-op if
+    /// the file is absent.
+    resume: bool,
 }
 
 fn parse_args() -> Args {
@@ -56,6 +60,7 @@ fn parse_args() -> Args {
         out_dir: PathBuf::from("artifacts/gpu-tables"),
         batch: 512,
         sample: 20,
+        resume: false,
     };
     let argv: Vec<String> = env::args().collect();
     let mut i = 1;
@@ -84,9 +89,12 @@ fn parse_args() -> Args {
             "--no-check" => {
                 a.sample = 0;
             }
+            "--resume" => {
+                a.resume = true;
+            }
             "--help" | "-h" => {
                 println!(
-                    "usage: gpu-build [--kind turn] [--limit N] [--out DIR] [--batch N] [--sample N] [--no-check]"
+                    "usage: gpu-build [--kind turn] [--limit N] [--out DIR] [--batch N] [--sample N] [--no-check] [--resume]"
                 );
                 std::process::exit(0);
             }
@@ -151,37 +159,95 @@ fn main() -> anyhow::Result<()> {
 
     let boards = enumerate_boards(a.limit);
     let n_boards = boards.len();
-    let packed: Vec<u32> = boards.iter().map(pack_board4).collect();
+    // (packed is built below, once start_board is known.)
 
     let bin_path = a.out_dir.join(format!("{}.bin", a.kind));
-    let file = File::create(&bin_path)?;
-    let mut w = BufWriter::with_capacity(64 * 1024 * 1024, file);
-    let mut hasher = blake3::Hasher::new();
+    let per_board = (HOLES * 4) as u64;
+
+    // ---- resume: inspect the existing .bin if --resume was given ----
+    let (start_board, mut hasher) = if a.resume && bin_path.exists() {
+        let size = fs::metadata(&bin_path)?.len();
+        let complete_boards = (size / per_board) as usize;
+        let usable_bytes = (complete_boards as u64) * per_board;
+        if size != usable_bytes {
+            eprintln!(
+                "  resume: truncating {} bytes of a partial trailing board",
+                size - usable_bytes
+            );
+            let f = std::fs::OpenOptions::new().write(true).open(&bin_path)?;
+            f.set_len(usable_bytes)?;
+        }
+        eprintln!(
+            "  resume: hashing {} existing bytes ({} complete boards)...",
+            usable_bytes, complete_boards
+        );
+        let mut f = File::open(&bin_path)?;
+        let mut h = blake3::Hasher::new();
+        let mut buf = vec![0u8; 4 * 1024 * 1024];
+        let mut remaining = usable_bytes;
+        while remaining > 0 {
+            let take = (buf.len() as u64).min(remaining) as usize;
+            f.read_exact(&mut buf[..take])?;
+            h.update(&buf[..take]);
+            remaining -= take as u64;
+        }
+        (complete_boards, h)
+    } else {
+        (0, blake3::Hasher::new())
+    };
+
+    // ---- open for append (resume) or truncate (fresh) ----
+    let file = if start_board > 0 {
+        std::fs::OpenOptions::new().append(true).open(&bin_path)?
+    } else {
+        File::create(&bin_path)?
+    };
+    let mut w = file;
+    if start_board >= n_boards {
+        eprintln!(
+            "  resume: already complete ({} of {} boards present)",
+            start_board, n_boards
+        );
+    }
+
+    // Only dispatch from `start_board` onwards.
+    let packed: Vec<u32> = boards[start_board.min(n_boards)..]
+        .iter()
+        .map(pack_board4)
+        .collect();
+    let n_new = packed.len();
     let mut out_buf: Vec<u32> = vec![0u32; a.batch * HOLES];
     let t0 = Instant::now();
     let mut done = 0usize;
-    while done < n_boards {
-        let take = a.batch.min(n_boards - done);
+    while done < n_new {
+        let take = a.batch.min(n_new - done);
         launch_ehs_turn(
             &ctx,
             &tables,
             &packed[done..done + take],
             &mut out_buf[..take * HOLES],
         )?;
+        // One batch -> one contiguous byte buffer -> one write syscall.
+        let mut bytes = Vec::with_capacity(take * HOLES * 4);
         for v in &out_buf[..take * HOLES] {
-            let buf = v.to_le_bytes();
-            hasher.update(&buf);
-            w.write_all(&buf)?;
+            bytes.extend_from_slice(&v.to_le_bytes());
         }
+        hasher.update(&bytes);
+        w.write_all(&bytes)?;
         done += take;
+        let total_done = start_board + done;
         let el = t0.elapsed().as_secs_f64();
-        eprintln!("  {done}/{n_boards} boards ({:.1}/s)", done as f64 / el);
+        eprintln!(
+            "  {}/{} boards ({:.1}/s)",
+            total_done,
+            n_boards,
+            done as f64 / el
+        );
     }
     w.flush()?;
     drop(w);
     let wall_s = t0.elapsed().as_secs_f64();
     let hash = hasher.finalize().to_hex().to_string();
-    let bytes = (n_boards as u64) * (HOLES as u64) * 4;
 
     // Sample re-verification against the CPU reference.
     let mut sample_passed = true;
@@ -241,6 +307,9 @@ fn main() -> anyhow::Result<()> {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "unknown".into());
+    let bytes = (n_boards as u64) * (HOLES as u64) * 4;
+    let evals = (n_boards as u64) * (HOLES as u64) * DENOM_TURN;
+    let boards_new = n_boards.saturating_sub(start_board);
     let manifest = serde_json::json!({
         "kind": a.kind,
         "tool": "gpu-build",
@@ -254,15 +323,18 @@ fn main() -> anyhow::Result<()> {
         "encoding": "u32_numerator_2wins_plus_ties",
         "seed": serde_json::Value::Null,
         "wall_s": wall_s,
-        "evals": (n_boards as u64) * (HOLES as u64) * DENOM_TURN,
-        "boards_per_s": (n_boards as f64) / wall_s,
-        "throughput_evals_per_s": ((n_boards as u64) * (HOLES as u64) * DENOM_TURN) as f64 / wall_s,
+        "evals": evals,
+        "boards_per_s": (boards_new as f64) / wall_s,
+        "throughput_evals_per_s": ((boards_new as u64) * (HOLES as u64) * DENOM_TURN) as f64 / wall_s,
+        "resumed_from_board": start_board,
+        "boards_written_this_run": boards_new,
         "sample_check": {
             "n": a.sample,
             "pass": sample_passed,
             "details": sample_details,
         },
         "partial": a.limit != 0,
+        "complete": start_board + boards_new >= n_boards,
     });
     let manifest_path = a.out_dir.join(format!("{}.json", a.kind));
     fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
