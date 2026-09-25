@@ -1,0 +1,27 @@
+[package]
+name = "cham-search"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Inference-time river solving: FMBR / RNR / reach-gadget over extensive-form subgames (SPECS/06)"
+
+[dependencies]
+rustc-hash = { workspace = true }
+arrayvec = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+cham-core = { path = "../cham-core" }
+cham-engine = { path = "../cham-engine" }
+cham-rec = { path = "../cham-rec" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "solve"
+harness = false
+
+[lints]
+workspace = true
