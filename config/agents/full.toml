@@ -1,0 +1,5 @@
+# Agent mode: `full` — the product (SPECS/07 §3).
+routing = "mixture"
+search_enabled = false        # search stays OFF until G4 passes (SPECS/06 §7 lockout)
+solver = "Rnr"                # Fmbr | Rnr | ReachGadget (p pinned in search.toml)
+g4_ledger_ref = ""            # REQUIRED non-empty when search_enabled = true
