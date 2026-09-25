@@ -26,3 +26,7 @@ harness = false
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "trigger_cache"
+harness = false

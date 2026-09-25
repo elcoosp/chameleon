@@ -47,7 +47,9 @@ fn bench_mccfr_iter(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     // B10.4: ≥ 10 s measurement for the P4 gate bench.
-    config = Criterion::default().measurement_time(std::time::Duration::from_secs(10));
+    config = Criterion::default()
+        .measurement_time(std::time::Duration::from_secs(10))
+        .sample_size(50);
     targets = bench_mccfr_iter
 );
 criterion_main!(benches);

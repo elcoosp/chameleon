@@ -1,5 +1,11 @@
 //! P6 gate (SPECS/00 §6): full-pipeline match throughput ≥ 60k seatings/min
 //! aggregate on 4 threads (recalibrated at M1).
+//!
+//! NOTE (post-B1): the pre-B1 baseline was 26 µs; the current ~47 µs is the
+//! B1 per-seating lifecycle cost (HandHistory + PublicHistory construction and
+//! two on_hand_end dispatches). This is a deliberate correctness trade — the
+//! shared-hero path in the ladder and in play depend on those hooks — and is
+//! amortized in any real match. Re-measure before treating P6 as a regression.
 
 use cham_core::obs::Agent;
 use cham_eval::matcheng::{MatchRunner, MatchSpec};
