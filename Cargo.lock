@@ -388,6 +388,7 @@ dependencies = [
  "metal",
  "pollster",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 1.0.69",
  "wgpu",

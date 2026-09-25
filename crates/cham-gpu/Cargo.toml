@@ -8,6 +8,7 @@ description = "Feature-gated Apple Metal accelerator (whitelist amendment per do
 
 [dependencies]
 serde = { workspace = true }
+serde_json = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
