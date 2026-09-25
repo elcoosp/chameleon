@@ -20,3 +20,4 @@ artifacts/gpu-tables/
 # GPU-track baseline bench capture (regenerated on demand)
 bench-before-gpu.txt
 bench-after-gpu.txt
+dump.txt
