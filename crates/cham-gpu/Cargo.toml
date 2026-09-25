@@ -13,10 +13,13 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 cham-core = { path = "../cham-core" }
 metal = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
 
 [features]
 default = []
 metal = ["dep:metal"]
+wgpu = ["dep:wgpu", "dep:pollster"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

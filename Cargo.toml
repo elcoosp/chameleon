@@ -31,6 +31,20 @@ blake3 = "1"
 # optional — cham-gpu gates it behind `metal`; FFI unsafe is scoped like
 # memmap2 in D-001)
 metal = "0.31"
+
+# whitelist amendment (docs/GPU-PLAN-AMENDMENTS.md Amendment 002): wgpu is
+# the cross-platform GPU target (Vulkan / Metal / DX12 backends, single
+# WGSL source). Optional, feature-gated on cham-gpu; no crate activates it
+# by default.
+#
+# Note on features: wgpu 22 has no explicit `vulkan` feature — Vulkan is
+# enabled on native Linux by default. `vulkan-portability` is a different
+# thing (macOS portability layer) and is not what we want. We therefore
+# keep wgpu's own defaults (they pick the right backends per target) and
+# add only `wgsl` for explicitness (it is a default too). If binary size
+# ever matters we can trim later; correctness first.
+wgpu = { version = "22", features = ["wgsl"] }
+pollster = "0.4"
 # dev-only
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1"
