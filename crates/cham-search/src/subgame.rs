@@ -35,10 +35,7 @@ pub struct Subgame {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Node {
     /// terminal: (hero_wins_bb if hero class stronger, pot already inside stacks)
-    Terminal {
-        hero_invested: f64,
-        villain_invested: f64,
-    },
+    Terminal { hero_invested: f64, villain_invested: f64 },
     Decision {
         player: u8, // 0 hero, 1 villain
         /// action labels for children (parallel arrays)
@@ -70,13 +67,7 @@ impl Subgame {
         fracs.retain(|f| f.is_finite() && *f > 0.0);
         fracs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         fracs.dedup();
-        Ok(Subgame {
-            hero_classes,
-            villain_classes,
-            pot_bb,
-            stack_bb,
-            bet_fracs: fracs,
-        })
+        Ok(Subgame { hero_classes, villain_classes, pot_bb, stack_bb, bet_fracs: fracs })
     }
 
     /// Build the full action tree: hero (check / bets / jam) → villain (fold / call
@@ -90,9 +81,7 @@ impl Subgame {
         let mut children = vec![self.villain_node(hero_invested, villain_invested, false)];
         let max_invest = self.pot_bb + 2.0 * self.stack_bb;
         for &f in &self.bet_fracs {
-            let bet = (f * (self.pot_bb + 2.0 * villain_invested))
-                .floor()
-                .min(self.stack_bb);
+            let bet = (f * (self.pot_bb + 2.0 * villain_invested)).floor().min(self.stack_bb);
             let bet = bet.max(0.5);
             if hero_invested + bet < max_invest && bet > villain_invested - hero_invested {
                 actions.push(format!("bet{f}"));
@@ -105,27 +94,17 @@ impl Subgame {
             actions.push("jam".to_string());
             children.push(self.villain_node(hero_invested + jam, villain_invested, true));
         }
-        Node::Decision {
-            player: 0,
-            actions,
-            children,
-        }
+        Node::Decision { player: 0, actions, children }
     }
 
     fn villain_node(&self, hero_invested: f64, villain_invested: f64, facing_bet: bool) -> Node {
         if !facing_bet {
             // checked through → showdown
-            return Node::Terminal {
-                hero_invested,
-                villain_invested,
-            };
+            return Node::Terminal { hero_invested, villain_invested };
         }
         let mut actions = vec!["fold".to_string(), "call".to_string()];
         let mut children = vec![
-            Node::Terminal {
-                hero_invested,
-                villain_invested: hero_invested,
-            }, // fold: hero takes invested
+            Node::Terminal { hero_invested, villain_invested: hero_invested }, // fold: hero takes invested
             self.showdown(hero_invested, villain_invested),
         ];
         // villain raise = 2.2× the bet (capped by jam)
@@ -136,44 +115,24 @@ impl Subgame {
             actions.push("raise".to_string());
             children.push(self.hero_face_raise(hero_invested, villain_invested + raise));
         }
-        Node::Decision {
-            player: 1,
-            actions,
-            children,
-        }
+        Node::Decision { player: 1, actions, children }
     }
 
     fn hero_face_raise(&self, hero_invested: f64, villain_invested: f64) -> Node {
         let actions = vec!["fold".to_string(), "call".to_string()];
         let children = vec![
-            Node::Terminal {
-                hero_invested: villain_invested,
-                villain_invested,
-            },
+            Node::Terminal { hero_invested: villain_invested, villain_invested },
             self.showdown(hero_invested, villain_invested),
         ];
-        Node::Decision {
-            player: 0,
-            actions,
-            children,
-        }
+        Node::Decision { player: 0, actions, children }
     }
 
     fn showdown(&self, hero_invested: f64, villain_invested: f64) -> Node {
-        Node::Terminal {
-            hero_invested,
-            villain_invested,
-        }
+        Node::Terminal { hero_invested, villain_invested }
     }
 
     /// Showdown value for hero (bb) given class pair: deterministic strength order.
-    pub fn showdown_value(
-        &self,
-        hero: &Class,
-        villain: &Class,
-        hero_invested: f64,
-        villain_invested: f64,
-    ) -> f64 {
+    pub fn showdown_value(&self, hero: &Class, villain: &Class, hero_invested: f64, villain_invested: f64) -> f64 {
         let pot = hero_invested + villain_invested;
         if hero.strength > villain.strength {
             villain_invested // villain's share flows to hero
