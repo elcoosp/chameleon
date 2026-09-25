@@ -29,14 +29,10 @@ impl RouterFeatures {
     pub fn validate(&self) -> Result<(), EngineError> {
         for (i, v) in self.0.iter().enumerate() {
             if !v.is_finite() {
-                return Err(EngineError::Config(format!(
-                    "router feature {i} not finite"
-                )));
+                return Err(EngineError::Config(format!("router feature {i} not finite")));
             }
             if !(-1.2..=1.2).contains(v) {
-                return Err(EngineError::Config(format!(
-                    "router feature {i} out of range: {v}"
-                )));
+                return Err(EngineError::Config(format!("router feature {i} out of range: {v}")));
             }
         }
         Ok(())
