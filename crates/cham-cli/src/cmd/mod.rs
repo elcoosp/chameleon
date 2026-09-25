@@ -3,6 +3,7 @@
 pub mod ab;
 pub mod collect;
 pub mod dashboard;
+pub mod guard;
 pub mod ladder;
 pub mod play;
 pub mod probe;

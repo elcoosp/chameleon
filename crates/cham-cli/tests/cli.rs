@@ -132,6 +132,36 @@ fn play_budget_refusal_without_artifacts() {
 }
 
 #[test]
+fn ladder_refuses_without_artifacts() {
+    // ladder with a trained agent but no bundle must refuse with the budget
+    // code (2) instead of printing silent-fallback mirror rows (PERF-PLAN T7;
+    // patterned on play_budget_refusal_without_artifacts).
+    let out = Command::new(bin())
+        .args(["ladder", "--fast", "--agent", "full"])
+        .output()
+        .expect("spawn ladder");
+    // either the bundle exists (full pipeline) or we get the budget refusal —
+    // a panic (101) or crash is always wrong
+    assert_ne!(
+        out.status.code(),
+        Some(101),
+        "ladder must not panic without artifacts"
+    );
+    if out.status.code() != Some(0) {
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "no-artifacts ladder must exit 2 (budget refusal)"
+        );
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("artifacts/agent"),
+            "refusal must point at the bundle path"
+        );
+    }
+}
+
+#[test]
 fn slumbot_mock_flow_runs() {
     // mock mode never touches the network and exits 0 (SPECS/08 §5)
     let out = Command::new(bin())

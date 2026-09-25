@@ -1,0 +1,123 @@
+//! Eval guardrails (PERF-PLAN T7): refuse to ladder/probe/ab with untrained
+//! artifacts, and surface fallback-rate warnings into the ledger.
+//!
+//! Symptom this fixes: `ladder --fast` rows `callbot +0.0 ± 0.0` that are
+//! exact mirror matches — the `full` agent silently fell back (uniform policy)
+//! and strength numbers were meaningless. Strength numbers from an unevaluated
+//! (fallback) pipeline look like bot bugs; refusing loudly is the fix.
+
+/// Agent names that require the trained `artifacts/agent` bundle (mirrors
+/// `play`'s routing set in `cmd::play`: every one of these loads blueprints).
+const TRAINED_AGENTS: [&str; 7] = [
+    "full",
+    "no-search",
+    "full-no-search",
+    "argmax",
+    "robust-only",
+    "bayes",
+    "mixture",
+];
+
+/// True when `agent` needs trained policy/router artifacts to mean anything.
+pub fn requires_trained_artifacts(agent: &str) -> bool {
+    TRAINED_AGENTS.contains(&agent)
+}
+
+/// Required bundle files, mirroring `cham_agent::loader::load_agent`
+/// (`abstraction.toml` + buckets + 4 experts + robust).
+fn required_bundle_files() -> Vec<std::path::PathBuf> {
+    let base = std::path::Path::new("artifacts/agent");
+    let mut out = vec![base.join("abstraction.toml"), base.join("buckets")];
+    for i in 0..4 {
+        out.push(base.join(format!("experts/{i}/policy.bin")));
+    }
+    out.push(base.join("robust/policy.bin"));
+    out
+}
+
+/// Missing bundle files (empty when the bundle is loadable).
+pub fn missing_artifact_files() -> Vec<String> {
+    required_bundle_files()
+        .into_iter()
+        .filter(|p| !p.exists())
+        .map(|p| p.display().to_string())
+        .collect()
+}
+
+/// Refuse evaluation with an untrained bundle: `Ok(())` when the agent is a
+/// pure baseline or its bundle exists; `Err(missing)` listing the absent
+/// files otherwise (caller prints them and exits nonzero).
+pub fn require_agent_artifacts(agent: &str) -> Result<(), Vec<String>> {
+    if !requires_trained_artifacts(agent) {
+        return Ok(());
+    }
+    let missing = missing_artifact_files();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing)
+    }
+}
+
+/// Fallback-rate warning threshold: above 20% fallback decisions the run's
+/// strength numbers are meaningless (uniform-policy contamination).
+pub const FALLBACK_WARN_RATE: f64 = 0.20;
+
+/// Check a run's fallback rate. Returns the prominent warning when
+/// `fallback / total` exceeds [`FALLBACK_WARN_RATE`]; the caller prints it
+/// and writes it into the ledger entry. `total == 0` (no traced decisions,
+/// e.g. pure-baseline factories) yields `None` — nothing to warn about.
+pub fn check_fallback_rate(label: &str, fallback: u64, total: u64) -> Option<String> {
+    if total == 0 {
+        return None;
+    }
+    let rate = fallback as f64 / total as f64;
+    if rate > FALLBACK_WARN_RATE {
+        Some(format!(
+            "WARNING: {label} fell back on {fallback}/{total} decisions ({:.1}%) — artifacts missing or stale, strength numbers are meaningless",
+            rate * 100.0,
+        ))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trained_agent_set_matches_play_routing() {
+        for a in [
+            "full",
+            "argmax",
+            "robust-only",
+            "bayes",
+            "mixture",
+            "no-search",
+        ] {
+            assert!(requires_trained_artifacts(a), "{a} needs artifacts");
+        }
+        for a in ["callbot", "fish", "arch:tag", "random"] {
+            assert!(!requires_trained_artifacts(a), "{a} is a pure baseline");
+        }
+    }
+
+    #[test]
+    fn fallback_warning_threshold() {
+        assert!(
+            check_fallback_rate("x", 0, 0).is_none(),
+            "no decisions → no warning"
+        );
+        assert!(check_fallback_rate("x", 0, 100).is_none());
+        assert!(
+            check_fallback_rate("x", 20, 100).is_none(),
+            "exactly 20% is not above"
+        );
+        let w = check_fallback_rate("x", 21, 100).expect("21% must warn");
+        assert!(
+            w.contains("WARNING") && w.contains("21"),
+            "prominent warning: {w}"
+        );
+    }
+}

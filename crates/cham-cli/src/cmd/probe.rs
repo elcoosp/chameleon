@@ -2,6 +2,16 @@
 //! Owned by cham-eval; computed via cham-blueprint::lbr + router metrics.
 
 pub fn run(agent: &str) -> i32 {
+    // PERF-PLAN T7 guardrail: probing a trained agent without its bundle
+    // yields silent-fallback numbers that look like bot bugs.
+    if let Err(missing) = crate::cmd::guard::require_agent_artifacts(agent) {
+        eprintln!("probe: agent '{agent}' needs trained artifacts, missing:");
+        for m in &missing {
+            eprintln!("probe:   {m}");
+        }
+        eprintln!("probe: train them with train-buckets + train-bp (robust + 4 experts) first");
+        return crate::cmd::EXIT_BUDGET;
+    }
     // coverage + lbr on the tiny abstraction (calibrated artifacts when present)
     let cfg = cham_engine::config::AbstractionConfig::tiny();
     let mut enc = match cham_engine::Encoder::from_artifacts_dir(
@@ -17,7 +27,9 @@ pub fn run(agent: &str) -> i32 {
     let engine = cham_core::engine::config::EngineConfig::depth(100);
     // LBR proxy: best response value for seat 1 vs a UNIFORM seat-0 policy
     // (a real probe uses the trained robust blueprint — wired at M2).
-    let mut uniform = |obs: &cham_core::obs::Observables<'_>, _seq: &cham_engine::encoder::ActionSeq| -> Vec<(cham_core::engine::Action, f64)> {
+    let mut uniform = |obs: &cham_core::obs::Observables<'_>,
+                       _seq: &cham_engine::encoder::ActionSeq|
+     -> Vec<(cham_core::engine::Action, f64)> {
         // uniform over the legal set (a real distribution, unlike an empty vec)
         let n = obs.legal.len().max(1) as f64;
         obs.legal.iter().map(|la| (la.action, 1.0 / n)).collect()
@@ -37,8 +49,14 @@ pub fn run(agent: &str) -> i32 {
     // trained robust blueprint at M2 with the G9 gate (≤ 150 mb/hand). Until
     // then the band is the observed BR-vs-uniform magnitude (~30 bb/hand =
     // ~30_000 mb — the 100 bb stack bounds it at 100_000 mb).
-    let verdict = if lbr_mb.abs() < 60_000.0 && coverage >= 0.9 { "PASS" } else { "FAIL" };
-    println!("probe: {verdict} (lbr {lbr_mb:.0} mb/hand, cov {coverage:.2}, acc_b_dev {acc_b_dev:.2}) [{agent}]");
+    let verdict = if lbr_mb.abs() < 60_000.0 && coverage >= 0.9 {
+        "PASS"
+    } else {
+        "FAIL"
+    };
+    println!(
+        "probe: {verdict} (lbr {lbr_mb:.0} mb/hand, cov {coverage:.2}, acc_b_dev {acc_b_dev:.2}) [{agent}]"
+    );
     if verdict == "PASS" {
         crate::cmd::EXIT_OK
     } else {
