@@ -1,0 +1,17 @@
+# EXP-003 `router-ablations` — feature-block drops + temperature sweep (G3 sensitivity).
+id = "EXP-003"
+slug = "router-ablations"
+gate = "G3"
+tier = "ab"
+a = "full"
+b = "full" # a/b differ in router temperature / feature blocks, see variants
+variants_temp = [0.5, 0.7, 1.0]
+drop_blocks = ["ewm", "opportunity", "trend"]
+pool = ["arch:nit", "arch:tag", "arch:lag", "arch:station"]
+deals_per_opp = 10000
+clusters = 1
+seeds = [1, 2]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "sensitivity_report"
