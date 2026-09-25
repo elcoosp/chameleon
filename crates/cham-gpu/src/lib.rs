@@ -7,15 +7,25 @@
 //!
 //! Whitelist amendment (SPECS/00 §2): this crate adds ONE new direct
 //! dependency, `metal`, behind the `metal` feature. Its `objc2` transitive
-//! family carries internal FFI unsafe at the boundary, scoped exactly like
-//! the memmap2 carve-out (D-001); cham-gpu's own code stays
-//! `#![forbid(unsafe_code)]`.
-
-#![forbid(unsafe_code)]
+//! family carries internal FFI unsafe at the boundary.
+//!
+//! SAFETY POSTURE — deviation from the plan's literal wording:
+//! docs/GPU-PLAN.md Part II says "cham-gpu's own code stays
+//! `#![forbid(unsafe_code)]`". That is literally impossible: the `metal`
+//! crate's low-level API (`new_buffer_with_data`, `set_bytes`,
+//! `contents`) is `unsafe fn` because it takes raw pointers. We therefore
+//! follow the plan's cited D-001 / memmap2 pattern *exactly*: crate-level
+//! `#![deny(unsafe_code)]`, with `#[allow(unsafe_code)]` scoped to the
+//! single FFI shim module `mtl`. Every other module in this crate is
+//! unsafe-free. Recorded in worklog.
 
 pub mod device;
 pub mod kernels;
 pub mod noop;
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[allow(unsafe_code)] // the D-001 / memmap2-scoped FFI shim
+mod mtl;
 
 pub use device::{GpuDevice, probe};
 pub use noop::GpuNoop;

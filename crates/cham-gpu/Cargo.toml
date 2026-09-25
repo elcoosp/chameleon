@@ -11,6 +11,7 @@ serde = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+cham-core = { path = "../cham-core" }
 metal = { workspace = true, optional = true }
 
 [features]
@@ -20,5 +21,17 @@ metal = ["dep:metal"]
 [dev-dependencies]
 tempfile = { workspace = true }
 
-[lints]
-workspace = true
+# Per-crate lint override (docs/GPU-PLAN.md Part II + worklog G0.2b):
+# the workspace sets `unsafe_code = "forbid"`, but the Metal FFI shim in
+# src/mtl.rs needs ONE scoped `#[allow(unsafe_code)]` for a from_raw_parts
+# cast (metal 0.31's buffer / set_bytes APIs are safe; only `contents()`
+# returns a raw pointer). Forbid cannot be relaxed; deny can. All other
+# workspace lints are mirrored verbatim so nothing else changes.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "allow"
+
+[lints.clippy]
+needless_range_loop = "allow"
+too_many_arguments = "allow"
+module_inception = "allow"
