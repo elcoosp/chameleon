@@ -19,9 +19,9 @@ pub const SESSION_C: u8 = 3;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RbinRow {
     pub features: Vec<f32>,
-    pub label: u8, // 0..=3 archetype
+    pub label: u8,       // 0..=3 archetype
     pub session_id: u16,
-    pub family: u8, // 0=A, 1=B, 2=PN, 3=noise
+    pub family: u8,      // 0=A, 1=B, 2=PN, 3=noise
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -62,11 +62,7 @@ pub fn split_of_session(session_id: u16) -> u8 {
 /// Serialize rows to `.rbin` bytes.
 pub fn encode_dataset(rows: &[RbinRow], n_features: usize) -> Result<Vec<u8>, RouterError> {
     if rows.len() > MAX_ROWS {
-        return Err(RouterError::Dataset(format!(
-            "rows {} exceeds cap {}",
-            rows.len(),
-            MAX_ROWS
-        )));
+        return Err(RouterError::Dataset(format!("rows {} exceeds cap {}", rows.len(), MAX_ROWS)));
     }
     let mut out = Vec::with_capacity(16 + rows.len() * (4 * n_features + 4));
     out.extend_from_slice(&RBIN_MAGIC.to_le_bytes());
@@ -112,21 +108,14 @@ pub fn decode_dataset(bytes: &[u8]) -> Result<(Vec<RbinRow>, usize), RouterError
     for _ in 0..n {
         let mut features = Vec::with_capacity(nf);
         for _ in 0..nf {
-            features.push(f32::from_le_bytes(
-                bytes[off..off + 4].try_into().expect("4"),
-            ));
+            features.push(f32::from_le_bytes(bytes[off..off + 4].try_into().expect("4")));
             off += 4;
         }
         let label = bytes[off];
         let session_id = u16::from_le_bytes(bytes[off + 1..off + 3].try_into().expect("2"));
         let family = bytes[off + 3];
         off += 4;
-        rows.push(RbinRow {
-            features,
-            label,
-            session_id,
-            family,
-        });
+        rows.push(RbinRow { features, label, session_id, family });
     }
     // session-disjoint split enforcement + family governance: C-only sessions may
     // carry family != A; A/B-dev sessions must be family A (in-family only)
@@ -143,11 +132,7 @@ pub fn decode_dataset(bytes: &[u8]) -> Result<(Vec<RbinRow>, usize), RouterError
 }
 
 /// Write + read helpers.
-pub fn write_dataset(
-    path: &std::path::Path,
-    rows: &[RbinRow],
-    n_features: usize,
-) -> Result<(), RouterError> {
+pub fn write_dataset(path: &std::path::Path, rows: &[RbinRow], n_features: usize) -> Result<(), RouterError> {
     let bytes = encode_dataset(rows, n_features)?;
     std::fs::write(path, bytes)?;
     Ok(())
