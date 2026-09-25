@@ -29,7 +29,12 @@ LOG="$OUT/driver.log"; SUMMARY="$OUT/summary.txt"
 echo "$$" > "$OUT/driver.pid"
 
 log()  { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
-mark() { printf "PHASE_%-30s wall_s=%-7s status=%s\n" "$1" "$2" "$3" | tee -a "$SUMMARY"; }
+mark() {
+  printf "PHASE_%-30s wall_s=%-7s status=%s\n" "$1" "$2" "$3" | tee -a "$SUMMARY"
+  if [ -n "${PHASE_JSONL:-}" ]; then
+    printf '{"name":"%s","wall_s":%s,"status":"%s","ts":"%s"}\n' "$1" "$2" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$PHASE_JSONL"
+  fi
+}
 t0_all=$(date +%s)
 
 run_to() {
@@ -110,6 +115,23 @@ mem_disk_watch & WATCH_PID=$!
 trap 'kill "$WATCH_PID" 2>/dev/null; exit 0' INT TERM
 
 log "overnight driver starting (pid $$)"
+# ---- run metadata (once) ----
+{
+  echo "start_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "git_rev: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
+  echo "git_branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  echo "uname: $(uname -a)"
+  echo "host_model: $(sysctl -n hw.model 2>/dev/null || echo unknown)"
+  echo "hw_memsize_bytes: $(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  echo "hw_ncpu: $(sysctl -n hw.ncpu 2>/dev/null || echo 0)"
+  echo "disk_free_gb_at_start: $(df -g . | tail -1 | awk '{print $4}')"
+  echo "cargo_version: $(cargo --version 2>/dev/null || echo unknown)"
+  echo "rustc_version: $(rustc --version 2>/dev/null || echo unknown)"
+  echo "pwd: $(pwd)"
+} > "$OUT/run-metadata.txt"
+log "metadata: $OUT/run-metadata.txt"
+: > "$OUT/phases.jsonl"
+PHASE_JSONL="$OUT/phases.jsonl"
 
 # ============ Phase 0: wait turn (already done) ============
 PIDFILE=artifacts/gpu-tables/turn-build.pid
