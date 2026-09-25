@@ -6,7 +6,7 @@ use cham_blueprint::lbr::lbr_vs;
 use cham_blueprint::modes::{BeliefBins, TrainMode};
 use cham_blueprint::policy::{BlueprintPolicy, ProvenanceRecord};
 use cham_blueprint::table::{RegretTable, ThreadMode};
-use cham_blueprint::traversal::{sample_index, RbpConfig, Traversal};
+use cham_blueprint::traversal::{RbpConfig, Traversal, sample_index};
 use cham_blueprint::warmstart::warmstart_from_robust;
 use cham_core::card::{Card, Deck};
 use cham_core::engine::config::EngineConfig;
@@ -16,7 +16,11 @@ use cham_core::rng::{child, rng_from_seed};
 use cham_engine::config::AbstractionConfig;
 use cham_engine::encoder::{ActionSeq, Encoder};
 
-const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const CFG: EngineConfig = EngineConfig {
+    start_stack: 10_000,
+    sb: 50,
+    bb: 100,
+};
 const TINY: fn() -> AbstractionConfig = AbstractionConfig::tiny;
 
 fn card(s: &str) -> Card {
@@ -87,10 +91,18 @@ fn renorm_preserves_strategy() {
     assert!(scaled, "renorm should trigger above 2^22");
     let after = t.avg_strategy(off, w);
     for (b, a) in before.iter().zip(after.iter()) {
-        assert!((b - a).abs() < 1e-6, "normalized strategy preserved: {b} vs {a}");
+        assert!(
+            (b - a).abs() < 1e-6,
+            "normalized strategy preserved: {b} vs {a}"
+        );
     }
-    let max_after = (0..w).map(|a| t.strat(off, w, a).abs()).fold(0.0f32, f32::max);
-    assert!(max_after <= 1_048_576.0, "max strat_sum brought under 2^20: {max_after}");
+    let max_after = (0..w)
+        .map(|a| t.strat(off, w, a).abs())
+        .fold(0.0f32, f32::max);
+    assert!(
+        max_after <= 1_048_576.0,
+        "max strat_sum brought under 2^20: {max_after}"
+    );
 }
 
 // ---------- traversal ----------
@@ -99,7 +111,15 @@ fn renorm_preserves_strategy() {
 /// estimator's per-action values are hand-checkable via direct evaluation.
 fn river_state() -> State {
     let prefix = [
-        card("Ah"), card("2c"), card("Ad"), card("3s"), card("9h"), card("4d"), card("Js"), card("8c"), card("7d"),
+        card("Ah"),
+        card("2c"),
+        card("Ad"),
+        card("3s"),
+        card("9h"),
+        card("4d"),
+        card("Js"),
+        card("8c"),
+        card("7d"),
     ];
     let mut s = State::new(CFG, Deck::with_prefix(&prefix)).expect("s");
     // preflop: SB completes, BB checks; flop + turn check-check → river, unbet
@@ -129,7 +149,10 @@ fn exploit_enumeration_estimator() {
     let mut walker = Traversal {
         table: &mut table,
         opp: &mut opp,
-        rbp: RbpConfig { theta0: 0.0, delta: 0.99 }, // no pruning
+        rbp: RbpConfig {
+            theta0: 0.0,
+            delta: 0.99,
+        }, // no pruning
         iteration: 0,
         total_iters: 1,
         mode: cham_blueprint::modes::TrainModeTag::Exploit,
@@ -158,7 +181,11 @@ fn exploit_enumeration_estimator() {
                 cham_opponents::baselines::CallBot.act(&o2, rng)
             } else {
                 // hero continuation: check/call
-                if o2.to_call > 0 { Action::Call } else { Action::Check }
+                if o2.to_call > 0 {
+                    Action::Call
+                } else {
+                    Action::Check
+                }
             };
             s2.apply(a2).expect("legal");
         }
@@ -188,9 +215,18 @@ fn opponent_regrets_never_exist() {
     let src = std::fs::read_to_string(Path::new(manifest).join("src/traversal.rs")).expect("src");
     let opp_zone = src.split("---- opponent node ----").nth(1).expect("zone");
     let opp_zone = opp_zone.split("---- hero node").next().expect("zone end");
-    assert!(!opp_zone.contains("regret_add"), "opponent nodes must never update regrets");
-    assert!(!opp_zone.contains("strat_add"), "opponent nodes must never update strategy sums");
-    assert!(opp_zone.contains("action_probs"), "opponent consumed through action_probs");
+    assert!(
+        !opp_zone.contains("regret_add"),
+        "opponent nodes must never update regrets"
+    );
+    assert!(
+        !opp_zone.contains("strat_add"),
+        "opponent nodes must never update strategy sums"
+    );
+    assert!(
+        opp_zone.contains("action_probs"),
+        "opponent consumed through action_probs"
+    );
 }
 
 #[test]
@@ -219,7 +255,11 @@ fn seat_randomized() {
         None,
     )
     .expect("train");
-    assert!(prov.seat_histogram[0] > 0 && prov.seat_histogram[1] > 0, "both seats trained: {:?}", prov.seat_histogram);
+    assert!(
+        prov.seat_histogram[0] > 0 && prov.seat_histogram[1] > 0,
+        "both seats trained: {:?}",
+        prov.seat_histogram
+    );
 }
 
 #[test]
@@ -237,12 +277,29 @@ fn rm_plus_floors() {
         opponent: cham_opponents::OpponentSpec::CallBot,
         jitter_seed: 7,
     };
-    let (t, _) = cham_blueprint::train(&tcfg, &mode, CFG, &mut enc, ThreadMode::Deterministic, Path::new("artifacts/runs/rmp-test"), None, None).expect("train");
+    let (t, _) = cham_blueprint::train(
+        &tcfg,
+        &mode,
+        CFG,
+        &mut enc,
+        ThreadMode::Deterministic,
+        Path::new("artifacts/runs/rmp-test"),
+        None,
+        None,
+    )
+    .expect("train");
     for (k, off) in t.iter() {
         let w = t.row_width(off);
         for a in 0..w {
-            assert!(t.regret(off, a, a) >= 0.0 || t.regret(off, w, a) >= 0.0 || true, "placeholder");
-            assert!(t.regret(off, w, a) >= 0.0, "CFR+ floors regrets at 0 (key {k}): {}", t.regret(off, w, a));
+            assert!(
+                t.regret(off, a, a) >= 0.0 || t.regret(off, w, a) >= 0.0 || true,
+                "placeholder"
+            );
+            assert!(
+                t.regret(off, w, a) >= 0.0,
+                "CFR+ floors regrets at 0 (key {k}): {}",
+                t.regret(off, w, a)
+            );
         }
     }
 }
@@ -259,7 +316,17 @@ fn robust_two_sided_updates() {
         bayes_session_block: 100,
     };
     let mode = TrainMode::Robust;
-    let (_t, prov) = cham_blueprint::train(&tcfg, &mode, CFG, &mut enc, ThreadMode::Deterministic, Path::new("artifacts/runs/robust-test"), None, None).expect("train");
+    let (_t, prov) = cham_blueprint::train(
+        &tcfg,
+        &mode,
+        CFG,
+        &mut enc,
+        ThreadMode::Deterministic,
+        Path::new("artifacts/runs/robust-test"),
+        None,
+        None,
+    )
+    .expect("train");
     assert_eq!(prov.seat_histogram, [50, 50], "alternating seat updates");
 }
 
@@ -278,7 +345,10 @@ fn rbp_matches_full() {
             let mut walker = Traversal {
                 table: &mut table,
                 opp: &mut opp,
-                rbp: RbpConfig { theta0, delta: 0.96 },
+                rbp: RbpConfig {
+                    theta0,
+                    delta: 0.96,
+                },
                 iteration: t,
                 total_iters: 2000,
                 mode: cham_blueprint::modes::TrainModeTag::Exploit,
@@ -305,7 +375,11 @@ fn rbp_matches_full() {
                     let w = table.row_width(off);
                     let sigma = table.avg_strategy(off, w);
                     let slots = enc.slots(obs, seq);
-                    slots.iter().zip(sigma.iter()).map(|(s, p)| (s.action, *p)).collect()
+                    slots
+                        .iter()
+                        .zip(sigma.iter())
+                        .map(|(s, p)| (s.action, *p))
+                        .collect()
                 }
                 None => obs
                     .legal
@@ -320,7 +394,10 @@ fn rbp_matches_full() {
     let mut p_pruned = make_policy(&pruned);
     let rep_pruned = lbr_vs(&mut p_pruned, 1, CFG, &mut enc2, 200, 0x1B3).expect("lbr");
     let mb_gap = (rep_full.lbr_bb_per_hand - rep_pruned.lbr_bb_per_hand).abs() * 1000.0;
-    assert!(mb_gap < 5.0, "pruned matches full: LBR gap {mb_gap:.1} mb/hand");
+    assert!(
+        mb_gap < 5.0,
+        "pruned matches full: LBR gap {mb_gap:.1} mb/hand"
+    );
     // With RBP disabled by default (D-011) both runs must be pruning-free and
     // bit-identical in strategy; the M2 spike recalibrates the threshold.
     assert_eq!(mb_gap, 0.0, "identical configs → identical policies");
@@ -374,7 +451,10 @@ fn delayed_averaging_monotone() {
         let da: f64 = a1.iter().zip(a2.iter()).map(|(x, y)| (x - y).abs()).sum();
         let _dc: f64 = c1.iter().zip(c2.iter()).map(|(x, y)| (x - y).abs()).sum();
         assert!(da < 0.30, "averaged strategy late drift bounded: {da}");
-        assert!((c1.iter().sum::<f64>() - 1.0).abs() < 1e-9, "current iterate is a distribution");
+        assert!(
+            (c1.iter().sum::<f64>() - 1.0).abs() < 1e-9,
+            "current iterate is a distribution"
+        );
     }
 }
 
@@ -389,7 +469,8 @@ fn jitter_redraw_per_iter() {
     let b = cham_opponents::archetype::ArchetypeAgent::jittered(ArchetypeId::Tag, s1, chart);
     let c = cham_opponents::archetype::ArchetypeAgent::jittered(ArchetypeId::Tag, s2, chart);
     assert!(
-        b.params().open_raise != c.params().open_raise || b.params().cbet_flop != c.params().cbet_flop,
+        b.params().open_raise != c.params().open_raise
+            || b.params().cbet_flop != c.params().cbet_flop,
         "per-iteration redraws must differ"
     );
 }
@@ -413,7 +494,17 @@ fn determinism_same_seed_and_resume() {
             jitter_seed: 13,
         };
         let dir = std::path::Path::new("artifacts/runs/det-test");
-        let (t, _) = cham_blueprint::train(&tcfg, &mode, CFG, &mut enc, ThreadMode::Deterministic, dir, None, None).expect("train");
+        let (t, _) = cham_blueprint::train(
+            &tcfg,
+            &mode,
+            CFG,
+            &mut enc,
+            ThreadMode::Deterministic,
+            dir,
+            None,
+            None,
+        )
+        .expect("train");
         let _ = resume;
         let mut sum = 0u64;
         for (k, off) in t.iter() {
@@ -427,7 +518,10 @@ fn determinism_same_seed_and_resume() {
     };
     let a = run(None);
     let b = run(None);
-    assert_eq!(a, b, "deterministic mode: same seed → identical table digest");
+    assert_eq!(
+        a, b,
+        "deterministic mode: same seed → identical table digest"
+    );
 }
 
 #[test]
@@ -447,7 +541,17 @@ fn resume_continues_bitstream() {
             opponent: cham_opponents::OpponentSpec::CallBot,
             jitter_seed: 21,
         };
-        let (t, _) = cham_blueprint::train(&tcfg, &mode, CFG, &mut enc, ThreadMode::Deterministic, Path::new("artifacts/runs/resume-test"), None, resume).expect("train");
+        let (t, _) = cham_blueprint::train(
+            &tcfg,
+            &mode,
+            CFG,
+            &mut enc,
+            ThreadMode::Deterministic,
+            Path::new("artifacts/runs/resume-test"),
+            None,
+            resume,
+        )
+        .expect("train");
         let mut sum = 0u64;
         for (k, off) in t.iter() {
             let w = t.row_width(off);
@@ -516,7 +620,15 @@ fn exploit_bayes_bins() {
     // key includes the bin
     let cfg = TINY();
     let mut enc = Encoder::cfg_only(cfg).expect("enc");
-    let prefix = [card("Ah"), card("2c"), card("Kd"), card("3s"), card("9h"), card("4d"), card("Js")];
+    let prefix = [
+        card("Ah"),
+        card("2c"),
+        card("Kd"),
+        card("3s"),
+        card("9h"),
+        card("4d"),
+        card("Js"),
+    ];
     let mut s = State::new(CFG, Deck::with_prefix(&prefix)).expect("s");
     s.apply(Action::Call).expect("ok");
     s.apply(Action::Check).expect("ok");
@@ -536,12 +648,14 @@ fn lbr_known_values() {
     // 10 mb on the same deals.
     let engine = EngineConfig::depth(100);
     let cfg = TINY();
-    let mut uniform = |_obs: &Observables<'_>, _seq: &ActionSeq| -> Vec<(Action, f64)> {
-        vec![]
-    };
+    let mut uniform = |_obs: &Observables<'_>, _seq: &ActionSeq| -> Vec<(Action, f64)> { vec![] };
     let mut enc = Encoder::cfg_only(cfg).expect("enc");
     let rep = lbr_vs(&mut uniform, 0, engine, &mut enc, 200, 0x1B2).expect("lbr");
-    assert!(rep.lbr_bb_per_hand >= -0.10, "BR vs a broken policy is still bounded: {}", rep.lbr_bb_per_hand);
+    assert!(
+        rep.lbr_bb_per_hand >= -0.10,
+        "BR vs a broken policy is still bounded: {}",
+        rep.lbr_bb_per_hand
+    );
     // a STRONG policy (always jams) gives BR ≥ its own value; and BR vs uniform-check
     // policy on trips must be strongly positive (hero has the nuts).
     let mut check_only = |obs: &Observables<'_>, _seq: &ActionSeq| -> Vec<(Action, f64)> {
@@ -556,7 +670,11 @@ fn lbr_known_values() {
         v
     };
     let rep2 = lbr_vs(&mut check_only, 0, engine, &mut enc, 200, 0x1B2).expect("lbr");
-    assert!(rep2.lbr_bb_per_hand > 0.5, "BR vs check-only with trips (seat 0 = SB, was dealt Ah Ad): {}", rep2.lbr_bb_per_hand);
+    assert!(
+        rep2.lbr_bb_per_hand > 0.5,
+        "BR vs check-only with trips (seat 0 = SB, was dealt Ah Ad): {}",
+        rep2.lbr_bb_per_hand
+    );
 }
 
 #[test]
@@ -615,10 +733,29 @@ fn exploit_vs_constant_callbot() {
         opponent: cham_opponents::OpponentSpec::CallBot,
         jitter_seed: 3,
     };
-    let (table, _) = cham_blueprint::train(&tcfg, &mode, CFG, &mut enc, ThreadMode::Deterministic, Path::new("artifacts/runs/ev-test"), None, None).expect("train");
+    let (table, _) = cham_blueprint::train(
+        &tcfg,
+        &mode,
+        CFG,
+        &mut enc,
+        ThreadMode::Deterministic,
+        Path::new("artifacts/runs/ev-test"),
+        None,
+        None,
+    )
+    .expect("train");
     // evaluate: play the averaged policy vs CallBot over seeded deals
-    let ev = eval_policy_vs(&table, &mut enc, cham_opponents::OpponentSpec::CallBot, 3000, 0xE5A5);
-    assert!(ev >= 0.40, "trained exploit EV vs CallBot must be ≥ +0.40 bb/hand, got {ev:.3}");
+    let ev = eval_policy_vs(
+        &table,
+        &mut enc,
+        cham_opponents::OpponentSpec::CallBot,
+        3000,
+        0xE5A5,
+    );
+    assert!(
+        ev >= 0.40,
+        "trained exploit EV vs CallBot must be ≥ +0.40 bb/hand, got {ev:.3}"
+    );
 }
 
 /// Play the averaged strategy vs an opponent for `deals` duplicate-ish deals (SB seat).
@@ -677,7 +814,17 @@ fn warmstart_exact_keys_and_beats_cold() {
         snapshot_every: 2_000,
         bayes_session_block: 100,
     };
-    let (robust_table, _) = cham_blueprint::train(&robust_cfg, &TrainMode::Robust, CFG, &mut enc, ThreadMode::Deterministic, Path::new("artifacts/runs/ws-robust"), None, None).expect("robust");
+    let (robust_table, _) = cham_blueprint::train(
+        &robust_cfg,
+        &TrainMode::Robust,
+        CFG,
+        &mut enc,
+        ThreadMode::Deterministic,
+        Path::new("artifacts/runs/ws-robust"),
+        None,
+        None,
+    )
+    .expect("robust");
     let mut dst = RegretTable::new(ThreadMode::Deterministic);
     warmstart_from_robust(&robust_table, &mut dst);
     for (k, _off) in robust_table.iter() {
@@ -723,9 +870,77 @@ fn warmstart_exact_keys_and_beats_cold() {
             };
             walker.walk(&mut state, (t % 2) as usize, w_t, &mut seq, &mut enc, rng);
         }
-        eval_policy_vs(&table, &mut enc, cham_opponents::OpponentSpec::CallBot, 1500, 0x5A5A)
+        eval_policy_vs(
+            &table,
+            &mut enc,
+            cham_opponents::OpponentSpec::CallBot,
+            1500,
+            0x5A5A,
+        )
     };
     let warm = ev_from(true);
     let cold = ev_from(false);
-    assert!(warm >= cold - 0.05, "warm-start ({warm}) should not trail cold ({cold}) at matched compute");
+    assert!(
+        warm >= cold - 0.05,
+        "warm-start ({warm}) should not trail cold ({cold}) at matched compute"
+    );
+}
+
+#[test]
+fn snapbatch_buffer_aggregates() {
+    // DeltaBuffer flush = one atomic op per slot: sums must aggregate exactly,
+    // CFR+ flooring applies once to the summed delta, visits count runs.
+    use cham_blueprint::table::DeltaBuffer;
+    let mut t = RegretTable::new(ThreadMode::Snapbatch);
+    let (off, w) = t.entry_or_insert(0x5A9u64 | (1 << 63), 2);
+    assert_eq!(w, 2);
+    let mut buf = DeltaBuffer::new();
+    buf.push_regret(off, 0, 1.5);
+    buf.push_regret(off, 0, 2.5);
+    buf.push_regret(off, 1, -3.0);
+    buf.push_strat(off, w, 0, 1.0);
+    buf.push_strat(off, w, 0, 2.0);
+    buf.push_weight(off, w, 0.5);
+    buf.push_visit(off, w);
+    buf.push_visit(off, w);
+    buf.flush(&t);
+    assert!(buf.is_empty());
+    assert!((t.regret(off, w, 0) - 4.0).abs() < 1e-6);
+    assert!(
+        (t.regret(off, w, 1) - 0.0).abs() < 1e-6,
+        "CFR+ floors at zero"
+    );
+    assert!((t.strat(off, w, 0) - 3.0).abs() < 1e-6);
+    assert!((t.avg_weight(off, w) - 0.5).abs() < 1e-6);
+    assert_eq!(t.visits(off, w), 2);
+}
+
+#[test]
+fn snapbatch_train_smoke() {
+    // Snapbatch training runs end to end, fills rows, and records threads.
+    let cfg = TINY();
+    let mut enc = Encoder::cfg_only(cfg.clone()).expect("enc");
+    let tcfg = cham_blueprint::TrainerConfig {
+        depth_bb: 100,
+        iters: 30,
+        train_seed: 0x5BAB,
+        snapshot_every: 30,
+        bayes_session_block: 100,
+    };
+    let dir = Path::new("artifacts/runs/snap-test");
+    let (t, prov) = cham_blueprint::train_with_threads(
+        &tcfg,
+        &TrainMode::Robust,
+        CFG,
+        &mut enc,
+        ThreadMode::Snapbatch,
+        cham_blueprint::default_threads(ThreadMode::Snapbatch),
+        dir,
+        None,
+        None,
+    )
+    .expect("snapbatch train");
+    assert!(!t.is_empty(), "snapbatch must fill infoset rows");
+    assert_eq!(prov.thread_mode, ThreadMode::Snapbatch);
+    assert!(prov.threads >= 1);
 }

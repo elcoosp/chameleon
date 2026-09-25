@@ -19,6 +19,175 @@ use crate::BlueprintError;
 pub enum ThreadMode {
     Deterministic,
     Hogwild,
+    /// Batched Hogwild-class updates (PERF-PLAN T3): each worker accumulates
+    /// regret/strategy/weight/visit deltas in a thread-local [`DeltaBuffer`]
+    /// and flushes one atomic op per slot. Plain adds are associative, so
+    /// results stay statistically identical; single-threaded `Deterministic`
+    /// math is untouched (bit-exact).
+    Snapbatch,
+}
+
+/// Thread-local snapbatch delta buffer (PERF-PLAN T3).
+///
+/// Workers push per-visit `(slot, delta)` pairs with zero atomics; flush
+/// sorts each lane by slot, sums runs, and applies ONE atomic op per slot
+/// (`fetch_add` for strategy/weight/visits, one CFR+ CAS for regrets).
+/// Pre-reserved at 4096 entries; flushes when full or every
+/// [`DeltaBuffer::FLUSH_EVERY`] traversals (K = 64 default).
+#[derive(Clone, Debug, Default)]
+pub struct DeltaBuffer {
+    /// packed key `(off << 8) | (w << 4) | a`, delta
+    regrets: Vec<(u64, f32)>,
+    strats: Vec<(u64, f32)>,
+    /// packed key `(off << 8) | w`, delta
+    weights: Vec<(u64, f32)>,
+    /// packed key `(off << 8) | w`
+    visits: Vec<u64>,
+    traversals_since_flush: u32,
+}
+
+impl DeltaBuffer {
+    /// Flush cadence in traversals (K = 64 default).
+    pub const FLUSH_EVERY: u32 = 64;
+    /// Buffer capacity per lane before a forced flush.
+    pub const CAP: usize = 4096;
+
+    pub fn new() -> DeltaBuffer {
+        DeltaBuffer {
+            regrets: Vec::with_capacity(Self::CAP),
+            strats: Vec::with_capacity(Self::CAP),
+            weights: Vec::with_capacity(1024),
+            visits: Vec::with_capacity(1024),
+            traversals_since_flush: 0,
+        }
+    }
+
+    #[inline]
+    fn regret_key(off: u32, a: usize) -> u64 {
+        ((off as u64) << 8) | (a as u64 & 0xff)
+    }
+
+    #[inline]
+    fn row_key(off: u32, w: usize) -> u64 {
+        ((off as u64) << 8) | (w as u64 & 0xff)
+    }
+
+    #[inline]
+    fn strat_key(off: u32, w: usize, a: usize) -> u64 {
+        ((off as u64) << 12) | ((w as u64 & 0xf) << 8) | (a as u64 & 0xff)
+    }
+
+    pub fn push_regret(&mut self, off: u32, a: usize, delta: f32) {
+        self.regrets.push((Self::regret_key(off, a), delta));
+    }
+
+    pub fn push_strat(&mut self, off: u32, w: usize, a: usize, delta: f32) {
+        self.strats.push((Self::strat_key(off, w, a), delta));
+    }
+
+    pub fn push_weight(&mut self, off: u32, w: usize, delta: f32) {
+        self.weights.push((Self::row_key(off, w), delta));
+    }
+
+    pub fn push_visit(&mut self, off: u32, w: usize) {
+        self.visits.push(Self::row_key(off, w));
+    }
+
+    pub fn len(&self) -> usize {
+        self.regrets.len() + self.strats.len() + self.weights.len() + self.visits.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn regrets_full(&self) -> bool {
+        self.regrets.len() >= Self::CAP
+    }
+
+    pub fn strats_full(&self) -> bool {
+        self.strats.len() >= Self::CAP
+    }
+
+    /// Record one finished traversal; returns true when the buffer should be
+    /// flushed (full, or K traversals since the last flush).
+    pub fn note_traversal(&mut self) -> bool {
+        self.traversals_since_flush += 1;
+        self.regrets.len() >= Self::CAP
+            || self.strats.len() >= Self::CAP
+            || self.traversals_since_flush >= Self::FLUSH_EVERY
+    }
+
+    /// Aggregate per slot and apply one atomic op per slot, then clear.
+    pub fn flush(&mut self, table: &RegretTable) {
+        if self.regrets.is_empty()
+            && self.strats.is_empty()
+            && self.weights.is_empty()
+            && self.visits.is_empty()
+        {
+            self.traversals_since_flush = 0;
+            return;
+        }
+        // CFR+ regrets: sum per slot, one floored CAS per slot.
+        self.regrets.sort_by_key(|&(k, _)| k);
+        let mut i = 0;
+        while i < self.regrets.len() {
+            let k = self.regrets[i].0;
+            let mut sum = 0.0f32;
+            while i < self.regrets.len() && self.regrets[i].0 == k {
+                sum += self.regrets[i].1;
+                i += 1;
+            }
+            let slot = (k >> 8) as usize + (k & 0xff) as usize;
+            table.regret_add_cfr_plus_slot(slot, sum);
+        }
+        // Strategy sums: plain associative adds, one per slot.
+        Self::flush_pairs(&mut self.strats, &mut |key, sum| {
+            let slot = (key >> 12) as usize + ((key >> 8) & 0xf) as usize + (key & 0xff) as usize;
+            table.add_f32_slot(slot, sum);
+        });
+        // Average weights: one per row.
+        Self::flush_pairs(&mut self.weights, &mut |key, sum| {
+            let off = (key >> 8) as u32;
+            let w = (key & 0xff) as usize;
+            table.add_weight(off, w, sum);
+        });
+        // Visits: counted runs, one fetch_add per row.
+        self.visits.sort_unstable();
+        let mut j = 0;
+        while j < self.visits.len() {
+            let k = self.visits[j];
+            let mut n = 0u32;
+            while j < self.visits.len() && self.visits[j] == k {
+                n += 1;
+                j += 1;
+            }
+            table.add_visits((k >> 8) as u32, (k & 0xff) as usize, n);
+        }
+        self.clear();
+    }
+
+    fn flush_pairs(lane: &mut [(u64, f32)], apply: &mut impl FnMut(u64, f32)) {
+        lane.sort_by_key(|a| a.0);
+        let mut i = 0;
+        while i < lane.len() {
+            let k = lane[i].0;
+            let mut sum = 0.0f32;
+            while i < lane.len() && lane[i].0 == k {
+                sum += lane[i].1;
+                i += 1;
+            }
+            apply(k, sum);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.regrets.clear();
+        self.strats.clear();
+        self.weights.clear();
+        self.visits.clear();
+        self.traversals_since_flush = 0;
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -40,7 +209,11 @@ impl Arena {
 
 impl Arena {
     fn with_capacity(n: usize) -> Arena {
-        Arena { cells: (0..n).map(|_| std::sync::atomic::AtomicU32::new(0)).collect() }
+        Arena {
+            cells: (0..n)
+                .map(|_| std::sync::atomic::AtomicU32::new(0))
+                .collect(),
+        }
     }
     #[inline]
     fn load(&self, i: usize) -> u32 {
@@ -103,7 +276,14 @@ impl RegretTable {
     pub fn with_capacity(mode: ThreadMode, cap: usize) -> RegretTable {
         let slots_cap = cap.next_power_of_two();
         RegretTable {
-            slots: vec![Slot { key: 0, off: 0, w: 0 }; slots_cap],
+            slots: vec![
+                Slot {
+                    key: 0,
+                    off: 0,
+                    w: 0
+                };
+                slots_cap
+            ],
             mask: slots_cap - 1,
             n: 0,
             arena: Arena::with_capacity(slots_cap * 4),
@@ -154,7 +334,9 @@ impl RegretTable {
         let off = self.arena_len;
         self.arena_len += row;
         if self.arena.len() < self.arena_len as usize {
-            self.arena.cells.reserve(self.arena_len as usize - self.arena.len());
+            self.arena
+                .cells
+                .reserve(self.arena_len as usize - self.arena.len());
         }
         while self.arena.len() < self.arena_len as usize {
             self.arena.cells.push(std::sync::atomic::AtomicU32::new(0));
@@ -163,14 +345,25 @@ impl RegretTable {
         while self.slots[i].key != 0 {
             i = (i + 1) & self.mask;
         }
-        self.slots[i] = Slot { key, off, w: w as u8 };
+        self.slots[i] = Slot {
+            key,
+            off,
+            w: w as u8,
+        };
         self.n += 1;
         (off, w)
     }
 
     fn grow(&mut self) {
         let new_cap = (self.mask + 1) * 2;
-        let mut slots = vec![Slot { key: 0, off: 0, w: 0 }; new_cap];
+        let mut slots = vec![
+            Slot {
+                key: 0,
+                off: 0,
+                w: 0
+            };
+            new_cap
+        ];
         let mask = new_cap - 1;
         for s in &self.slots {
             if s.key != 0 {
@@ -238,6 +431,32 @@ impl RegretTable {
         self.arena.fetch_add(self.slot_of(off, 2 * w + 1), 1);
     }
 
+    /// Batched visit adds (snapbatch flush path): one `fetch_add` per slot.
+    pub fn add_visits(&self, off: u32, w: usize, n: u32) {
+        if n > 0 {
+            self.arena.fetch_add(self.slot_of(off, 2 * w + 1), n);
+        }
+    }
+
+    /// Batched CFR+ regret add at an absolute arena slot (snapbatch flush path).
+    pub fn regret_add_cfr_plus_slot(&self, slot: usize, delta: f32) {
+        use std::sync::atomic::Ordering::*;
+        let cell = &self.arena.cells[slot];
+        let mut cur = cell.load(Relaxed);
+        loop {
+            let new_val = (f32::from_bits(cur) + delta).max(0.0);
+            match cell.compare_exchange_weak(cur, new_val.to_bits(), Relaxed, Relaxed) {
+                Ok(_) => return,
+                Err(observed) => cur = observed,
+            }
+        }
+    }
+
+    /// Batched plain float add at an absolute arena slot (snapbatch flush path).
+    pub fn add_f32_slot(&self, slot: usize, delta: f32) {
+        self.arena.add_f32(slot, delta);
+    }
+
     /// Regret-matching+ strategy: σ(a) ∝ max(R_a, 0); uniform if all ≤ 0.
     pub fn sigma_rms(&self, off: u32, w: usize) -> Vec<f64> {
         let mut pos = [0f64; 12];
@@ -261,7 +480,9 @@ impl RegretTable {
         if total <= 0.0 {
             return vec![1.0 / w as f64; w];
         }
-        (0..w).map(|a| (self.strat(off, w, a) / total) as f64).collect()
+        (0..w)
+            .map(|a| (self.strat(off, w, a) / total) as f64)
+            .collect()
     }
 
     /// f32 growth guard (SPECS/04 §2): scale strat_sum + avg_weight by 2^-k when
@@ -286,17 +507,26 @@ impl RegretTable {
         }
         for a in 0..w {
             let cur = self.strat(off, w, a);
-            self.arena.store(self.slot_of(off, w + a), (cur / 2f32.powi(k as i32)).to_bits());
+            self.arena.store(
+                self.slot_of(off, w + a),
+                (cur / 2f32.powi(k as i32)).to_bits(),
+            );
         }
         let wgt = self.avg_weight(off, w);
-        self.arena.store(self.slot_of(off, 2 * w), (wgt / 2f32.powi(k as i32)).to_bits());
+        self.arena.store(
+            self.slot_of(off, 2 * w),
+            (wgt / 2f32.powi(k as i32)).to_bits(),
+        );
         self.renorm_events += 1;
         true
     }
 
     /// Iterate all (key, off) pairs in slot order (for snapshots / warm-start).
     pub fn iter(&self) -> impl Iterator<Item = (u64, u32)> + '_ {
-        self.slots.iter().filter(|s| s.key != 0).map(|s| (s.key, s.off))
+        self.slots
+            .iter()
+            .filter(|s| s.key != 0)
+            .map(|s| (s.key, s.off))
     }
 
     /// Row width for a stored key (None if absent).
@@ -355,7 +585,11 @@ impl RegretTable {
             rows.push((s.key, s.w, cells));
         }
         rows.sort_by_key(|r| r.0);
-        let snap = Snap { n: self.n, mode: self.mode, rows };
+        let snap = Snap {
+            n: self.n,
+            mode: self.mode,
+            rows,
+        };
         let raw = bincode::serialize(&snap).unwrap_or_default();
         zstd::bulk::compress(&raw, 3).unwrap_or_default()
     }
@@ -373,7 +607,14 @@ impl RegretTable {
         let snap: Snap = bincode::deserialize(&raw)
             .map_err(|e| BlueprintError::Table(format!("bincode: {e}")))?;
         let slots_cap = (snap.n.max(16) * 2).next_power_of_two();
-        self.slots = vec![Slot { key: 0, off: 0, w: 0 }; slots_cap];
+        self.slots = vec![
+            Slot {
+                key: 0,
+                off: 0,
+                w: 0
+            };
+            slots_cap
+        ];
         self.mask = slots_cap - 1;
         self.n = 0;
         self.arena = Arena::with_capacity(slots_cap * 4);

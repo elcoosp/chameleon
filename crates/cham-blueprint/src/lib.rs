@@ -18,10 +18,12 @@ pub mod traversal;
 pub mod warmstart;
 
 pub use modes::{BeliefBins, TrainMode};
-pub use table::ThreadMode;
 pub use policy::{BlueprintPolicy, ProvenanceRecord};
 pub use table::RegretTable;
-pub use trainer::{averaging_weight, train, RunProvenance, TrainerConfig};
+pub use table::{DeltaBuffer, ThreadMode};
+pub use trainer::{
+    RunProvenance, TrainerConfig, averaging_weight, default_threads, train, train_with_threads,
+};
 
 use thiserror::Error;
 
@@ -31,7 +33,10 @@ pub enum BlueprintError {
     #[error("table: {0}")]
     Table(String),
     #[error("artifact {path}: {reason}")]
-    Artifact { path: std::path::PathBuf, reason: String },
+    Artifact {
+        path: std::path::PathBuf,
+        reason: String,
+    },
     #[error("provenance: {0}")]
     Provenance(String),
     #[error("abstraction hash mismatch: expected {expected:#x}, found {found:#x}")]

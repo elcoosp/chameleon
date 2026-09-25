@@ -19,7 +19,88 @@ use cham_core::obs::{Agent, Observables, Player};
 use cham_core::rng::Rng;
 
 use crate::modes::TrainModeTag;
-use crate::table::RegretTable;
+use crate::table::{DeltaBuffer, RegretTable};
+
+/// Update sink for hero-node writes (PERF-PLAN T3).
+///
+/// `Deterministic` training writes through [`DirectSink`] (the historical
+/// behavior, bit-exact). `Snapbatch` training buffers through
+/// [`SnapBatchSink`] and flushes one atomic op per slot.
+pub trait RegretSink {
+    fn add_regret(&mut self, table: &RegretTable, off: u32, a: usize, delta: f32);
+    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f32);
+    fn add_weight(&mut self, table: &RegretTable, off: u32, w: usize, delta: f32);
+    fn add_visit(&mut self, table: &RegretTable, off: u32, w: usize);
+}
+
+/// Direct atomic writes (existing behavior; `Deterministic` is bit-exact).
+pub struct DirectSink;
+
+impl RegretSink for DirectSink {
+    fn add_regret(&mut self, table: &RegretTable, off: u32, a: usize, delta: f32) {
+        table.regret_add_cfr_plus(off, a, delta);
+    }
+    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f32) {
+        table.strat_add(off, w, a, delta);
+    }
+    fn add_weight(&mut self, table: &RegretTable, off: u32, w: usize, delta: f32) {
+        table.add_weight(off, w, delta);
+    }
+    fn add_visit(&mut self, table: &RegretTable, off: u32, w: usize) {
+        table.add_visit(off, w);
+    }
+}
+
+/// Buffered snapbatch writes: zero atomics per visit; flush aggregates to
+/// one atomic op per slot. Flushes automatically when the buffer fills; the
+/// owner flushes leftovers every K traversals (or at iteration end).
+pub struct SnapBatchSink {
+    pub buf: DeltaBuffer,
+}
+
+impl SnapBatchSink {
+    pub fn new() -> SnapBatchSink {
+        SnapBatchSink {
+            buf: DeltaBuffer::new(),
+        }
+    }
+
+    /// Flush buffered deltas into the table (one atomic op per slot).
+    pub fn flush(&mut self, table: &RegretTable) {
+        self.buf.flush(table);
+    }
+
+    pub fn pending(&self) -> usize {
+        self.buf.len()
+    }
+}
+
+impl Default for SnapBatchSink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RegretSink for SnapBatchSink {
+    fn add_regret(&mut self, table: &RegretTable, off: u32, a: usize, delta: f32) {
+        self.buf.push_regret(off, a, delta);
+        if self.buf.regrets_full() {
+            self.buf.flush(table);
+        }
+    }
+    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f32) {
+        self.buf.push_strat(off, w, a, delta);
+        if self.buf.strats_full() {
+            self.buf.flush(table);
+        }
+    }
+    fn add_weight(&mut self, _table: &RegretTable, off: u32, w: usize, delta: f32) {
+        self.buf.push_weight(off, w, delta);
+    }
+    fn add_visit(&mut self, _table: &RegretTable, off: u32, w: usize) {
+        self.buf.push_visit(off, w);
+    }
+}
 
 /// Regret-based pruning configuration (SPECS/04 §4).
 #[derive(Clone, Copy, Debug)]
@@ -35,7 +116,10 @@ impl Default for RbpConfig {
     /// recalibration is deferred to the M2 throughput spike (SPECS/11 fallback
     /// table). The machinery stays; `rbp_matches_full` pins no-corruption.
     fn default() -> Self {
-        RbpConfig { theta0: 0.0, delta: 1.0 }
+        RbpConfig {
+            theta0: 0.0,
+            delta: 1.0,
+        }
     }
 }
 
@@ -54,6 +138,8 @@ pub struct Traversal<'a> {
 }
 
 impl<'a> Traversal<'a> {
+    /// Single traversal returning hero utility (bb). `Deterministic`
+    /// behavior: writes go directly to the table (bit-exact).
     #[allow(clippy::too_many_arguments)]
     pub fn walk(
         &mut self,
@@ -63,6 +149,23 @@ impl<'a> Traversal<'a> {
         seq: &mut cham_engine::encoder::ActionSeq,
         enc: &mut cham_engine::Encoder,
         rng: &mut Rng,
+    ) -> f64 {
+        let mut sink = DirectSink;
+        self.walk_with_sink(state, hero_seat, w_t, seq, enc, rng, &mut sink)
+    }
+
+    /// Traversal with an explicit update sink (`Snapbatch` buffers deltas;
+    /// see [`RegretSink`]). Recursive calls thread the same sink through.
+    #[allow(clippy::too_many_arguments)]
+    pub fn walk_with_sink(
+        &mut self,
+        state: &mut State,
+        hero_seat: usize,
+        w_t: f64,
+        seq: &mut cham_engine::encoder::ActionSeq,
+        enc: &mut cham_engine::Encoder,
+        rng: &mut Rng,
+        sink: &mut dyn RegretSink,
     ) -> f64 {
         if state.is_terminal() {
             return state.payoffs()[hero_seat] as f64 / 100.0;
@@ -75,26 +178,35 @@ impl<'a> Traversal<'a> {
             // In Robust mode the opponent is the other seat's CURRENT strategy
             // sampled from its own rows; in Exploit modes the scripted oracle.
             let dist: Vec<(Action, f64)> = if self.mode == TrainModeTag::Robust {
-                let key = enc.key(&obs, seq);
-                let w_slots = enc.n_slots(&obs, seq);
+                // One ladder derivation per visit (PERF-PLAN T4): slots feed
+                // the key, the width and the action mapping together.
+                let slots = enc.slots(&obs, seq);
+                let key = enc.key_for(&obs, seq, &slots);
+                let w_slots = slots.len();
                 match self.table.find(key.0) {
                     Some(off) => {
                         let sigma = self.table.sigma_rms(off, w_slots);
-                        let slots = enc.slots(&obs, seq);
                         sigma
                             .iter()
                             .enumerate()
                             .map(|(i, pr)| (slots[i].action, *pr))
                             .collect()
                     }
-                    None => enc.slots(&obs, seq).iter().map(|s| (s.action, 1.0 / enc.n_slots(&obs, seq) as f64)).collect(),
+                    None => slots
+                        .iter()
+                        .map(|s| (s.action, 1.0 / w_slots as f64))
+                        .collect(),
                 }
             } else {
                 match self.opp.action_probs(&obs) {
                     Ok(d) => d.iter().map(|(a, p)| (*a, *p)).collect(),
                     Err(_) => {
-                        let w_slots = enc.n_slots(&obs, seq);
-                        enc.slots(&obs, seq).iter().map(|s| (s.action, 1.0 / w_slots as f64)).collect()
+                        let slots = enc.slots(&obs, seq);
+                        let w_slots = slots.len();
+                        slots
+                            .iter()
+                            .map(|s| (s.action, 1.0 / w_slots as f64))
+                            .collect()
                     }
                 }
             };
@@ -102,13 +214,16 @@ impl<'a> Traversal<'a> {
             enc.record(&obs, Player::from_usize(p), a, seq);
             let out = state.apply(a).expect("sampled action is legal");
             let _ = out;
-            return self.walk(state, hero_seat, w_t, seq, enc, rng);
+            return self.walk_with_sink(state, hero_seat, w_t, seq, enc, rng, sink);
         }
 
         // ---- hero node (or the updating seat in Robust mode) ----
+        // One ladder derivation per visit (PERF-PLAN T4): slots feed the key,
+        // the row width and the action mapping together.
         let obs = Observables::view(state, Player::from_usize(p));
-        let key = enc.key(&obs, seq);
-        let w_slots = enc.n_slots(&obs, seq);
+        let slots = enc.slots(&obs, seq);
+        let key = enc.key_for(&obs, seq, &slots);
+        let w_slots = slots.len();
         let (off, _w) = self.table.entry_or_insert(key.0, w_slots);
         self.hero_nodes += 1;
 
@@ -121,7 +236,6 @@ impl<'a> Traversal<'a> {
         let visits = self.table.visits(off, w_slots) as f64;
 
         let sigma = self.table.sigma_rms(off, w_slots);
-        let slots = enc.slots(&obs, seq);
         let mut v = [0f64; 12];
         let mut computed: Vec<usize> = Vec::with_capacity(w_slots);
         for a in 0..w_slots {
@@ -135,7 +249,7 @@ impl<'a> Traversal<'a> {
             let mut seq2 = *seq;
             enc.record(&obs, Player::from_usize(p), real, &mut seq2);
             s2.apply(real).expect("slot action is legal");
-            v[a] = self.walk(&mut s2, hero_seat, w_t, &mut seq2, enc, rng);
+            v[a] = self.walk_with_sink(&mut s2, hero_seat, w_t, &mut seq2, enc, rng, sink);
             computed.push(a);
         }
         if !computed.is_empty() && computed.len() < w_slots {
@@ -147,15 +261,16 @@ impl<'a> Traversal<'a> {
             }
         }
         let v_bar: f64 = (0..w_slots).map(|a| sigma[a] * v[a]).sum();
-        // regret-matching+ floors at zero (SPECS/04 §4; pinned by rm_plus_floors)
+        // regret-matching+ floors at zero (SPECS/04 §4; pinned by rm_plus_floors).
+        // Writes go through the sink: direct (bit-exact) or snapbatch-buffered.
         for a in 0..w_slots {
-            self.table.regret_add_cfr_plus(off, a, (v[a] - v_bar) as f32);
+            sink.add_regret(self.table, off, a, (v[a] - v_bar) as f32);
         }
         for a in 0..w_slots {
-            self.table.strat_add(off, w_slots, a, (w_t * sigma[a]) as f32);
+            sink.add_strat(self.table, off, w_slots, a, (w_t * sigma[a]) as f32);
         }
-        self.table.add_weight(off, w_slots, w_t as f32);
-        self.table.add_visit(off, w_slots);
+        sink.add_weight(self.table, off, w_slots, w_t as f32);
+        sink.add_visit(self.table, off, w_slots);
         v_bar
     }
 }
