@@ -1,0 +1,4 @@
+routing = "bayes"             # EXP-005 arm: ExploitBayes blueprint as a policy
+search_enabled = false
+solver = "Rnr"
+g4_ledger_ref = ""
