@@ -1,12 +1,10 @@
-//! GPU kernel launchers (GPU-PLAN G0.2).
-//!
-//! Real Metal dispatch is behind `#[cfg(all(target_os = "macos", feature = "metal"))]`;
-//! everywhere else, `launch_eval7` returns `KernelError::NoDevice` so callers
-//! transparently fall back to CPU.
+//! GPU kernel launchers (GPU-PLAN G0.2 + post-G0.3 revision).
 
 use cham_core::eval::EvalTables;
 
-/// Error type scoped to kernel launches.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub use crate::mtl::GpuContext;
+
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
     #[error("no GPU available: {0}")]
@@ -15,7 +13,6 @@ pub enum KernelError {
     Metal(String),
 }
 
-/// Whether GPU kernel dispatch is possible right now.
 pub fn can_dispatch() -> bool {
     crate::probe().is_available()
 }
@@ -29,19 +26,10 @@ pub fn pack_hand(hand: &[cham_core::card::Card; 7]) -> u64 {
     v
 }
 
-/// Dispatch `eval7_kernel` over `hands_packed`, writing `out[i]`.
-///
-/// Tables are packed once per call into the exact byte layout the MSL kernel
-/// expects (see `msl/eval7.msl` header). The MSL kernel is bit-exact to
-/// `cham_core::eval::evaluate7` — see the 1M-hand test in
-/// `crates/cham-gpu/tests/consistency_eval7.rs`.
-#[cfg(all(target_os = "macos", feature = "metal"))]
-pub fn launch_eval7(
-    tables: &EvalTables<'_>,
-    hands_packed: &[u64],
-    out: &mut [u16],
-) -> Result<(), KernelError> {
-    // Packed tables buffer: [straight 8192 bytes][seven entries 16B each][flush entries 16B each]
+/// Pack an `EvalTables` view into the exact byte layout the MSL kernel
+/// expects: `straight[8192] || seven_entries*16B || flush_entries*16B`, where
+/// each entry is `(u64 key LE || u16 val LE || 6 pad)`.
+pub fn pack_tables(tables: &EvalTables<'_>) -> (Vec<u8>, u64, u64, u64, u64) {
     let mut packed: Vec<u8> =
         Vec::with_capacity(8192 + (tables.seven_entries.len() + tables.flush_entries.len()) * 16);
     packed.extend_from_slice(tables.straight);
@@ -59,23 +47,24 @@ pub fn launch_eval7(
     }
     let flush_off: u64 = 8192 + (tables.seven_entries.len() as u64) * 16;
     let flush_mask: u64 = tables.flush_mask;
-
-    crate::mtl::dispatch_eval7(
-        &packed,
-        hands_packed,
-        out,
-        seven_off,
-        seven_mask,
-        flush_off,
-        flush_mask,
-    )
+    (packed, seven_off, seven_mask, flush_off, flush_mask)
 }
 
-/// CPU-only fallback path: the GPU is not present (feature off or non-macOS).
-/// Callers should route to `evaluate7` themselves; this exists to keep the
-/// signature stable across feature states.
+/// Dispatch `eval7_kernel` over `hands_packed`, writing `out[i]`.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub fn launch_eval7(
+    ctx: &GpuContext,
+    tables: &EvalTables<'_>,
+    hands_packed: &[u64],
+    out: &mut [u16],
+) -> Result<(), KernelError> {
+    let (packed, so, sm, fo, fm) = pack_tables(tables);
+    crate::mtl::dispatch_eval7(ctx, &packed, hands_packed, out, so, sm, fo, fm)
+}
+
 #[cfg(not(all(target_os = "macos", feature = "metal")))]
 pub fn launch_eval7(
+    _ctx: &GpuContext,
     _tables: &EvalTables<'_>,
     _hands_packed: &[u64],
     _out: &mut [u16],
@@ -85,4 +74,20 @@ pub fn launch_eval7(
         crate::GpuDevice::Available { .. } => "available but metal feature off".into(),
     };
     Err(KernelError::NoDevice(reason))
+}
+
+/// Convenience: compile-once + dispatch-many. On non-macOS, returns the
+/// `NoDevice` error from `GpuContext::new`.
+#[cfg(not(all(target_os = "macos", feature = "metal")))]
+#[derive(Debug)]
+pub struct GpuContext;
+
+#[cfg(not(all(target_os = "macos", feature = "metal")))]
+impl GpuContext {
+    pub fn new() -> Result<Self, KernelError> {
+        Err(KernelError::NoDevice("metal unavailable".into()))
+    }
+    pub fn name(&self) -> String {
+        "cpu".into()
+    }
 }

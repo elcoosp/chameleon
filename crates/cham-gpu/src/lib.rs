@@ -28,6 +28,7 @@ pub mod noop;
 mod mtl;
 
 pub use device::{GpuDevice, probe};
+pub use kernels::GpuContext;
 pub use noop::GpuNoop;
 
 /// Crate version surfaced in `chameleon gpu-doctor`.
