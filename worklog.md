@@ -240,3 +240,58 @@ builds should either:
 No --resume exists today. Deferred: implementing --resume (writes into
 an existing file at a given board offset; manifest carries the last
 complete board index) is a small, useful addition for the next pass.
+
+## G2.0 Consumer discovery — the honest answer is: no current pure-acceleration consumer
+
+Per docs/GPU-PLAN.md G2.0, the search for consumers of the turn EHS table
+turned up four candidates. Analyzed by whether they can be accelerated
+*without changing behavior* (the plan's bar):
+
+| anchor | what it computes today | can GPU table accelerate without changing behavior? |
+|---|---|---|
+| `cham-opponents::archetype::ehs()` | deterministic strength *proxy* (SPECS/03 §5: "strength_now") | **No** — it is deliberately a proxy. Substituting exact EHS would change opponent policy, i.e., the data-generating process. That's a scope violation, not an acceleration. |
+| `cham-opponents::family_b::ehs()` | same proxy shape | same — No |
+| `cham-engine::build::histo_*` | 16-bin river-equity CDF over **seeded MC** runouts for flop/turn bucketing | **No** — MC and exact are different distributions. Swapping one for the other changes the bucket abstraction, which changes every downstream artifact. |
+| `cham-search::subgame` river range weights | f64 strength = **river**-equity rank | N/A — search is river-only today; the turn table is not its input. |
+
+`cham-eval/src/vr.rs` has only `allin_ev_adjusted` (the B4-wired
+duplicate-pairing stage). The **full AIVAT enumeration stage does not
+exist yet** — it is spec'd (SPECS/08 §5) but unimplemented. So there is
+nothing to accelerate in that stage either.
+
+### G2.1 skip condition (per plan §G2.1 skip rule "no consumer or <2×")
+
+Met, decisively. No CPU path exists that computes turn EHS from CPU
+samples at all. Substituting the GPU table into any of the above would
+*change semantics*, not speed up an existing bit-identical computation.
+
+### G2.2 skip condition (per plan §G2.2 "stage <30% of eval wall")
+
+Met, trivially: the stage has no implementation.
+
+### What this actually means for the table being built right now
+
+The turn EHS table has **no current home** in the workspace. This is not
+wasted work:
+
+- `docs/v3-brainstorm.md` names **turn subgame solving in live play** as
+  v3's flagship: "The GPU turn-EHS table removes the last technical
+  excuse". The table is a v3 dependency.
+- `docs/GPU-PLAN.md` itself gates G1.2's spend on "a consumer anchor"
+  being identified. That gate is loose for the turn table (it is needed
+  by v3), tight for the flop table (also v3).
+- The river table (G1.4, 6.9 GB) is different: no v3 anchor either, so
+  it stays SKIP under any reading.
+
+### Decision recorded
+
+- **G1.2 turn build**: continue (in flight; v3 dependency).
+- **G1.3 flop build**: pending; same v3 motivation. Disk allows (104 MB).
+- **G1.4 river build**: SKIP. No consumer, no v3 anchor. (Already
+  conditional in the plan; now explicitly resolved.)
+- **G2.1 / G2.2**: SKIP with the evidence above. Recorded as the plan's
+  own skip-with-evidence mechanism intends.
+- **G3.0 `verify --gpu`**: still valuable — it enforces P7 (bit-exactness)
+  and P8 (build throughput) on whatever tables exist, regardless of
+  consumer status. It is a correctness/measurement gate, not a
+  consumer-driven feature.
