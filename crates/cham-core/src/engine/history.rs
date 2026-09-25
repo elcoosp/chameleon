@@ -7,11 +7,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::CoreError;
 use crate::card::{Card, Deck, Hand2};
 use crate::engine::config::EngineConfig;
 use crate::engine::{Action, State, Street};
 use crate::obs::Player;
-use crate::CoreError;
 
 /// FULL information. For engine internals, eval bookkeeping, duplicate matching,
 /// replay tooling. NEVER passed to an Agent (type-level separation: agents consume
@@ -46,12 +46,16 @@ impl HandHistory {
                 return Err(CoreError::Replay("actions continue past terminal".into()));
             }
             if state.street() != *street {
-                return Err(CoreError::Replay(format!("street mismatch: record {street:?}")));
+                return Err(CoreError::Replay(format!(
+                    "street mismatch: record {street:?}"
+                )));
             }
             let expected = if player.as_usize() == state.to_act() {
                 Ok(())
             } else {
-                Err(CoreError::Replay(format!("actor mismatch: record {player:?}")))
+                Err(CoreError::Replay(format!(
+                    "actor mismatch: record {player:?}"
+                )))
             };
             expected?;
             state.apply(*action)?;

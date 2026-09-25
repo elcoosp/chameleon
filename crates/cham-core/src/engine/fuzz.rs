@@ -3,14 +3,16 @@
 
 use arrayvec::ArrayVec;
 
+use crate::CoreError;
 use crate::card::Deck;
-use crate::consts::{I2_LEGAL_NONEMPTY, I3_CHIP_CONSERVATION, I4_STACKS_NONNEG, I5_ZERO_SUM, I6_BOARD_UNIQUE};
+use crate::consts::{
+    I2_LEGAL_NONEMPTY, I3_CHIP_CONSERVATION, I4_STACKS_NONNEG, I5_ZERO_SUM, I6_BOARD_UNIQUE,
+};
 use crate::engine::config::EngineConfig;
 use crate::engine::history::HandHistory;
 use crate::engine::{Action, State};
 use crate::obs::{LegalAction, Player};
 use crate::rng::Rng;
-use crate::CoreError;
 
 /// Assert the state-level invariants (I3–I6). Cards are `Card(u8)` typed < 52 by
 /// construction only if the deck is sound — I1 checked here too.
@@ -70,9 +72,7 @@ pub fn play_random(cfg: EngineConfig, seed: u64, rng: &mut Rng) -> Result<HandHi
         for l in &legal {
             if let Action::Raise { to } = l.action {
                 debug_assert!(
-                    to >= state.min_raise_to()
-                        || l.is_all_in
-                        || to == state.max_raise_to(),
+                    to >= state.min_raise_to() || l.is_all_in || to == state.max_raise_to(),
                     "I7 min-raise progression violated"
                 );
             }
