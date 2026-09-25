@@ -162,6 +162,26 @@ phase tiny-ladder 1800 \
 phase tiny-probe 900 \
   cargo run -q --release -p cham-cli -- probe --agent full
 
+# ============================================================
+# A/B: is the ladder output stable run-to-run on the same agent?
+# ============================================================
+phase ab-ladder-variance 1800 \
+  cargo run -q --release -p cham-cli -- ladder --fast --agent full
+
+# ============================================================
+# A/B: does the mixture routing actually help vs any single arm?
+#   Same tiny bundle; only the --agent value changes.
+# ============================================================
+for arm in robust-only argmax bayes; do
+  phase "ab-arm-$arm" 1800 \
+    cargo run -q --release -p cham-cli -- ladder --fast --agent "$arm"
+done
+
+for arm in robust-only argmax bayes; do
+  phase "ab-probe-$arm" 600 \
+    cargo run -q --release -p cham-cli -- probe --agent "$arm"
+done
+
 # ============ Phase 6: full flop in BACKGROUND ============
 phase_bg full-flop 14400 \
   cargo run -q --release -p cham-gpu --features metal --bin gpu-build -- \
@@ -176,7 +196,7 @@ for tm in deterministic hogwild snapbatch; do
     nice -n 15 cargo run -q --release -p cham-cli -- train-bp \
       --mode robust --iters 10000 --depth 100 --seed 7 \
       --threads 4 --thread-mode "$tm" \
-      --out "$AB/tm-$tm" --status none 2>/dev/null || true
+      --out "$AB/tm-$tm"
 done
 
 # 6b. seed variance
