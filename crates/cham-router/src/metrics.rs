@@ -26,11 +26,7 @@ pub fn evaluate_b_test(model: &SoftmaxModel, rows: &[RbinRow]) -> (f64, f64, [f6
         .iter()
         .filter(|r| crate::dataset::split_of_session(r.session_id) == SESSION_BTEST)
         .collect();
-    (
-        top1(model, &btest),
-        ece(model, &btest),
-        recall(model, &btest),
-    )
+    (top1(model, &btest), ece(model, &btest), recall(model, &btest))
 }
 
 fn argmax(p: &[f64]) -> usize {
