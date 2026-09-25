@@ -6,46 +6,55 @@
 id = "arch:nit"
 family = "A"
 sigma_pair = 3.5
+sprt_delta_mb = 25.0
 
 [[opponents]]
 id = "arch:tag"
 family = "A"
 sigma_pair = 3.5
+sprt_delta_mb = 25.0
 
 [[opponents]]
 id = "arch:lag"
 family = "A"
 sigma_pair = 3.5
+sprt_delta_mb = 25.0
 
 [[opponents]]
 id = "arch:station"
 family = "A"
 sigma_pair = 3.5
+sprt_delta_mb = 25.0
 
 [[opponents]]
 id = "callbot"
 family = "A"
 sigma_pair = 3.0
+sprt_delta_mb = 25.0
 
 [[opponents]]
 id = "jamfix"
 family = "A"
 sigma_pair = 4.0
+sprt_delta_mb = 25.0
 
 [[opponents]]
 id = "pnash:overfold:0.15"
 family = "PN"
 sigma_pair = 3.5
+sprt_delta_mb = 25.0
 
 [[opponents]]
 id = "famB:tag"
 family = "B"
 sigma_pair = 3.5
+sprt_delta_mb = 25.0
 
 [[opponents]]
-id = "noisy:0.1:arch:lag@0"
+id = "noisy:0.1:arch:lag"
 family = "noise"
 sigma_pair = 3.5
+sprt_delta_mb = 25.0
 
 # SPRT defaults for screening arms (SPECS/10 §3)
 [sprt]
