@@ -1,8 +1,8 @@
 //! Decision traces (SPECS/07 §5): the only persistence of weights — no side
 //! channels. Emitted through cham-rec (kind `decision`).
 
-use cham_rec::Recorder;
 use cham_rec::schema::RecordKind;
+use cham_rec::Recorder;
 
 use crate::AgentError;
 
@@ -42,8 +42,7 @@ pub fn record(rec: Option<&mut Recorder>, run: &str, t: &DecisionTrace) -> Resul
             });
         }
         let _ = run;
-        rec.record(RecordKind::Decision, data)
-            .map_err(|e| AgentError::Pipeline(format!("{e}")))?;
+        rec.record(RecordKind::Decision, data).map_err(|e| AgentError::Pipeline(format!("{e}")))?;
     }
     Ok(())
 }
