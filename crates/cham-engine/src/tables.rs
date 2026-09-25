@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use cham_core::card::{Card, Hand2};
 
-use crate::EngineError;
-use crate::canon::{TableView, canonical_key};
+use crate::canon::{canonical_key, TableView};
 use crate::config::AbstractionConfig;
+use crate::EngineError;
 
 /// meta.json — everything the runtime needs besides the TOML (SPECS/02 §3).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -62,11 +62,7 @@ impl MmapTable {
             },
             other => other,
         })?;
-        Ok(MmapTable {
-            view_len: tv.len(),
-            default_bucket: tv.default_bucket,
-            bytes,
-        })
+        Ok(MmapTable { view_len: tv.len(), default_bucket: tv.default_bucket, bytes })
     }
 
     #[inline]
