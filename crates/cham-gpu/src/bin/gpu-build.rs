@@ -25,10 +25,15 @@ use std::path::PathBuf;
 // -----------------------------------------------------------------------
 // Constants (metal-only below this point is data used by the metal main).
 // -----------------------------------------------------------------------
+#[cfg(all(target_os = "macos", feature = "metal"))]
 const BOARDS_TURN: usize = 270_725; // C(52, 4)
+#[cfg(all(target_os = "macos", feature = "metal"))]
 const BOARDS_FLOP: usize = 22_100; // C(52, 3)
+#[cfg(all(target_os = "macos", feature = "metal"))]
 const HOLES: usize = 1326; // C(52, 2)
+#[cfg(all(target_os = "macos", feature = "metal"))]
 const DENOM_TURN: u64 = 45_540; // 46 * 990
+#[cfg(all(target_os = "macos", feature = "metal"))]
 const DENOM_FLOP: u64 = 1_070_190; // 1081 * 990
 
 // -----------------------------------------------------------------------
