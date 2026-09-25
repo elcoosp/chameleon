@@ -205,3 +205,38 @@ The first run reported "2.49e6 evals/s" — I'd forgotten the holes factor:
 Off by 1326×, which would have made the projected full build look like
 76 days instead of 1.4 h. Fixed in commit c0629de; verified against the
 re-measured limit=2000 run.
+
+## G1.2 build post-mortem — killed by external memory pressure
+
+Timeline (from `artifacts/gpu-tables/turn-build.log` and macOS jetsam
+traces around 20:22):
+
+- Build reached 115,200/270,725 boards (42%) at a steady 56.4 boards/s
+  before being killed. Roughly 35 minutes in.
+- Partial `turn.bin` = 603,979,776 bytes (the exact expected size for
+  115,200 boards × 1326 holes × 4 bytes). Streaming writer was behaving
+  correctly.
+- macOS jetsam logs show OOM-killer activity across the system at the
+  same time (runningboardd, SiriUploadWorker, SearchUploadWorker).
+- Current `vm.swapusage` = 0. Our process was not present in the top-15
+  RSS table after death; nothing close to 72 GB was visible.
+
+Assessment: our build did not cause the OOM. Its peak RSS is bounded by
+the BufWriter buffer (64 MB) plus small vecs (single-digit MB). The
+killing was collateral damage from an unrelated memory spike elsewhere
+on the machine.
+
+Process lesson (mine): don't launch multi-hour background jobs on the
+user's daily driver without asking. Even a memory-clean GPU run holds
+the GPU + memory bus for hours and competes for disk I/O. Future GPU
+builds should either:
+
+- run on a dedicated machine / CI macOS runner, OR
+- be kicked off only after an explicit "go" from the user, with a
+  visible PID and easy kill path (which I did provide, at least), OR
+- be chunked (--limit N per invocation, resumed via a new --resume
+  feature) so each run is bounded.
+
+No --resume exists today. Deferred: implementing --resume (writes into
+an existing file at a given board offset; manifest carries the last
+complete board index) is a small, useful addition for the next pass.
