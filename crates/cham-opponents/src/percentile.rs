@@ -7,8 +7,8 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use cham_core::card::{Card, Hand2};
-use cham_core::eval::{Range, equity_mc};
-use cham_core::rng::{Rng, child};
+use cham_core::eval::{equity_mc, Range};
+use cham_core::rng::{child, Rng};
 
 /// One chart entry: class id + its equity vs uniform preflop.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -46,25 +46,15 @@ fn build_chart() -> PercentileChart {
         let mut rng = child(0xC1A55, &format!("class{}", h.class_id()));
         let range = Range::all();
         let (w, t) = equity_mc(h, &range, &[], MC_ITERS, &mut rng);
-        entries.push(ChartEntry {
-            class_id: h.class_id(),
-            equity: w + t / 2.0,
-        });
+        entries.push(ChartEntry { class_id: h.class_id(), equity: w + t / 2.0 });
     }
     assert_eq!(entries.len(), 169, "169 classes charted");
-    entries.sort_by(|x, y| {
-        y.equity
-            .partial_cmp(&x.equity)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    entries.sort_by(|x, y| y.equity.partial_cmp(&x.equity).unwrap_or(std::cmp::Ordering::Equal));
     let mut pct_by_class = vec![0f64; 169];
     for (rank, e) in entries.iter().enumerate() {
         pct_by_class[e.class_id as usize] = rank as f64 / 169.0;
     }
-    PercentileChart {
-        entries,
-        pct_by_class,
-    }
+    PercentileChart { entries, pct_by_class }
 }
 
 static CHART: OnceLock<PercentileChart> = OnceLock::new();
