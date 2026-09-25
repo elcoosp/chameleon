@@ -380,10 +380,7 @@ fn check_gpu_gates(tables: Option<&str>, failures: &mut Vec<String>) {
         println!(
             "  table {kind:<8} boards={boards} holes={holes} denom={denom} bytes={bytes} complete={complete}"
         );
-        println!(
-            "    blake3={}",
-            &blake3_str[..blake3_str.len().min(16)]
-        );
+        println!("    blake3={}", &blake3_str[..blake3_str.len().min(16)]);
         println!("    manifest throughput = {rate:.2e} evals/s");
 
         let bin_path = dir_path.join(format!("{kind}.bin"));
@@ -470,9 +467,7 @@ fn check_gpu_gates(tables: Option<&str>, failures: &mut Vec<String>) {
                 println!("    P7 resample: {checked}/{checked} bit-equal");
             } else {
                 for (b, h, g, c) in &bad {
-                    eprintln!(
-                        "verify --gpu: P7 mismatch board={b} hole={h} gpu={g} cpu={c}"
-                    );
+                    eprintln!("verify --gpu: P7 mismatch board={b} hole={h} gpu={g} cpu={c}");
                 }
                 failures.push(format!(
                     "verify --gpu: {}/{} resample mismatches on {kind}",
