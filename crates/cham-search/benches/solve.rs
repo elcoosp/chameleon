@@ -3,18 +3,24 @@
 
 use cham_search::budget::SearchBudget;
 use cham_search::oracle;
-use cham_search::prior::{PriorStrats, collapse_to_classes};
+use cham_search::prior::{collapse_to_classes, PriorStrats};
 use cham_search::solve::solve;
+use cham_search::trigger::SolverChoice;
 use cham_search::subgame::Subgame;
 use cham_search::trigger::SearchConfig;
-use cham_search::trigger::SolverChoice;
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn standard_spot() -> (Subgame, PriorStrats) {
     // committed reference spot: 12 bb pot, 92 bb behind, 3 classes each,
     // prior = uniform check/bet/call policy
-    let hero = collapse_to_classes((0..9).map(|i| (1.0 / 9.0, i as f64 / 8.0)).collect(), 3);
-    let villain = collapse_to_classes((0..9).map(|i| (1.0 / 9.0, i as f64 / 8.0)).collect(), 3);
+    let hero = collapse_to_classes(
+        (0..9).map(|i| (1.0 / 9.0, i as f64 / 8.0)).collect(),
+        3,
+    );
+    let villain = collapse_to_classes(
+        (0..9).map(|i| (1.0 / 9.0, i as f64 / 8.0)).collect(),
+        3,
+    );
     let sg = Subgame::build(hero, villain, 12.0, 92.0, &[0.5, 1.25]).expect("sg");
     let mut prior = PriorStrats::empty();
     prior.set("check", vec![1.0]);
@@ -27,8 +33,7 @@ fn bench_solve(c: &mut Criterion) {
     let (sg, prior) = standard_spot();
     c.bench_function("solve_rnr_400", |b| {
         b.iter(|| {
-            let r =
-                solve(black_box(&sg), &prior, &SolverChoice::Rnr { p: 0.9 }, 400).expect("solve");
+            let r = solve(black_box(&sg), &prior, &SolverChoice::Rnr { p: 0.9 }, 400).expect("solve");
             r.our_strategy.len()
         })
     });
