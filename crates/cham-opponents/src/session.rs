@@ -18,15 +18,9 @@ pub struct SessionParams {
 
 impl SessionParams {
     /// Build from a spec + the (jittered) params actually drawn.
-    pub fn from_spec(
-        spec: &OpponentSpec,
-        seed: u64,
-        drawn_params: serde_json::Value,
-    ) -> SessionParams {
+    pub fn from_spec(spec: &OpponentSpec, seed: u64, drawn_params: serde_json::Value) -> SessionParams {
         let arch = match spec {
-            OpponentSpec::Arch(a) | OpponentSpec::Jitter(a, _) | OpponentSpec::FamilyB(a) => {
-                a.as_str().to_string()
-            }
+            OpponentSpec::Arch(a) | OpponentSpec::Jitter(a, _) | OpponentSpec::FamilyB(a) => a.as_str().to_string(),
             OpponentSpec::Perturbed { tilt, .. } => tilt.as_str().to_string(),
             OpponentSpec::Noisy { inner, .. } => inner.id(),
             OpponentSpec::Switcher { a, b, .. } => format!("{}->{}", a.id(), b.id()),
