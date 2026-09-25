@@ -48,7 +48,8 @@ impl ActionLadder {
 
     /// Raises already made this street (from the deterministic action seq).
     pub fn raises_this_street(street: cham_core::engine::Street, seq: &ActionSeq) -> u32 {
-        seq.count_class(street, ActionClass::Raise) + seq.count_class(street, ActionClass::Bet) // a preflop "bet" over the blind is a raise
+        seq.count_class(street, ActionClass::Raise)
+            + seq.count_class(street, ActionClass::Bet) // a preflop "bet" over the blind is a raise
     }
 
     pub fn slots(&self, obs: &Observables<'_>, seq: &ActionSeq) -> ArrayVec<AbstractAction, 12> {
@@ -56,47 +57,24 @@ impl ActionLadder {
         let facing = obs.to_call;
         let pot_after_call = obs.pot + facing;
         if facing == 0 {
-            out.push(AbstractAction {
-                action: Action::Check,
-                is_all_in: false,
-                frac: 0.0,
-            });
+            out.push(AbstractAction { action: Action::Check, is_all_in: false, frac: 0.0 });
             let max_to = obs.current_bet + obs.stack; // = stack (facing 0)
             for &f in self.fracs(obs.street) {
                 let to = (f * pot_after_call as f64).floor() as i64;
                 let to = to.clamp(obs.min_raise_to.max(1), max_to);
                 if !out.iter().any(|s| s.action == (Action::Bet { to })) {
-                    out.push(AbstractAction {
-                        action: Action::Bet { to },
-                        is_all_in: to >= max_to,
-                        frac: f,
-                    });
+                    out.push(AbstractAction { action: Action::Bet { to }, is_all_in: to >= max_to, frac: f });
                 }
             }
             if self.cfg.ladder.all_in_always && max_to > obs.current_bet {
                 let to = max_to;
-                if !out
-                    .iter()
-                    .any(|s| matches!(s.action, Action::Bet { to: t } if t == to))
-                {
-                    out.push(AbstractAction {
-                        action: Action::Bet { to },
-                        is_all_in: true,
-                        frac: f64::INFINITY,
-                    });
+                if !out.iter().any(|s| matches!(s.action, Action::Bet { to: t } if t == to)) {
+                    out.push(AbstractAction { action: Action::Bet { to }, is_all_in: true, frac: f64::INFINITY });
                 }
             }
         } else {
-            out.push(AbstractAction {
-                action: Action::Fold,
-                is_all_in: false,
-                frac: 0.0,
-            });
-            out.push(AbstractAction {
-                action: Action::Call,
-                is_all_in: facing >= obs.stack,
-                frac: 0.0,
-            });
+            out.push(AbstractAction { action: Action::Fold, is_all_in: false, frac: 0.0 });
+            out.push(AbstractAction { action: Action::Call, is_all_in: facing >= obs.stack, frac: 0.0 });
             let raises = Self::raises_this_street(obs.street, seq);
             let can_raise = obs.stack > facing
                 && obs.max_raise_to > obs.current_bet
@@ -108,46 +86,23 @@ impl ActionLadder {
                     let raise_by = f * pot_after_call as f64;
                     let to = (obs.current_bet as f64 + raise_by).floor() as i64;
                     let to = to.clamp(min_to, max_to);
-                    if !out
-                        .iter()
-                        .any(|s| matches!(s.action, Action::Raise { to: t } if t == to))
-                    {
-                        out.push(AbstractAction {
-                            action: Action::Raise { to },
-                            is_all_in: to >= max_to,
-                            frac: f,
-                        });
+                    if !out.iter().any(|s| matches!(s.action, Action::Raise { to: t } if t == to)) {
+                        out.push(AbstractAction { action: Action::Raise { to }, is_all_in: to >= max_to, frac: f });
                     }
                 }
             }
-            if self.cfg.ladder.all_in_always
-                && obs.stack > facing
-                && raises < self.cfg.ladder.raises_per_street_cap
-            {
+            if self.cfg.ladder.all_in_always && obs.stack > facing && raises < self.cfg.ladder.raises_per_street_cap {
                 let to = obs.max_raise_to;
-                if !out
-                    .iter()
-                    .any(|s| matches!(s.action, Action::Raise { to: t } if t == to))
-                {
-                    out.push(AbstractAction {
-                        action: Action::Raise { to },
-                        is_all_in: true,
-                        frac: f64::INFINITY,
-                    });
+                if !out.iter().any(|s| matches!(s.action, Action::Raise { to: t } if t == to)) {
+                    out.push(AbstractAction { action: Action::Raise { to }, is_all_in: true, frac: f64::INFINITY });
                 }
             } else if self.cfg.ladder.all_in_always && obs.stack > facing {
                 // raise cap reached but a jam is still the only aggressive option
                 let to = obs.max_raise_to;
                 if to > obs.current_bet
-                    && !out
-                        .iter()
-                        .any(|s| matches!(s.action, Action::Raise { to: t } if t == to))
+                    && !out.iter().any(|s| matches!(s.action, Action::Raise { to: t } if t == to))
                 {
-                    out.push(AbstractAction {
-                        action: Action::Raise { to },
-                        is_all_in: true,
-                        frac: f64::INFINITY,
-                    });
+                    out.push(AbstractAction { action: Action::Raise { to }, is_all_in: true, frac: f64::INFINITY });
                 }
             }
         }
@@ -164,9 +119,7 @@ impl ActionLadder {
         match a {
             Action::Fold | Action::Check | Action::Call => 0.0,
             Action::Bet { to } => to as f64 / obs.pot.max(1) as f64,
-            Action::Raise { to } => {
-                (to - obs.current_bet) as f64 / (obs.pot + obs.to_call).max(1) as f64
-            }
+            Action::Raise { to } => (to - obs.current_bet) as f64 / (obs.pot + obs.to_call).max(1) as f64,
         }
     }
 
@@ -191,11 +144,7 @@ impl ActionLadder {
         let mut best = 0usize;
         let mut best_d = f64::INFINITY;
         for (i, s) in slots.iter().enumerate() {
-            let sf = if s.frac.is_infinite() {
-                f64::MAX
-            } else {
-                s.frac
-            };
+            let sf = if s.frac.is_infinite() { f64::MAX } else { s.frac };
             let d = (sf - f).abs();
             if d < best_d {
                 best_d = d;
@@ -287,14 +236,7 @@ pub fn record_action(
     } else {
         ((sf * 12.0).round() as i64).clamp(1, 15) as u8
     };
-    seq.push(
-        obs_before.street,
-        SeqEntryRaw {
-            actor: actor.as_usize() as u8,
-            class,
-            size_bucket: bucket,
-        },
-    );
+    seq.push(obs_before.street, SeqEntryRaw { actor: actor.as_usize() as u8, class, size_bucket: bucket });
 }
 
 /// Raw seq entry before encoding.
