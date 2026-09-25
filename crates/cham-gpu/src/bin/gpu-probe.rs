@@ -23,7 +23,9 @@ fn parse_arg(name: &str, default: usize) -> usize {
     let args: Vec<String> = env::args().collect();
     for i in 0..args.len() {
         if args[i] == name {
-            if let Some(v) = args.get(i + 1) { return v.parse().unwrap_or(default); }
+            if let Some(v) = args.get(i + 1) {
+                return v.parse().unwrap_or(default);
+            }
         }
     }
     default
@@ -33,7 +35,9 @@ fn parse_mode() -> String {
     let args: Vec<String> = env::args().collect();
     for i in 0..args.len() {
         if args[i] == "--mode" {
-            if let Some(v) = args.get(i + 1) { return v.clone(); }
+            if let Some(v) = args.get(i + 1) {
+                return v.clone();
+            }
         }
     }
     "cpu".to_string()
@@ -75,15 +79,19 @@ fn run_cpu(hands: &[[Card; 7]]) -> f64 {
                 let lo = w * chunk;
                 let hi = ((w + 1) * chunk).min(n);
                 let mut local = 0u64;
-                for h in &hr[lo..hi] { local = local.wrapping_add(evaluate7(h) as u64); }
+                for h in &hr[lo..hi] {
+                    local = local.wrapping_add(evaluate7(h) as u64);
+                }
                 sr.fetch_add(local, Ordering::Relaxed);
             });
         }
     });
     let secs = t0.elapsed().as_secs_f64();
     let rate = n as f64 / secs;
-    eprintln!("CPU_ENUM_EVALS_PER_SEC = {:.3e}  ({} evals in {:.3}s, {} threads)",
-              rate, n, secs, workers);
+    eprintln!(
+        "CPU_ENUM_EVALS_PER_SEC = {:.3e}  ({} evals in {:.3}s, {} threads)",
+        rate, n, secs, workers
+    );
     let _ = sum.load(Ordering::Relaxed);
     rate
 }
@@ -98,13 +106,19 @@ fn run_gpu_cold(hands: &[[Card; 7]]) -> f64 {
     cham_gpu::kernels::launch_eval7(&ctx, &tables, &packed, &mut out).expect("launch");
     let secs = t0.elapsed().as_secs_f64();
     let rate = hands.len() as f64 / secs;
-    eprintln!("GPU_COLD_EVALS_PER_SEC = {:.3e}  (incl. compile; {} evals in {:.3}s)",
-              rate, hands.len(), secs);
+    eprintln!(
+        "GPU_COLD_EVALS_PER_SEC = {:.3e}  (incl. compile; {} evals in {:.3}s)",
+        rate,
+        hands.len(),
+        secs
+    );
     rate
 }
 
 #[cfg(not(all(target_os = "macos", feature = "metal")))]
-fn run_gpu_cold(_hands: &[[Card; 7]]) -> f64 { 0.0 }
+fn run_gpu_cold(_hands: &[[Card; 7]]) -> f64 {
+    0.0
+}
 
 /// Steady state: compile once, dispatch M times, time only the dispatches.
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -126,13 +140,21 @@ fn run_gpu_warm(hands: &[[Card; 7]], warmups: usize, reps: usize) -> f64 {
     let secs = t0.elapsed().as_secs_f64();
     let total = (hands.len() as f64) * (reps as f64);
     let rate = total / secs;
-    eprintln!("GPU_WARM_EVALS_PER_SEC = {:.3e}  ({} evals = {} hands × {} reps in {:.3}s)",
-              rate, total as u64, hands.len(), reps, secs);
+    eprintln!(
+        "GPU_WARM_EVALS_PER_SEC = {:.3e}  ({} evals = {} hands × {} reps in {:.3}s)",
+        rate,
+        total as u64,
+        hands.len(),
+        reps,
+        secs
+    );
     rate
 }
 
 #[cfg(not(all(target_os = "macos", feature = "metal")))]
-fn run_gpu_warm(_hands: &[[Card; 7]], _w: usize, _r: usize) -> f64 { 0.0 }
+fn run_gpu_warm(_hands: &[[Card; 7]], _w: usize, _r: usize) -> f64 {
+    0.0
+}
 
 /// Realistic enumeration workload: for a fixed 5-card board, iterate a sample
 /// of hero holes × all opponent holes. This is the shape the EHS builder uses;
@@ -185,13 +207,20 @@ fn run_enum(boards: usize) -> f64 {
     cham_gpu::kernels::launch_eval7(&ctx, &tables, &packed, &mut out).expect("enum");
     let secs = t0.elapsed().as_secs_f64();
     let rate = packed.len() as f64 / secs;
-    eprintln!("GPU_ENUM_EVALS_PER_SEC = {:.3e}  ({} evals, {} boards × 1326 in {:.3}s)",
-              rate, packed.len(), boards, secs);
+    eprintln!(
+        "GPU_ENUM_EVALS_PER_SEC = {:.3e}  ({} evals, {} boards × 1326 in {:.3}s)",
+        rate,
+        packed.len(),
+        boards,
+        secs
+    );
     rate
 }
 
 #[cfg(not(all(target_os = "macos", feature = "metal")))]
-fn run_enum(_b: usize) -> f64 { 0.0 }
+fn run_enum(_b: usize) -> f64 {
+    0.0
+}
 
 fn main() {
     let mode = parse_mode();
@@ -202,10 +231,25 @@ fn main() {
     println!("gpu-probe: mode={mode} hands={hands_n} boards={boards} reps={reps}");
 
     match mode.as_str() {
-        "cpu" => { let c = make_corpus(hands_n); let r = run_cpu(&c); println!("RESULT cpu={r:.3e}"); }
-        "gpu" => { let c = make_corpus(hands_n); let r = run_gpu_cold(&c); println!("RESULT gpu_cold={r:.3e}"); }
-        "warm-gpu" => { let c = make_corpus(hands_n); let r = run_gpu_warm(&c, 3, reps); println!("RESULT gpu_warm={r:.3e}"); }
-        "enum" => { let r = run_enum(boards); println!("RESULT enum={r:.3e}"); }
+        "cpu" => {
+            let c = make_corpus(hands_n);
+            let r = run_cpu(&c);
+            println!("RESULT cpu={r:.3e}");
+        }
+        "gpu" => {
+            let c = make_corpus(hands_n);
+            let r = run_gpu_cold(&c);
+            println!("RESULT gpu_cold={r:.3e}");
+        }
+        "warm-gpu" => {
+            let c = make_corpus(hands_n);
+            let r = run_gpu_warm(&c, 3, reps);
+            println!("RESULT gpu_warm={r:.3e}");
+        }
+        "enum" => {
+            let r = run_enum(boards);
+            println!("RESULT enum={r:.3e}");
+        }
         "verdict" => {
             let c = make_corpus(hands_n);
             let cpu = run_cpu(&c);
@@ -222,11 +266,23 @@ fn main() {
             println!("GPU_WARM        = {gpu_warm:.3e}   (compile-once, {reps} dispatches)");
             println!("GPU_ENUM        = {en:.3e}   (real board × 1326 scale)");
             println!("ratio_cold/cpu  = {ratio_cold:.2}×");
-            println!("ratio_warm/cpu  = {:.2}× (vs CPU)", if cpu>0.0 { gpu_warm/cpu } else {0.0});
-            println!("ratio_enum/cpu  = {:.2}× (vs CPU)", if cpu>0.0 { en/cpu } else {0.0});
+            println!(
+                "ratio_warm/cpu  = {:.2}× (vs CPU)",
+                if cpu > 0.0 { gpu_warm / cpu } else { 0.0 }
+            );
+            println!(
+                "ratio_enum/cpu  = {:.2}× (vs CPU)",
+                if cpu > 0.0 { en / cpu } else { 0.0 }
+            );
             println!("best/cpu        = {ratio:.2}×");
-            println!("verdict(10x)    = {}", if ratio >= 10.0 { "GO" } else { "NO-GO" });
+            println!(
+                "verdict(10x)    = {}",
+                if ratio >= 10.0 { "GO" } else { "NO-GO" }
+            );
         }
-        other => { eprintln!("unknown '{other}'"); std::process::exit(2); }
+        other => {
+            eprintln!("unknown '{other}'");
+            std::process::exit(2);
+        }
     }
 }

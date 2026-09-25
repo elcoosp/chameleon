@@ -38,7 +38,10 @@ fn consistency_eval7_one_million_hands() {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     {
         if !cham_gpu::kernels::can_dispatch() {
-            eprintln!("consistency_eval7: SKIP — no Metal device ({:?})", cham_gpu::probe());
+            eprintln!(
+                "consistency_eval7: SKIP — no Metal device ({:?})",
+                cham_gpu::probe()
+            );
             return;
         }
         let ctx = cham_gpu::GpuContext::new().expect("GpuContext::new");
@@ -57,11 +60,20 @@ fn consistency_eval7_one_million_hands() {
         for i in 0..N_HANDS {
             if cpu_out[i] != gpu_out1[i] {
                 mism += 1;
-                if first_bad.is_none() { first_bad = Some((i, cpu_out[i], gpu_out1[i])); }
+                if first_bad.is_none() {
+                    first_bad = Some((i, cpu_out[i], gpu_out1[i]));
+                }
             }
         }
-        assert_eq!(mism, 0, "mismatches {}/{} first={:?}", mism, N_HANDS, first_bad);
-        eprintln!("consistency_eval7: PASS — {}/{} bit-equal", N_HANDS, N_HANDS);
+        assert_eq!(
+            mism, 0,
+            "mismatches {}/{} first={:?}",
+            mism, N_HANDS, first_bad
+        );
+        eprintln!(
+            "consistency_eval7: PASS — {}/{} bit-equal",
+            N_HANDS, N_HANDS
+        );
     }
     #[cfg(not(all(target_os = "macos", feature = "metal")))]
     {
@@ -71,7 +83,15 @@ fn consistency_eval7_one_million_hands() {
 
 #[test]
 fn pack_unpack_roundtrip() {
-    let h: [Card; 7] = [Card(0), Card(1), Card(2), Card(3), Card(4), Card(5), Card(6)];
+    let h: [Card; 7] = [
+        Card(0),
+        Card(1),
+        Card(2),
+        Card(3),
+        Card(4),
+        Card(5),
+        Card(6),
+    ];
     let p = cham_gpu::kernels::pack_hand(&h);
     for (i, c) in h.iter().enumerate() {
         let back = ((p >> (6 * i as u64)) & 0x3F) as u8;

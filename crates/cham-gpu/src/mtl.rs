@@ -43,7 +43,11 @@ impl GpuContext {
         let pipeline = device
             .new_compute_pipeline_state_with_function(&function)
             .map_err(|e| KernelError::Metal(format!("pipeline: {e:?}")))?;
-        Ok(Self { device, queue, pipeline })
+        Ok(Self {
+            device,
+            queue,
+            pipeline,
+        })
     }
 
     pub fn name(&self) -> String {
@@ -93,9 +97,10 @@ pub(crate) fn dispatch_eval7(
         (hands.len() as u64) * 8,
         MTLResourceOptions::StorageModeShared,
     );
-    let out_buf = ctx
-        .device
-        .new_buffer((out.len() as u64) * 2, MTLResourceOptions::StorageModeShared);
+    let out_buf = ctx.device.new_buffer(
+        (out.len() as u64) * 2,
+        MTLResourceOptions::StorageModeShared,
+    );
 
     let hand_count: u32 = n as u32;
 
@@ -111,8 +116,16 @@ pub(crate) fn dispatch_eval7(
     enc.set_bytes(6, 8, &flush_off as *const u64 as *const std::ffi::c_void);
     enc.set_bytes(7, 8, &flush_mask as *const u64 as *const std::ffi::c_void);
     enc.dispatch_threads(
-        metal::MTLSize { width: n, height: 1, depth: 1 },
-        metal::MTLSize { width: 64, height: 1, depth: 1 },
+        metal::MTLSize {
+            width: n,
+            height: 1,
+            depth: 1,
+        },
+        metal::MTLSize {
+            width: 64,
+            height: 1,
+            depth: 1,
+        },
     );
     enc.end_encoding();
     cmd.commit();

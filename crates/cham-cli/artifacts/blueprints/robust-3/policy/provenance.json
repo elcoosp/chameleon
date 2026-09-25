@@ -1,15 +1,15 @@
 {
   "abstraction_hash": 0,
-  "artifact_hash": 18065315353827012975,
+  "artifact_hash": 13702930404544929174,
   "mode": "Robust",
   "opponent_id": null,
   "depth_bb": 100,
   "iters": 50,
   "train_seed": 3,
   "thread_mode": "Deterministic",
-  "threads": 1,
+  "threads": 8,
   "parent": null,
-  "wall_s": 0.059984459,
+  "wall_s": 0.029194833,
   "infosets": 209,
-  "created_unix": 1790336532
+  "created_unix": 1790353741
 }
