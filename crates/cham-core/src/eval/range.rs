@@ -9,6 +9,8 @@ use crate::card::Hand2;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Range(pub [u64; 21]);
 
+
+
 impl Range {
     /// All 1326 combos on.
     pub fn all() -> Range {
@@ -44,9 +46,7 @@ impl Range {
     pub fn from_percent(p: f64) -> Range {
         let p = p.clamp(0.0, 100.0);
         let want = ((p / 100.0) * 1326.0).round() as usize;
-        let mut order: Vec<(u8, usize)> = (0..1326)
-            .map(|c| (Hand2::from_combo(c).class_id(), c))
-            .collect();
+        let mut order: Vec<(u8, usize)> = (0..1326).map(|c| (Hand2::from_combo(c).class_id(), c)).collect();
         order.sort_unstable(); // by class id (pinned strength order)
         let mut r = Range::default();
         for (_, c) in order.into_iter().take(want) {
@@ -62,10 +62,7 @@ impl Range {
     pub fn remove_cards(&mut self, dead: &[crate::card::Card]) {
         for combo in 0..1326 {
             let [a, b] = Hand2::from_combo(combo).cards();
-            if dead
-                .iter()
-                .any(|d| d.idx() == a.idx() || d.idx() == b.idx())
-            {
+            if dead.iter().any(|d| d.idx() == a.idx() || d.idx() == b.idx()) {
                 self.set(combo, false);
             }
         }
