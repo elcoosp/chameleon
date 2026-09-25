@@ -16,3 +16,7 @@ wr.sh
 
 # GPU tables (GPU-PLAN G1.0; large binaries, rebuilt locally)
 artifacts/gpu-tables/
+
+# GPU-track baseline bench capture (regenerated on demand)
+bench-before-gpu.txt
+bench-after-gpu.txt
