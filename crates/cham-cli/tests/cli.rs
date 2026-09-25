@@ -39,7 +39,10 @@ fn cli_parse_surface() {
         assert!(!text.is_empty(), "{cmd} --help printed nothing");
     }
     // unknown flags rejected
-    let out = Command::new(bin()).args(["ladder", "--definitely-not-a-flag"]).output().expect("spawn");
+    let out = Command::new(bin())
+        .args(["ladder", "--definitely-not-a-flag"])
+        .output()
+        .expect("spawn");
     assert!(!out.status.success(), "unknown flags must be rejected");
     // count pinned to the implemented list
     let top = Command::new(bin()).arg("--help").output().expect("spawn");
@@ -52,8 +55,51 @@ fn cli_parse_surface() {
 #[test]
 fn verify_exit_codes() {
     // clean tree → 0 (invariant greps + core invariants)
-    let out = Command::new(bin()).args(["verify"]).output().expect("spawn verify");
-    assert!(out.status.success(), "verify on the clean tree must pass: {out:?}");
+    let out = Command::new(bin())
+        .args(["verify"])
+        .output()
+        .expect("spawn verify");
+    assert!(
+        out.status.success(),
+        "verify on the clean tree must pass: {out:?}"
+    );
+}
+
+#[test]
+fn verify_perf_enforces_gates() {
+    // `verify --perf` must ENFORCE the P1..P6 gates from criterion estimates
+    // (PERF-PLAN T6): it prints the gate table and exits nonzero on breach —
+    // never a silent pass, never a panic.
+    let out = Command::new(bin())
+        .args(["verify", "--perf"])
+        .output()
+        .expect("spawn verify --perf");
+    assert_ne!(out.status.code(), Some(101), "verify --perf must not panic");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        text.contains("perf gates"),
+        "verify --perf must report the gate table: {text}"
+    );
+    if out.status.success() {
+        assert!(
+            text.contains("PASS"),
+            "passing verify --perf must show PASS rows: {text}"
+        );
+    } else {
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "gate breach must exit 1: {text}"
+        );
+        assert!(
+            text.contains("FAIL") || text.contains("just bench"),
+            "failing verify --perf must name the breach or ask for benches: {text}"
+        );
+    }
 }
 
 #[test]
@@ -66,22 +112,47 @@ fn play_budget_refusal_without_artifacts() {
         .expect("spawn play");
     // either the bundle exists (full pipeline) or we get the budget refusal —
     // a panic (101) or crash is always wrong
-    assert_ne!(out.status.code(), Some(101), "play must not panic without artifacts");
+    assert_ne!(
+        out.status.code(),
+        Some(101),
+        "play must not panic without artifacts"
+    );
     if out.status.code() != Some(0) {
-        assert_eq!(out.status.code(), Some(2), "no-artifacts play must exit 2 (budget refusal)");
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "no-artifacts play must exit 2 (budget refusal)"
+        );
         let err = String::from_utf8_lossy(&out.stderr);
-        assert!(err.contains("artifacts/agent"), "refusal must point at the bundle path");
+        assert!(
+            err.contains("artifacts/agent"),
+            "refusal must point at the bundle path"
+        );
     }
 }
 
 #[test]
 fn slumbot_mock_flow_runs() {
     // mock mode never touches the network and exits 0 (SPECS/08 §5)
-    let out = Command::new(bin()).args(["slumbot", "--seatings", "3"]).output().expect("spawn slumbot");
-    assert!(out.status.success(), "mock slumbot flow failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(bin())
+        .args(["slumbot", "--seatings", "3"])
+        .output()
+        .expect("spawn slumbot");
+    assert!(
+        out.status.success(),
+        "mock slumbot flow failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     // the verify-first gate: real without consent is refused with the budget code
-    let out = Command::new(bin()).args(["slumbot", "--real"]).output().expect("spawn slumbot real");
-    assert_eq!(out.status.code(), Some(2), "--real without --yes-i-am-live must exit 2");
+    let out = Command::new(bin())
+        .args(["slumbot", "--real"])
+        .output()
+        .expect("spawn slumbot real");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "--real without --yes-i-am-live must exit 2"
+    );
 }
 
 #[test]
@@ -89,7 +160,9 @@ fn artifact_hash_printed() {
     // artifact-consuming commands print their provenance hash; a small train-bp
     // run is the cheapest full-cycle command that exercises the artifact path.
     let out = Command::new(bin())
-        .args(["train-bp", "--mode", "robust", "--iters", "50", "--depth", "100", "--seed", "3"])
+        .args([
+            "train-bp", "--mode", "robust", "--iters", "50", "--depth", "100", "--seed", "3",
+        ])
         .output()
         .expect("spawn train-bp");
     let text = format!(
