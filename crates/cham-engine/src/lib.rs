@@ -32,10 +32,7 @@ pub enum EngineError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("bucket artifact {path}: {reason}")]
-    Artifact {
-        path: std::path::PathBuf,
-        reason: String,
-    },
+    Artifact { path: std::path::PathBuf, reason: String },
     #[error("meta.json: {0}")]
     Meta(String),
     #[error("abstraction hash mismatch: expected {expected:#x}, found {found:#x}")]
