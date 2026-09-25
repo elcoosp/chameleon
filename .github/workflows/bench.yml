@@ -1,0 +1,150 @@
+name: bench
+
+# Runs on ubuntu-latest for a repeatable, un-contended baseline. The user's
+# local machine runs a GTO solver training loop that contaminates timings
+# (thermal + CPU contention); this workflow is the source of truth for
+# "did a code change move the needle".
+#
+# Baseline mechanism:
+#   - criterion writes `target/criterion/<bench>/new/estimates.json` every run.
+#   - `--save-baseline ci` writes `<bench>/ci/` — the persistent baseline.
+#   - `--baseline ci` reads it and writes `<bench>/change/`.
+#   - `target/criterion` is cached across runs via actions/cache, keyed by
+#     ref + run_id (rolling), so PRs compare to the last main baseline.
+#   - A cold cache auto-saves; the workflow_dispatch input lets you reseed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      save_baseline:
+        description: "Save this run's results as the new CI baseline"
+        type: boolean
+        default: false
+      suite:
+        description: "Bench filter (criterion substring, empty = all)"
+        type: string
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - ".github/workflows/bench.yml"
+      - "scripts/bench-summary.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - ".github/workflows/bench.yml"
+      - "scripts/bench-summary.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pin the codegen target for CI portability: `target-cpu=native` resolves to
+  # whatever CPU the runner happens to be, so timings are not comparable
+  # across runs. `x86-64-v3` (AVX2 baseline) is stable and modern.
+  RUSTFLAGS: "-C target-cpu=x86-64-v3"
+  # Silence criterion's "unable to complete N samples in T" warnings.
+  CRITERION_HOME: ${{ github.workspace }}/target/criterion
+
+jobs:
+  bench:
+    name: criterion (ubuntu-latest, x86-64-v3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench-ubuntu
+
+      - name: criterion baseline cache (rolling)
+        uses: actions/cache@v4
+        with:
+          path: target/criterion
+          key: criterion-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            criterion-${{ github.ref_name }}-
+            criterion-main-
+            criterion-
+
+      - name: install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: fmt (check)
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: tests
+        run: cargo nextest run --workspace --no-fail-fast
+
+      - name: decide save-vs-compare
+        id: mode
+        run: |
+          SAVE="${{ github.event_name == 'workflow_dispatch' && inputs.save_baseline || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}"
+          FILTER="${{ github.event_name == 'workflow_dispatch' && inputs.suite || '' }}"
+          # Cold start: no baseline → auto-save so the next run has something to compare to.
+          if [ ! -f target/criterion/eval_evaluate7/ci/estimates.json ]; then
+            echo "cold cache — auto-saving baseline"
+            SAVE=true
+          fi
+          echo "save=$SAVE"
+          echo "filter=$FILTER"
+          echo "save=$SAVE"    >> "$GITHUB_OUTPUT"
+          echo "filter=$FILTER" >> "$GITHUB_OUTPUT"
+
+      - name: bench (save baseline)
+        if: steps.mode.outputs.save == 'true'
+        run: |
+          if [ -n "${{ steps.mode.outputs.filter }}" ]; then
+            cargo bench --workspace -- "${{ steps.mode.outputs.filter }}" --save-baseline ci
+          else
+            cargo bench --workspace -- --save-baseline ci
+          fi
+
+      - name: bench (compare to baseline)
+        if: steps.mode.outputs.save != 'true'
+        run: |
+          if [ -n "${{ steps.mode.outputs.filter }}" ]; then
+            cargo bench --workspace -- "${{ steps.mode.outputs.filter }}" --baseline ci || true
+          else
+            cargo bench --workspace -- --baseline ci || true
+          fi
+
+      - name: summary table
+        if: always()
+        run: python3 scripts/bench-summary.py >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload criterion reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-${{ github.run_id }}
+          path: target/criterion
+          retention-days: 30
+
+      # Informational only: the perf gates in `verify --perf` were calibrated on
+      # a bare-metal M1 Mini (SPECS/00 §6); ubuntu shared runners cannot meet
+      # them regardless of code quality. Real gate enforcement stays local/M1.
+      - name: verify --perf (informational)
+        if: always()
+        run: cargo run -q -p cham-cli -- verify --perf || true
