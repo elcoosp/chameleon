@@ -18,7 +18,7 @@ pub use engine::config::EngineConfig;
 pub use engine::history::{HandHistory, PublicHistory};
 pub use engine::{Action, ApplyOutcome, State, Street};
 pub use obs::{Agent, AgentError, LegalAction, Observables, Player};
-pub use rng::{Rng, child, rng_from_seed};
+pub use rng::{child, rng_from_seed, Rng};
 
 use thiserror::Error;
 
