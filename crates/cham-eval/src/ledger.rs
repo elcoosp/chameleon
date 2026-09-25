@@ -46,9 +46,7 @@ impl Ledger {
                     continue;
                 }
                 serde_json::from_str::<LedgerEntry>(&line).map_err(|e| {
-                    EvalError::Ledger(format!(
-                        "corrupt ledger line {i}: {e} (stopping; never truncates)"
-                    ))
+                    EvalError::Ledger(format!("corrupt ledger line {i}: {e} (stopping; never truncates)"))
                 })?;
             }
         }
@@ -57,10 +55,7 @@ impl Ledger {
 
     /// Append one entry (never rewrite; corruption stops the run upstream).
     pub fn append(&mut self, entry: &LedgerEntry) -> Result<(), EvalError> {
-        let mut f = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?;
+        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
         let mut line = serde_json::to_string(entry)?;
         line.push('\n');
         f.write_all(line.as_bytes())?;
