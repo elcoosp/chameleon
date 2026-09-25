@@ -1,0 +1,16 @@
+[package]
+name = "cham-proofs"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "M-1 'prove it' micro-implementation: Kuhn/Leduc/Bayes/LP proofs, self-contained by design (SPECS/11 M-1)"
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
