@@ -14,7 +14,7 @@ use crate::noisy::NoisyAgent;
 use crate::params::ArchetypeId;
 use crate::percentile::PercentileChart;
 use crate::perturbed::{PerturbedNashAgent, StrategySource, Tilt};
-use crate::{OpponentsError, archetype::ArchetypeAgent};
+use crate::{archetype::ArchetypeAgent, OpponentsError};
 
 /// Serialized form (id strings) — OpponentSpec itself is not serde-derivable
 /// because Perturbed carries a runtime strategy closure.
@@ -41,20 +41,10 @@ pub enum OpponentSpec {
     FishBot,
     /// Tilt + δ; the strategy source is injected at build time via
     /// [`build_with_source`] (blueprint-backed) or defaults to uniform.
-    Perturbed {
-        tilt: Tilt,
-        delta: f64,
-    },
+    Perturbed { tilt: Tilt, delta: f64 },
     FamilyB(ArchetypeId),
-    Noisy {
-        inner: Box<OpponentSpec>,
-        epsilon: f64,
-    },
-    Switcher {
-        a: Box<OpponentSpec>,
-        b: Box<OpponentSpec>,
-        switch_at: u64,
-    },
+    Noisy { inner: Box<OpponentSpec>, epsilon: f64 },
+    Switcher { a: Box<OpponentSpec>, b: Box<OpponentSpec>, switch_at: u64 },
 }
 
 impl OpponentSpec {
@@ -62,19 +52,13 @@ impl OpponentSpec {
     pub fn parse(id: &str) -> Result<OpponentSpec, OpponentsError> {
         let id = id.trim();
         if let Some(rest) = id.strip_prefix("arch:") {
-            let arch = ArchetypeId::parse(rest)
-                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let arch = ArchetypeId::parse(rest).ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
             return Ok(OpponentSpec::Arch(arch));
         }
         if let Some(rest) = id.strip_prefix("jitter:") {
-            let (arch, seed) = rest
-                .split_once('@')
-                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
-            let arch = ArchetypeId::parse(arch)
-                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
-            let seed: u64 = seed
-                .parse()
-                .map_err(|_| OpponentsError::UnknownId(id.to_string()))?;
+            let (arch, seed) = rest.split_once('@').ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let arch = ArchetypeId::parse(arch).ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let seed: u64 = seed.parse().map_err(|_| OpponentsError::UnknownId(id.to_string()))?;
             return Ok(OpponentSpec::Jitter(arch, seed));
         }
         match id {
@@ -87,8 +71,7 @@ impl OpponentSpec {
         }
         if let Some(rest) = id.strip_prefix("pnash:") {
             let mut parts = rest.split(':');
-            let tilt = Tilt::parse(parts.next().unwrap_or(""))
-                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let tilt = Tilt::parse(parts.next().unwrap_or("")).ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
             let delta: f64 = parts
                 .next()
                 .unwrap_or("0.15")
@@ -97,33 +80,19 @@ impl OpponentSpec {
             return Ok(OpponentSpec::Perturbed { tilt, delta });
         }
         if let Some(rest) = id.strip_prefix("famB:") {
-            let arch = ArchetypeId::parse(rest)
-                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let arch = ArchetypeId::parse(rest).ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
             return Ok(OpponentSpec::FamilyB(arch));
         }
         if let Some(rest) = id.strip_prefix("noisy:") {
-            let (eps, inner_id) = rest
-                .split_once(':')
-                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
-            let epsilon: f64 = eps
-                .parse()
-                .map_err(|_| OpponentsError::UnknownId(id.to_string()))?;
+            let (eps, inner_id) = rest.split_once(':').ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let epsilon: f64 = eps.parse().map_err(|_| OpponentsError::UnknownId(id.to_string()))?;
             let inner = OpponentSpec::parse(inner_id)?;
-            return Ok(OpponentSpec::Noisy {
-                inner: Box::new(inner),
-                epsilon,
-            });
+            return Ok(OpponentSpec::Noisy { inner: Box::new(inner), epsilon });
         }
         if let Some(rest) = id.strip_prefix("switch:") {
-            let (ab, hand) = rest
-                .rsplit_once('@')
-                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
-            let (a, b) = ab
-                .split_once("->")
-                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
-            let switch_at: u64 = hand
-                .parse()
-                .map_err(|_| OpponentsError::UnknownId(id.to_string()))?;
+            let (ab, hand) = rest.rsplit_once('@').ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let (a, b) = ab.split_once("->").ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let switch_at: u64 = hand.parse().map_err(|_| OpponentsError::UnknownId(id.to_string()))?;
             return Ok(OpponentSpec::Switcher {
                 a: Box::new(OpponentSpec::parse(a)?),
                 b: Box::new(OpponentSpec::parse(b)?),
@@ -157,10 +126,7 @@ impl OpponentSpec {
     pub fn family(&self) -> &'static str {
         match self {
             OpponentSpec::Arch(_) | OpponentSpec::Jitter(..) => "A",
-            OpponentSpec::CallBot
-            | OpponentSpec::RaiseBot
-            | OpponentSpec::JamBot
-            | OpponentSpec::RandomBot
+            OpponentSpec::CallBot | OpponentSpec::RaiseBot | OpponentSpec::JamBot | OpponentSpec::RandomBot
             | OpponentSpec::FishBot => "A",
             OpponentSpec::Perturbed { .. } => "PN",
             OpponentSpec::FamilyB(_) => "B",
@@ -202,12 +168,9 @@ pub fn build_with_source(
             let inner_agent = build_with_source(inner, chart, source);
             Box::new(NoisyAgent::new(inner_agent, *epsilon))
         }
-        OpponentSpec::Switcher { a, b, switch_at } => Box::new(SwitcherBot::new(
-            (**a).clone(),
-            (**b).clone(),
-            *switch_at,
-            chart,
-        )),
+        OpponentSpec::Switcher { a, b, switch_at } => {
+            Box::new(SwitcherBot::new((**a).clone(), (**b).clone(), *switch_at, chart))
+        }
     }
 }
 
