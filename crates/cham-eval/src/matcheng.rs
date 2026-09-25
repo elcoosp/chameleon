@@ -10,14 +10,15 @@
 
 use serde::{Deserialize, Serialize};
 
-use cham_core::card::Deck;
+use cham_core::card::{Card, Deck};
 use cham_core::engine::config::EngineConfig;
-use cham_core::engine::State;
+use cham_core::engine::history::{HandHistory, PublicHistory};
+use cham_core::engine::{Action, State, Street};
 use cham_core::obs::{Agent, Observables, Player};
-use cham_core::rng::{child, Rng};
-use cham_opponents::factory::build;
-use cham_opponents::factory::OpponentSpecDto;
+use cham_core::rng::{Rng, child};
 use cham_opponents::OpponentSpec;
+use cham_opponents::factory::OpponentSpecDto;
+use cham_opponents::factory::build;
 use cham_rec::Recorder;
 
 use crate::EvalError;
@@ -48,30 +49,140 @@ pub struct PoolResult {
 }
 
 /// Play ONE seating from `state`; `hero_seat`'s actions come from `hero`, the
-/// other seat's from `opp`. Returns hero net (chips).
+/// other seat's from `opp`. Returns `(hero net, all-in-EV-adjusted hero net)`
+/// in chips (B4: identical when no flop/turn all-in runout applied).
+///
+/// DEAL LIFECYCLE (B1 wiring): every action is visible to both agents' hooks,
+/// and both agents get `on_hand_end` with the public history afterwards, so a
+/// single shared hero (e.g. `ChameleonAgent`, whose tracker/weights/seq are
+/// per-hand state) can be reused across deals exactly as in live `play`.
 fn play_seating(
     state: &mut State,
     hero_seat: usize,
     hero: &mut dyn Agent,
     opp: &mut dyn Agent,
     rng: &mut Rng,
-) -> Result<i64, EvalError> {
+    deal_seed: u64,
+) -> Result<(i64, f64), EvalError> {
     let mut guard = 0;
+    let mut log: Vec<(Street, Player, Action)> = Vec::new();
+    // B4: all-in context for the EV adjustment — captured the moment both
+    // stacks hit zero (board + street at all-in time; holes are read at the
+    // terminal state, same cards).
+    let mut allin_board: Option<Vec<Card>> = None;
     while !state.is_terminal() {
         guard += 1;
         if guard > 400 {
             return Err(EvalError::Match("hand did not terminate".into()));
         }
         let seat = state.to_act();
-        let obs = Observables::view(state, Player::from_usize(seat));
+        let street = state.street();
+        let player = Player::from_usize(seat);
+        let obs = Observables::view(state, player);
         let a = if seat == hero_seat {
             hero.act(&obs, rng)
         } else {
             opp.act(&obs, rng)
         };
-        state.apply(a).map_err(|e| EvalError::Match(format!("illegal action: {e}")))?;
+        log.push((street, player, a));
+        state
+            .apply(a)
+            .map_err(|e| EvalError::Match(format!("illegal action: {e}")))?;
+        if allin_board.is_none() && state.stacks() == [0, 0] && !state.is_terminal() {
+            let n = state.board_len() as usize;
+            allin_board = Some(state.board()[..n].to_vec());
+        }
     }
-    Ok(state.payoffs()[hero_seat])
+    let nets = state.payoffs();
+    let net_hero = nets[hero_seat];
+    let net_adj = allin_adjusted_net(state, hero_seat, net_hero, allin_board.as_deref());
+    // per-hand lifecycle for shared heroes (no-ops for stateless baselines)
+    let n = state.board_len() as usize;
+    let mut board = [Card(0); 5];
+    board[..n].copy_from_slice(&state.board()[..n]);
+    let hh = HandHistory {
+        seed: deal_seed,
+        actions: log,
+        cfg: state.cfg(),
+        holes: [state.hole(0), state.hole(1)],
+        board,
+        board_len: state.board_len(),
+        result_sb: nets[0],
+    };
+    let ph = PublicHistory::from(&hh);
+    hero.on_hand_end(&ph, net_hero);
+    opp.on_hand_end(&ph, nets[1 - hero_seat]);
+    Ok((net_hero, net_adj))
+}
+
+/// All-in EV adjustment, i.e. the `vr.rs` machinery WIRED (B4): on an all-in
+/// showdown reached before the river, replace the realized runout by the exact
+/// showdown equity vs the ACTUAL villain holding (singleton range) times the
+/// all-in pot, minus the hero's investment — `allin_replacement`.
+///
+/// Unbiased by construction: the replacement is the conditional expectation of
+/// the realized net given the all-in cards (Rao–Blackwell), applied
+/// symmetrically on both seatings so the duplicate formula stays fair and
+/// paired A/B streams stay paired. Scope: flop/turn all-ins only —
+/// * river all-ins have no runout luck left (equity ∈ {0, ½, 1} reproduces the
+///   realized net exactly, so adjustment is a no-op);
+/// * preflop all-ins need ~1.7M completion evals (offline-grade cost) and keep
+///   the realized net — the documented remainder of full AIVAT, which further
+///   needs per-deal metadata (pot/invest at all-in time on every street) the
+///   recorder does not yet persist.
+fn allin_adjusted_net(
+    state: &State,
+    hero_seat: usize,
+    net_hero: i64,
+    allin_board: Option<&[Card]>,
+) -> f64 {
+    let Some(aboard) = allin_board else {
+        return net_hero as f64;
+    };
+    // only flop/turn all-in runouts adjust (see scope note above); anything
+    // else — including a non-runout terminal — keeps the realized net
+    if !state.is_all_in_runout() || aboard.is_empty() || aboard.len() >= 5 {
+        return net_hero as f64;
+    }
+    let hero_hand = state.hole(hero_seat);
+    let vill_hand = state.hole(1 - hero_seat);
+    let mut vill_range = cham_core::eval::Range::default();
+    vill_range.set(vill_hand.combo_id(), true);
+    let (w, t) = cham_core::eval::equity_exact(hero_hand, &vill_range, aboard);
+    let eq = w + t / 2.0;
+    let start = state.cfg().start_stack as f64;
+    crate::vr::allin_replacement(eq, 2.0 * start, start)
+}
+
+/// Deal-count of a sub-range (Range<u64> has no `.len()`).
+fn range_len(range: &std::ops::Range<u64>) -> u64 {
+    range.end.saturating_sub(range.start)
+}
+
+/// Duplicate-pairing variance statistics (B4 wiring).
+///
+/// Each entry is `(realized chips, all-in-EV-adjusted chips)` per seating.
+/// The reported estimator is the duplicate mean over the ADJUSTED nets (seat
+/// effects cancel by adding; runout luck is replaced by exact equity where a
+/// flop/turn all-in runout applied). `vr_factor` =
+/// `variance_factor(raw, adjusted)` — 1.0 when no all-in runout fired (the
+/// series are identical), > 1.0 when the adjustment removed runout variance.
+/// The returned SE is the reduced (adjusted) SE used in ladder/ledger CIs.
+fn vr_stats(nets_a: &[(i64, f64)], nets_b: &[(i64, f64)]) -> (f64, f64, f64, Vec<f64>) {
+    let raw_mb: Vec<f64> = nets_a
+        .iter()
+        .zip(nets_b.iter())
+        .map(|(a, b)| (a.0 + b.0) as f64 / 2.0 / 100.0 * 1000.0)
+        .collect();
+    let adj_mb: Vec<f64> = nets_a
+        .iter()
+        .zip(nets_b.iter())
+        .map(|(a, b)| (a.1 + b.1) / 2.0 / 100.0 * 1000.0)
+        .collect();
+    let m = crate::stats::mean(&adj_mb);
+    let se = crate::stats::se(&adj_mb);
+    let vr = crate::vr::variance_factor(&raw_mb, &adj_mb);
+    (m, se, vr, adj_mb)
 }
 
 /// MatchRunner: duplicate deals + flight records.
@@ -88,33 +199,135 @@ impl MatchRunner {
     where
         F: Fn() -> Box<dyn Agent>,
     {
+        Self::run_range(spec, hero_factory, rec, 0..spec.deals)
+    }
+
+    /// Run a deal sub-range `[range.start, range.end)` with GLOBAL deal indices
+    /// in the seed derivation (B3 chunking): concatenating chunked ranges yields
+    /// per-deal seeds identical to the single-shot `run` for the same total.
+    pub fn run_range<F>(
+        spec: &MatchSpec,
+        hero_factory: &F,
+        rec: Option<&mut Recorder>,
+        range: std::ops::Range<u64>,
+    ) -> Result<MatchResult, EvalError>
+    where
+        F: Fn() -> Box<dyn Agent>,
+    {
         let t0 = std::time::Instant::now();
         let engine_cfg = EngineConfig::depth(spec.depth_bb);
         let opp_spec = OpponentSpec::parse(&spec.opponent.0)
             .map_err(|e| EvalError::Match(format!("spec: {e}")))?;
         let mut opp = build(&opp_spec, cham_opponents::PercentileChart::global());
-        let mut profits: Vec<f64> = Vec::with_capacity(spec.deals as usize);
-        for d in 0..spec.deals {
-            // ONE shuffle per deal — both seatings see the identical deck
-            let deal_rng = &mut child(spec.base_seed, &format!("d{d}"));
+        let mut nets_a: Vec<(i64, f64)> = Vec::with_capacity(range_len(&range) as usize);
+        let mut nets_b: Vec<(i64, f64)> = Vec::with_capacity(range_len(&range) as usize);
+        for g in range.clone() {
+            // ONE shuffle per deal — both seatings see the identical deck.
+            // Seeds use the GLOBAL deal index g so chunked runs re-derive the
+            // same streams a sequential run would use (never re-rolled).
+            let deal_rng = &mut child(spec.base_seed, &format!("d{g}"));
             let deck = Deck::shuffled(deal_rng);
             // identical opponent streams per (deal, seating) across hero configs
-            let opp_rng_a = &mut child(spec.base_seed, &format!("oppA{d}"));
-            let opp_rng_b = &mut child(spec.base_seed, &format!("oppB{d}"));
+            let opp_rng_a = &mut child(spec.base_seed, &format!("oppA{g}"));
+            let opp_rng_b = &mut child(spec.base_seed, &format!("oppB{g}"));
             let mut hero_a = hero_factory();
             let mut hero_b = hero_factory();
             // seating A: hero at seat 0 (SB)
-            let mut state_a = State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
-            let net_a = play_seating(&mut state_a, 0, hero_a.as_mut(), opp.as_mut(), opp_rng_a)?;
+            let mut state_a =
+                State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
+            let net_a = play_seating(
+                &mut state_a,
+                0,
+                hero_a.as_mut(),
+                opp.as_mut(),
+                opp_rng_a,
+                spec.base_seed ^ g,
+            )?;
             // seating B: SAME deck, hero at seat 1 (BB) — seats swapped
-            let mut state_b = State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
-            let net_b = play_seating(&mut state_b, 1, hero_b.as_mut(), opp.as_mut(), opp_rng_b)?;
-            // THE formula (v2 fix): sum cancels seat advantage
-            profits.push((net_a + net_b) as f64 / 2.0 / 100.0); // bb
+            let mut state_b =
+                State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
+            let net_b = play_seating(
+                &mut state_b,
+                1,
+                hero_b.as_mut(),
+                opp.as_mut(),
+                opp_rng_b,
+                spec.base_seed ^ g,
+            )?;
+            nets_a.push(net_a);
+            nets_b.push(net_b);
         }
-        let mb: Vec<f64> = profits.iter().map(|p| p * 1000.0).collect();
-        let m = crate::stats::mean(&mb);
-        let se = crate::stats::se(&mb);
+        Self::finish(spec, &nets_a, &nets_b, range_len(&range), rec, t0)
+    }
+
+    /// Shared-hero variant (B1): one `hero` instance plays every seating of the
+    /// range (its `on_hand_end` hook resets per-hand state deal-by-deal, exactly
+    /// as in live `play`). Stateless baselines behave identically to `run`.
+    pub fn run_shared(
+        spec: &MatchSpec,
+        hero: &mut dyn Agent,
+        rec: Option<&mut Recorder>,
+    ) -> Result<MatchResult, EvalError> {
+        Self::run_shared_range(spec, hero, rec, 0..spec.deals)
+    }
+
+    /// Shared-hero sub-range with global-index seeds (B2/B3: chunked + parallel
+    /// ladder runs re-derive identical per-deal streams).
+    pub fn run_shared_range(
+        spec: &MatchSpec,
+        hero: &mut dyn Agent,
+        rec: Option<&mut Recorder>,
+        range: std::ops::Range<u64>,
+    ) -> Result<MatchResult, EvalError> {
+        let t0 = std::time::Instant::now();
+        let engine_cfg = EngineConfig::depth(spec.depth_bb);
+        let opp_spec = OpponentSpec::parse(&spec.opponent.0)
+            .map_err(|e| EvalError::Match(format!("spec: {e}")))?;
+        let mut opp = build(&opp_spec, cham_opponents::PercentileChart::global());
+        let mut nets_a: Vec<(i64, f64)> = Vec::with_capacity(range_len(&range) as usize);
+        let mut nets_b: Vec<(i64, f64)> = Vec::with_capacity(range_len(&range) as usize);
+        for g in range.clone() {
+            let deal_rng = &mut child(spec.base_seed, &format!("d{g}"));
+            let deck = Deck::shuffled(deal_rng);
+            let opp_rng_a = &mut child(spec.base_seed, &format!("oppA{g}"));
+            let opp_rng_b = &mut child(spec.base_seed, &format!("oppB{g}"));
+            let mut state_a =
+                State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
+            let net_a = play_seating(
+                &mut state_a,
+                0,
+                hero,
+                opp.as_mut(),
+                opp_rng_a,
+                spec.base_seed ^ g,
+            )?;
+            let mut state_b =
+                State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
+            let net_b = play_seating(
+                &mut state_b,
+                1,
+                hero,
+                opp.as_mut(),
+                opp_rng_b,
+                spec.base_seed ^ g,
+            )?;
+            nets_a.push(net_a);
+            nets_b.push(net_b);
+        }
+        Self::finish(spec, &nets_a, &nets_b, range_len(&range), rec, t0)
+    }
+
+    /// Assemble the `MatchResult` from per-seating nets (shared by all runners).
+    fn finish(
+        spec: &MatchSpec,
+        nets_a: &[(i64, f64)],
+        nets_b: &[(i64, f64)],
+        deals: u64,
+        rec: Option<&mut Recorder>,
+        t0: std::time::Instant,
+    ) -> Result<MatchResult, EvalError> {
+        // THE formula (v2 fix): sum cancels seat advantage; VR factor wired (B4)
+        let (m, se, vr, mb) = vr_stats(nets_a, nets_b);
         if let Some(r) = rec {
             use cham_rec::schema::RecordKind;
             r.record(
@@ -123,11 +336,11 @@ impl MatchRunner {
                     "label": spec.label,
                     "spec_ids": [spec.opponent.0.clone()],
                     "seeds": [spec.base_seed],
-                    "deals": spec.deals,
-                    "seatings": spec.deals * 2,
+                    "deals": deals,
+                    "seatings": deals * 2,
                     "mb_per_seating": m,
                     "se_mb": se,
-                    "vr_factor": 1.0,
+                    "vr_factor": vr,
                     "wall_s": t0.elapsed().as_secs_f64(),
                 }),
             )
@@ -136,8 +349,8 @@ impl MatchRunner {
         Ok(MatchResult {
             mb_per_seating: m,
             se_mb: se,
-            seatings: spec.deals * 2,
-            vr_factor: 1.0,
+            seatings: deals * 2,
+            vr_factor: vr,
             per_deal_profits: Some(mb),
             wall_s: t0.elapsed().as_secs_f64(),
         })

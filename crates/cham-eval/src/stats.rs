@@ -23,7 +23,12 @@ pub fn se(v: &[f64]) -> f64 {
 }
 
 /// Bootstrap CI over resampled DEALS (seeded; percentile method).
-pub fn bootstrap_ci(v: &[f64], conf: f64, resamples: usize, rng: &mut cham_core::rng::Rng) -> (f64, f64) {
+pub fn bootstrap_ci(
+    v: &[f64],
+    conf: f64,
+    resamples: usize,
+    rng: &mut cham_core::rng::Rng,
+) -> (f64, f64) {
     let n = v.len();
     if n == 0 {
         return (0.0, 0.0);
@@ -118,7 +123,13 @@ pub enum SprtState {
 
 /// Wald SPRT over accumulating paired diffs: H0: Δ ≤ delta0 vs H1: Δ ≥ delta1
 /// (defaults 0 vs +25 mb/seating, α = 0.05, β = 0.10). σ from the data.
-pub fn sprrt(diffs: &[f64], delta0: f64, delta1: f64, alpha: f64, beta: f64) -> Result<SprtState, EvalError> {
+pub fn sprrt(
+    diffs: &[f64],
+    delta0: f64,
+    delta1: f64,
+    alpha: f64,
+    beta: f64,
+) -> Result<SprtState, EvalError> {
     if diffs.is_empty() {
         return Ok(SprtState::Continue);
     }
@@ -146,7 +157,11 @@ pub fn sprrt(diffs: &[f64], delta0: f64, delta1: f64, alpha: f64, beta: f64) -> 
 pub fn holm(pvals: &[f64], alpha: f64) -> Vec<bool> {
     let n = pvals.len();
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&i, &j| pvals[i].partial_cmp(&pvals[j]).unwrap_or(std::cmp::Ordering::Equal));
+    order.sort_by(|&i, &j| {
+        pvals[i]
+            .partial_cmp(&pvals[j])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut rejected = vec![false; n];
     for (rank, &i) in order.iter().enumerate() {
         let adj = pvals[i] * (n - rank) as f64;
@@ -171,10 +186,35 @@ pub fn required_seatings(sigma_pair: f64, delta_mb: f64, conf: f64) -> u64 {
 fn z_for(conf: f64) -> f64 {
     // two-sided inverse normal (Acklam's rational approximation)
     let p = (1.0 - conf) / 2.0;
-    let a = [-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.38357751867269e2, -3.066479806614716e1, 2.506628277459239];
-    let b = [-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1, -1.328068155288572e1];
-    let c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
-    let d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
+    let a = [
+        -3.969683028665376e1,
+        2.209460984245205e2,
+        -2.759285104469687e2,
+        1.38357751867269e2,
+        -3.066479806614716e1,
+        2.506628277459239,
+    ];
+    let b = [
+        -5.447609879822406e1,
+        1.615858368580409e2,
+        -1.556989798598866e2,
+        6.680131188771972e1,
+        -1.328068155288572e1,
+    ];
+    let c = [
+        -7.784894002430293e-3,
+        -3.223964580411365e-1,
+        -2.400758277161838,
+        -2.549732539343734,
+        4.374664141464968,
+        2.938163982698783,
+    ];
+    let d = [
+        7.784695709041462e-3,
+        3.224671290700398e-1,
+        2.445134137142996,
+        3.754408661907416,
+    ];
     let p_low = 0.02425;
     let x = if p < p_low {
         let q = (-p.ln()).sqrt();
@@ -192,4 +232,3 @@ fn z_for(conf: f64) -> f64 {
     };
     -x
 }
-
