@@ -65,39 +65,5 @@ fn bench_evaluate7(c: &mut Criterion) {
     });
 }
 
-fn bench_evaluate7_dense(c: &mut Criterion) {
-    use cham_core::eval::evaluate7_dense;
-    let mut rng = rng_from_seed(0xBADC0DE);
-    let hands: Vec<[Card; 7]> = (0..256)
-        .map(|_| {
-            let mut used = [false; 52];
-            let mut out = [Card(0); 7];
-            for slot in out.iter_mut() {
-                loop {
-                    let x = (next_u32(&mut rng) % 52) as u8;
-                    if !used[x as usize] {
-                        used[x as usize] = true;
-                        *slot = Card(x);
-                        break;
-                    }
-                }
-            }
-            out
-        })
-        .collect();
-    let mut i = 0usize;
-    c.bench_function("eval_evaluate7_dense", |b| {
-        b.iter(|| {
-            let mut acc = 0u64;
-            for _ in 0..1000 {
-                i = (i + 1) & 255;
-                acc += evaluate7_dense(black_box(&hands[i])) as u64;
-            }
-            acc
-        })
-    });
-}
-
 criterion_group!(benches, bench_evaluate7);
-criterion_group!(benches_dense, bench_evaluate7_dense);
-criterion_main!(benches, benches_dense);
+criterion_main!(benches);
