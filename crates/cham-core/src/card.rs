@@ -13,9 +13,7 @@ pub const RANK_CHARS: [char; 13] = [
 pub const SUIT_CHARS: [char; 4] = ['s', 'h', 'd', 'c'];
 
 /// One playing card. idx 0..=51, rank = idx/4, suit = idx%4.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Card(pub u8);
 
 impl Card {
@@ -67,19 +65,13 @@ pub const ALL_CARDS: [Card; 52] = {
 };
 
 /// A two-card hand stored as `(a << 8) | b` with `a < b` card indices.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hand2(pub u16);
 
 impl Hand2 {
     /// Build from two cards (order-independent; stores sorted).
     pub fn new(c1: Card, c2: Card) -> Hand2 {
-        let (a, b) = if c1.0 < c2.0 {
-            (c1.0, c2.0)
-        } else {
-            (c2.0, c1.0)
-        };
+        let (a, b) = if c1.0 < c2.0 { (c1.0, c2.0) } else { (c2.0, c1.0) };
         Hand2(((a as u16) << 8) | b as u16)
     }
     /// From a raw combo id (0..1326) used by `Range`.
@@ -121,11 +113,7 @@ impl Hand2 {
     /// by (high, low) desc, then offsuit likewise).
     pub fn class_id(self) -> u8 {
         let [a, b] = self.cards();
-        let (hi, lo) = if a.rank() >= b.rank() {
-            (a.rank(), b.rank())
-        } else {
-            (b.rank(), a.rank())
-        };
+        let (hi, lo) = if a.rank() >= b.rank() { (a.rank(), b.rank()) } else { (b.rank(), a.rank()) };
         if hi == lo {
             // pairs: AA=0 .. 22=12
             12 - hi
@@ -206,10 +194,7 @@ pub struct Deck {
 impl Deck {
     /// Fresh ordered deck.
     pub fn ordered() -> Deck {
-        Deck {
-            cards: ALL_CARDS,
-            pos: 0,
-        }
+        Deck { cards: ALL_CARDS, pos: 0 }
     }
     /// Fisher–Yates shuffle under the project RNG (ChaCha8 — SPECS/00 §3.1).
     pub fn shuffled(rng: &mut crate::rng::Rng) -> Deck {
