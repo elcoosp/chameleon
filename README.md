@@ -70,31 +70,32 @@ abstraction** (`train-buckets --profile tiny`); the full k=300/200 tables are a
 trained artifacts at M2/M4 — placeholder bands are marked in the code.
 
 
-### GPU track (status: unresolved-amended)
+### GPU track (wgpu backend landed; cross-platform correctness green)
 
-The Apple-Metal accelerator track (`docs/GPU-PLAN.md`) is mid-probe. The
-MSL port of `evaluate7` is bit-exact to CPU on 1M/1M hands
-(`crates/cham-gpu/tests/consistency_eval7.rs`, the P7 core). On the
-builder-shaped enumeration workload the GPU is measurably faster than a
-4-thread CPU reference, but the local M1 Mini runs a concurrent GTO
-solver training loop and produced a **5.66x-11.85x spread across five
-identical trials (median 9.70x)** — not certifiable at the plan's
-original 10x bar.
+The Apple-Metal accelerator track now has a **cross-platform wgpu 30
+backend** on top of the Metal-native one. Both are feature-gated and
+inert by default (`cham-gpu` ships with `default = []`; nothing else in
+the workspace activates either feature).
 
-Per `docs/GPU-PLAN-AMENDMENTS.md`:
+Correctness (P7 core, `crates/cham-gpu/tests/consistency_eval7.rs`):
+- 1M/1M bit-exact vs CPU `evaluate7` on **Metal via wgpu** (macOS, local)
+  and on **Metal-native** (macOS, `--features metal`).
+- Linux CI runs the same 1M corpus against **Vulkan via llvmpipe**
+  (software), gated in `.github/workflows/gpu.yml`.
 
-- **Amendment 001** relaxes the bar to `G_enum >= 3x` and
-  `G_warm >= 2x` against a *quiet-session* CPU reference, and defines
-  "quiet" (60s loadavg < 1.0, no concurrent cargo/rustc/python/trainer).
-- **Amendment 002** changes the plan's target to **`wgpu`** (Vulkan /
-  Metal / DX12; single WGSL source) so the track is not macOS-only.
-  Metal-native stays available behind its existing feature and powers
-  the immediate G1 builders; `eval7.msl` is required to stay
-  mechanically portable to WGSL.
+Performance decision: the earlier "NO-GO" verdict from one-shot
+measurements was **superseded by `docs/GPU-PLAN-AMENDMENTS.md` Amendment
+001** — the original 10x bar was drawn against a CPU baseline ~13x
+optimistic, and the local M1 Mini runs a concurrent GTO solver training
+loop, producing a 5.66-11.85x spread across five identical trials. The
+amended gates are `G_enum >= 3x` and `G_warm >= 2x` against a
+**quiet-session** CPU reference; the CI macOS bench job (manual
+`workflow_dispatch`) is where they get certified.
 
-Full numbers: `docs/bench-status-gpu-trials.md` and
-`experiments/EXP-020-gpu_eval_probe.toml`. The next GPU measurement runs
-on a quiet session or in CI, not on this contended machine.
+Amendment 002 made `wgpu` the target of record. The Metal-native kernel
+stays as a stepping stone; `eval7.msl` is required to remain
+WGSL-portable, and the WGSL implementation uses the u32-native table
+layout + multiset rank (no u64 in the kernel).
 
 ## Dev tools
 

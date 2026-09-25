@@ -253,7 +253,9 @@ fn for_each_multiset(size: usize, maxc: u8, f: &mut impl FnMut(&[u8; 13])) {
 
 /// n choose k with u64 intermediates; covers multiset_rank's C(18, 7).
 fn n_choose_k_u32(n: u32, k: u32) -> u32 {
-    if k > n { return 0; }
+    if k > n {
+        return 0;
+    }
     let k = k.min(n - k);
     let mut r: u64 = 1;
     for i in 0..k {
@@ -303,7 +305,9 @@ pub fn boardk_index(cards: &[crate::card::Card]) -> u32 {
 }
 
 fn nck_small(n: u32, k: u32) -> u32 {
-    if k > n { return 0; }
+    if k > n {
+        return 0;
+    }
     match k {
         0 => 1,
         1 => n,

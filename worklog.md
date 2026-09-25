@@ -151,3 +151,23 @@ Two follow-ups to Path B:
 
 The WGSL kernel itself is deliberately not written in this session —
 it is a focused piece of work that deserves its own commit.
+
+## G5.0b wgpu backend LANDED — cross-platform P7 green
+
+- wgpu 30.0.1 + pollster 1 (latest; was wgpu 22 / pollster 0.4 — user
+  correctly flagged that I started with an 8-major-old version).
+- API drift absorbed (documented in the g5.0b commit): InstanceDescriptor
+  takes by value, RequestAdapterOptions.apply_limit_buckets,
+  PipelineLayoutDescriptor.immediate_size, &[Option<&BGL>],
+  DeviceDescriptor without trace path, PollType::Wait struct variant,
+  get_mapped_range -> Result.
+- WGSL kernel: naga rejected the loop-with-unreachable-exit in
+  flush_lookup; rewrote as `while` + `result` + `break`.
+- Verification: 1M/1M bit-equal to CPU on Metal via wgpu (macOS local),
+  2-run determinism within a WgpuContext, and the full feature matrix
+  (default / metal / wgpu / metal+wgpu) passes 5/5.
+- CI: `.github/workflows/gpu.yml` now installs mesa-vulkan-drivers and
+  runs the same 1M corpus against Linux/Vulkan-llvmpipe.
+
+This is the multi-platform deliverable the amendment promised. The
+Metal-native path stays as a stepping stone; both features are opt-in.
