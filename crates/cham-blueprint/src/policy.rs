@@ -6,6 +6,14 @@
 //! - NO regrets ship in inference artifacts
 //! - confidence = visits / (visits + 64) — visit-based (review B5; the v1
 //!   regret-ratio formula saturated exactly when least converged and is DELETED)
+//! - LAZY ROW DECODE (BROAD-PERF-PLAN B7): `load` reads the header + provenance
+//!   eagerly and keeps the row payloads as opaque owned bytes — no per-row
+//!   parsing, no quantization decode, no allocation beyond the file bytes
+//!   (see `resident_bytes`). `strategy`/`confidence` binary-search the key
+//!   index and decode exactly one row on first use. Same bytes → same hashes:
+//!   `loader_hash_guards` and `artifact_hash_printed` pass unchanged, and a
+//!   golden decision replay is bit-identical across independent loads
+//!   (`artifact_lazy_replay_bit_identical`).
 
 use std::path::Path;
 
@@ -13,8 +21,8 @@ use serde::{Deserialize, Serialize};
 
 use cham_engine::encoder::ActionSeq;
 
-use crate::table::RegretTable;
 use crate::BlueprintError;
+use crate::table::RegretTable;
 
 pub const ARTIFACT_MAGIC: u32 = 0x5042_4843; // "CHBP"
 pub const ARTIFACT_VERSION: u32 = 1;
@@ -125,23 +133,36 @@ impl BlueprintPolicy {
     }
 
     /// Load an artifact from a directory containing `policy.bin`.
-    pub fn load(dir: &Path, expected_abstraction_hash: u64) -> Result<BlueprintPolicy, BlueprintError> {
+    pub fn load(
+        dir: &Path,
+        expected_abstraction_hash: u64,
+    ) -> Result<BlueprintPolicy, BlueprintError> {
         let path = dir.join("policy.bin");
         let bytes = std::fs::read(&path).map_err(|e| BlueprintError::Artifact {
             path: path.clone(),
             reason: format!("read: {e}"),
         })?;
-        let artifact_hash = u64::from_le_bytes(blake3::hash(&bytes).as_bytes()[..8].try_into().expect("8"));
+        let artifact_hash =
+            u64::from_le_bytes(blake3::hash(&bytes).as_bytes()[..8].try_into().expect("8"));
         if bytes.len() < HEADER_LEN {
-            return Err(BlueprintError::Artifact { path, reason: "too short".into() });
+            return Err(BlueprintError::Artifact {
+                path,
+                reason: "too short".into(),
+            });
         }
         let magic = u32::from_le_bytes(bytes[0..4].try_into().expect("4"));
         if magic != ARTIFACT_MAGIC {
-            return Err(BlueprintError::Artifact { path, reason: format!("bad magic {magic:#x}") });
+            return Err(BlueprintError::Artifact {
+                path,
+                reason: format!("bad magic {magic:#x}"),
+            });
         }
         let version = u32::from_le_bytes(bytes[4..8].try_into().expect("4"));
         if version != ARTIFACT_VERSION {
-            return Err(BlueprintError::Artifact { path, reason: format!("bad version {version}") });
+            return Err(BlueprintError::Artifact {
+                path,
+                reason: format!("bad version {version}"),
+            });
         }
         let abstraction_hash = u64::from_le_bytes(bytes[8..16].try_into().expect("8"));
         if expected_abstraction_hash != 0 && abstraction_hash != expected_abstraction_hash {
@@ -165,7 +186,10 @@ impl BlueprintPolicy {
         let rows_off = offsets_off + (n + 1) * 4;
         let need = rows_off + (bytes.len() - rows_off);
         if bytes.len() < need {
-            return Err(BlueprintError::Artifact { path, reason: "truncated".into() });
+            return Err(BlueprintError::Artifact {
+                path,
+                reason: "truncated".into(),
+            });
         }
         Ok(BlueprintPolicy {
             bytes,
@@ -243,7 +267,8 @@ impl BlueprintPolicy {
         let key = enc.key(obs, seq);
         let idx = self.find(key.0)?;
         let start = self.rows_off + self.offset_at(idx);
-        let visits = u16::from_le_bytes(self.bytes[start + 1..start + 3].try_into().expect("2")) as f64;
+        let visits =
+            u16::from_le_bytes(self.bytes[start + 1..start + 3].try_into().expect("2")) as f64;
         Some(visits / (visits + 64.0))
     }
 
@@ -265,5 +290,29 @@ impl BlueprintPolicy {
 
     pub fn is_empty(&self) -> bool {
         self.n == 0
+    }
+
+    /// Owned resident bytes (B7): exactly the file bytes — load performs no
+    /// per-row parse or decode, so this equals the `policy.bin` file size.
+    pub fn resident_bytes(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// Touch every row once (sums dequantized mass): warmup helper for
+    /// river-only processes that want decode faults paid up front. Pure read —
+    /// never mutates the artifact.
+    pub fn prefetch_all(&self) -> f64 {
+        let mut acc = 0.0;
+        for i in 0..self.n {
+            let start = self.rows_off + self.offset_at(i);
+            let end = self.rows_off + self.offset_at(i + 1);
+            if end > start {
+                let w = self.bytes[start] as usize;
+                for b in &self.bytes[start + 3..start + 3 + w] {
+                    acc += *b as f64 / 100.0;
+                }
+            }
+        }
+        acc
     }
 }

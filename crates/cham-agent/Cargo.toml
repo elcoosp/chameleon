@@ -22,7 +22,12 @@ cham-rec = { path = "../cham-rec" }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+criterion = { workspace = true }
 cham-opponents = { path = "../cham-opponents" }
+
+[[bench]]
+name = "decision"
+harness = false
 
 [lints]
 workspace = true

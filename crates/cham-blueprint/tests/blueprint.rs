@@ -944,3 +944,140 @@ fn snapbatch_train_smoke() {
     assert_eq!(prov.thread_mode, ThreadMode::Snapbatch);
     assert!(prov.threads >= 1);
 }
+
+#[test]
+fn artifact_lazy_replay_bit_identical() {
+    // B7: rows decode lazily and deterministically — a golden replay of 100
+    // decisions is bit-identical across two independent loads, and the
+    // resident image is exactly the file bytes (no eager row expansion).
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("lazy");
+    // simulate 100 decisions with a table-less encoder; collect real keys
+    let mut sim = Encoder::cfg_only(TINY()).expect("enc");
+    let mut table = RegretTable::new(ThreadMode::Deterministic);
+    let mut spots: Vec<(u64, u64, usize)> = Vec::new();
+    for i in 0..100u64 {
+        let rng = &mut child(0x1A27, &format!("golden{i}"));
+        let mut s = State::new(CFG, Deck::shuffled(rng)).expect("s");
+        let mut seq = ActionSeq::default();
+        let steps = (i % 5) as usize;
+        for _ in 0..steps {
+            if s.is_terminal() {
+                break;
+            }
+            let obs = Observables::view(&s, Player::from_usize(s.to_act()));
+            let legals: Vec<Action> = obs.legal.iter().map(|l| l.action).collect();
+            if legals.is_empty() {
+                break;
+            }
+            let a = legals[0];
+            sim.record(&obs, Player::from_usize(s.to_act()), a, &mut seq);
+            if s.apply(a).is_err() {
+                break;
+            }
+        }
+        if s.is_terminal() {
+            continue;
+        }
+        let obs = Observables::view(&s, Player::from_usize(s.to_act()));
+        let key = sim.key(&obs, &seq);
+        let w = obs.legal.len().max(2);
+        let (off, ww) = table.entry_or_insert(key.0, w);
+        table.strat_add(off, ww, (i as usize) % w, 3.0);
+        table.add_visit(off, ww);
+        table.add_weight(off, ww, 3.0);
+        spots.push((i, key.0, w));
+    }
+    assert!(!spots.is_empty(), "golden simulation must yield spots");
+    let prov = ProvenanceRecord {
+        abstraction_hash: 0,
+        artifact_hash: 0,
+        mode: "Exploit".into(),
+        opponent_id: None,
+        depth_bb: 100,
+        iters: 100,
+        train_seed: 1,
+        thread_mode: "Deterministic".into(),
+        threads: 1,
+        parent: None,
+        wall_s: 0.0,
+        infosets: table.len(),
+        created_unix: 0,
+    };
+    BlueprintPolicy::build_artifact(&table, &prov, &out).expect("build");
+    // resident image == file bytes (owned-bytes load, no eager expansion)
+    let file_len = std::fs::metadata(out.join("policy.bin"))
+        .expect("meta")
+        .len() as usize;
+    let a = BlueprintPolicy::load(&out, 0).expect("load a");
+    let b = BlueprintPolicy::load(&out, 0).expect("load b");
+    assert_eq!(
+        a.resident_bytes(),
+        file_len,
+        "load holds exactly the file bytes"
+    );
+    assert_eq!(a.len(), table.len());
+    assert!(a.prefetch_all() > 0.0, "rows carry decoded mass");
+    // golden replay: re-simulate each decision with a FRESH encoder and
+    // compare decoded strategies across the two independent loads
+    for (idx, (i, key, _w)) in spots.iter().enumerate() {
+        let i = *i;
+        let _ = idx;
+        let mut enc = Encoder::cfg_only(TINY()).expect("enc");
+        let rng = &mut child(0x1A27, &format!("golden{i}"));
+        let mut s = State::new(CFG, Deck::shuffled(rng)).expect("s");
+        let mut seq = ActionSeq::default();
+        let steps = (i % 5) as usize;
+        for _ in 0..steps {
+            if s.is_terminal() {
+                break;
+            }
+            let obs = Observables::view(&s, Player::from_usize(s.to_act()));
+            let legals: Vec<Action> = obs.legal.iter().map(|l| l.action).collect();
+            if legals.is_empty() {
+                break;
+            }
+            let act = legals[0];
+            enc.record(&obs, Player::from_usize(s.to_act()), act, &mut seq);
+            if s.apply(act).is_err() {
+                break;
+            }
+        }
+        if s.is_terminal() {
+            continue;
+        }
+        let obs = Observables::view(&s, Player::from_usize(s.to_act()));
+        assert_eq!(
+            enc.key(&obs, &seq).0,
+            *key,
+            "re-simulation reproduces the key"
+        );
+        let sa = a.strategy(&obs, &mut enc, &seq);
+        let mut enc2 = Encoder::cfg_only(TINY()).expect("enc");
+        let rng2 = &mut child(0x1A27, &format!("golden{i}"));
+        let mut s2 = State::new(CFG, Deck::shuffled(rng2)).expect("s");
+        let mut seq2 = ActionSeq::default();
+        for _ in 0..steps {
+            if s2.is_terminal() {
+                break;
+            }
+            let obs2 = Observables::view(&s2, Player::from_usize(s2.to_act()));
+            let legals2: Vec<Action> = obs2.legal.iter().map(|l| l.action).collect();
+            if legals2.is_empty() {
+                break;
+            }
+            let act2 = legals2[0];
+            enc2.record(&obs2, Player::from_usize(s2.to_act()), act2, &mut seq2);
+            if s2.apply(act2).is_err() {
+                break;
+            }
+        }
+        if s2.is_terminal() {
+            continue;
+        }
+        let obs2 = Observables::view(&s2, Player::from_usize(s2.to_act()));
+        let sb = b.strategy(&obs2, &mut enc2, &seq2);
+        assert_eq!(sa, sb, "golden decision {idx} bit-identical across loads");
+        assert!(sa.is_some(), "covered key decodes a strategy");
+    }
+}
