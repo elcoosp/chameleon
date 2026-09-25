@@ -1,0 +1,98 @@
+// Turn EHS builder kernel (GPU-PLAN G1.2).
+//
+// For each turn board (4 cards) and each hero hole (2 cards), compute the
+// exact EHS numerator = 2*wins + ties over all (river, opponent pair)
+// combinations, where:
+//   - river ∈ the 46 cards not in board or hero hole
+//   - opponent pair ∈ C(45, 2) = 990 combos from the remaining 45 cards
+//
+// Denominator per (board, hole) = 46 * 990 = 45,540 (EhsDenom::Turn).
+//
+// Layout:
+//   buffer 0: uchar* tables  — same packed layout as eval7.msl
+//   buffer 1: uint*  boards  — 4 card bytes packed LE per board
+//   buffer 2: uint*  out     — [n_boards * 1326]; entry (b, h) is the
+//                              numerator for board b, hole2_index = h
+//   buffer 3: uint&  board_count
+//   buffers 4-7: uint/ulong offsets and masks (as in eval7)
+//
+// Dispatch: one thread per (board, hole_index) pair, grid = board_count
+// * 1326. Threads whose hole overlaps the board return without writing
+// (their slot is left 0 — callers ignore those entries).
+//
+// eval7_msl() and its helpers come from eval7_shared.msl; the two files
+// are concatenated at compile time (see mtl.rs).
+
+kernel void ehs_turn_kernel(
+    device const uchar*  tables      [[buffer(0)]],
+    device const uint*   boards      [[buffer(1)]],
+    device       uint*   out         [[buffer(2)]],
+    constant     uint&   board_count [[buffer(3)]],
+    constant     ulong&  seven_off   [[buffer(4)]],
+    constant     ulong&  seven_mask  [[buffer(5)]],
+    constant     ulong&  flush_off   [[buffer(6)]],
+    constant     ulong&  flush_mask  [[buffer(7)]],
+    uint gid [[thread_position_in_grid]])
+{
+    uint board_i = gid / 1326u;
+    uint hole_i  = gid % 1326u;
+    if (board_i >= board_count) return;
+
+    uint bc = boards[board_i];
+    uint b0 = bc & 0xFFu, b1 = (bc >> 8) & 0xFFu,
+         b2 = (bc >> 16) & 0xFFu, b3 = (bc >> 24) & 0xFFu;
+
+    // Reverse hole2_index: c_hi is the largest k with C(k,2) <= hole_i.
+    uint c_hi = 1u;
+    while ((c_hi * (c_hi - 1u)) / 2u <= hole_i && c_hi < 53u) c_hi++;
+    c_hi--;
+    uint c_lo = hole_i - (c_hi * (c_hi - 1u)) / 2u;
+    if (c_lo >= c_hi) return;
+
+    if (c_lo == b0 || c_lo == b1 || c_lo == b2 || c_lo == b3) return;
+    if (c_hi == b0 || c_hi == b1 || c_hi == b2 || c_hi == b3) return;
+
+    // remaining = 46 cards not in board AND not in hero's hole.
+    // (Was 48 — the bug: opponent pairs were being drawn from a pool that
+    // still contained hero's own cards, inflating every numerator.)
+    uchar remaining[46];
+    uint rn = 0u;
+    for (uint c = 0u; c < 52u; ++c) {
+        if (c != b0 && c != b1 && c != b2 && c != b3
+            && c != c_lo && c != c_hi) {
+            remaining[rn++] = (uchar)c;
+        }
+    }
+
+    ulong hero_base = ((ulong)b0) | ((ulong)b1 << 6) | ((ulong)b2 << 12)
+                    | ((ulong)b3 << 18);
+
+    uint wins = 0u;
+    uint ties = 0u;
+
+    for (uint ri = 0u; ri < rn; ++ri) {
+        uint river = remaining[ri];
+        ulong hero7 = hero_base | ((ulong)river << 24)
+                    | ((ulong)c_lo << 30) | ((ulong)c_hi << 36);
+        ushort hero_rank = eval7_msl(tables, seven_off, seven_mask,
+                                     flush_off, flush_mask, hero7);
+        // Opponent pair pool = remaining minus the river = 45 cards,
+        // so C(45, 2) = 990 pairs (matches EhsDenom::Turn / 46 rivers).
+        for (uint oi = 0u; oi < rn; ++oi) {
+            if (oi == ri) continue;
+            uint oc_i = remaining[oi];
+            for (uint oj = oi + 1u; oj < rn; ++oj) {
+                if (oj == ri) continue;
+                uint oc_j = remaining[oj];
+                ulong vill7 = hero_base | ((ulong)river << 24)
+                            | ((ulong)oc_i << 30) | ((ulong)oc_j << 36);
+                ushort vr = eval7_msl(tables, seven_off, seven_mask,
+                                      flush_off, flush_mask, vill7);
+                if (hero_rank > vr) wins++;
+                else if (hero_rank == vr) ties++;
+            }
+        }
+    }
+
+    out[(ulong)board_i * 1326ul + (ulong)hole_i] = 2u * wins + ties;
+}

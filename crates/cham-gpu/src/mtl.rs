@@ -61,6 +61,114 @@ impl GpuContext {
     }
 }
 
+/// Turn EHS: dispatch one thread per (board, hole_index) pair.
+/// `boards_packed[i]` is board i's 4 card bytes packed LE.
+/// `out[(i*1326) + h]` receives the numerator.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub(crate) fn dispatch_ehs_turn(
+    ctx: &GpuContext,
+    tables_bytes: &[u8],
+    boards_packed: &[u32],
+    out: &mut [u32],
+    seven_off: u64,
+    seven_mask: u64,
+    flush_off: u64,
+    flush_mask: u64,
+) -> Result<(), KernelError> {
+    use metal::{CompileOptions, MTLResourceOptions, MTLSize};
+
+    let n_boards = boards_packed.len() as u64;
+    if out.len() as u64 != n_boards * 1326 {
+        return Err(KernelError::Metal(
+            "out length mismatch (expect n_boards*1326)".into(),
+        ));
+    }
+
+    // Concatenate shared + kernel source (MSL has no #include).
+    let source = format!(
+        "{}\n{}",
+        include_str!("msl/eval7_shared.msl"),
+        include_str!("msl/ehs_turn.msl"),
+    );
+    let library = ctx
+        .device
+        .new_library_with_source(&source, &CompileOptions::new())
+        .map_err(|e| KernelError::Metal(format!("EHS MSL compile: {e:?}")))?;
+    let function = library
+        .get_function("ehs_turn_kernel", None)
+        .map_err(|e| KernelError::Metal(format!("get_function ehs_turn: {e:?}")))?;
+    let pipeline = ctx
+        .device
+        .new_compute_pipeline_state_with_function(&function)
+        .map_err(|e| KernelError::Metal(format!("ehs_turn pipeline: {e:?}")))?;
+
+    let tables_buf = ctx.device.new_buffer_with_data(
+        tables_bytes.as_ptr() as *const std::ffi::c_void,
+        tables_bytes.len() as u64,
+        MTLResourceOptions::StorageModeShared,
+    );
+    let boards_buf = ctx.device.new_buffer_with_data(
+        boards_packed.as_ptr() as *const std::ffi::c_void,
+        (boards_packed.len() as u64) * 4,
+        MTLResourceOptions::StorageModeShared,
+    );
+    let out_buf = ctx.device.new_buffer(
+        (out.len() as u64) * 4,
+        MTLResourceOptions::StorageModeShared,
+    );
+
+    let board_count: u32 = n_boards as u32;
+    let total: u64 = n_boards * 1326;
+
+    let cmd = ctx.queue.new_command_buffer();
+    let enc = cmd.new_compute_command_encoder();
+    enc.set_compute_pipeline_state(&pipeline);
+    enc.set_buffer(0, Some(&tables_buf), 0);
+    enc.set_buffer(1, Some(&boards_buf), 0);
+    enc.set_buffer(2, Some(&out_buf), 0);
+    enc.set_bytes(3, 4, &board_count as *const u32 as *const std::ffi::c_void);
+    enc.set_bytes(4, 8, &seven_off as *const u64 as *const std::ffi::c_void);
+    enc.set_bytes(5, 8, &seven_mask as *const u64 as *const std::ffi::c_void);
+    enc.set_bytes(6, 8, &flush_off as *const u64 as *const std::ffi::c_void);
+    enc.set_bytes(7, 8, &flush_mask as *const u64 as *const std::ffi::c_void);
+    enc.dispatch_threads(
+        MTLSize {
+            width: total,
+            height: 1,
+            depth: 1,
+        },
+        MTLSize {
+            width: 64,
+            height: 1,
+            depth: 1,
+        },
+    );
+    enc.end_encoding();
+    cmd.commit();
+    cmd.wait_until_completed();
+
+    // SAFETY: wait_until_completed returned; shared buffer holds outputs.
+    let src = out_buf.contents() as *const u32;
+    let gpu_out = unsafe { std::slice::from_raw_parts(src, out.len()) };
+    out.copy_from_slice(gpu_out);
+    Ok(())
+}
+
+/// Non-macOS / feature-off stub.
+#[cfg(not(all(target_os = "macos", feature = "metal")))]
+pub(crate) fn dispatch_ehs_turn(
+    _ctx: &GpuContext,
+    _tables_bytes: &[u8],
+    _boards_packed: &[u32],
+    _out: &mut [u32],
+    _so: u64,
+    _sm: u64,
+    _fo: u64,
+    _fm: u64,
+) -> Result<(), KernelError> {
+    Err(KernelError::NoDevice("metal unavailable".into()))
+}
+
 #[cfg(not(all(target_os = "macos", feature = "metal")))]
 #[derive(Debug)]
 pub struct GpuContext;

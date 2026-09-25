@@ -93,6 +93,76 @@ pub fn pack_hands_wgsl(hands_packed: &[u64]) -> Vec<u8> {
     bytes
 }
 
+/// Pack an EvalTables view into the Metal byte layout the kernels expect:
+/// `straight[8192] || seven_entries*16B || flush_entries*16B`, entries as
+/// `(u64 key LE || u16 val LE || 6 pad)`.
+///
+/// Returns `(bytes, seven_off, seven_mask, flush_off, flush_mask)`.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub fn pack_tables_metal(tables: &EvalTables<'_>) -> (Vec<u8>, u64, u64, u64, u64) {
+    let mut packed: Vec<u8> =
+        Vec::with_capacity(8192 + (tables.seven_entries.len() + tables.flush_entries.len()) * 16);
+    packed.extend_from_slice(tables.straight);
+    for &(k, v) in tables.seven_entries {
+        packed.extend_from_slice(&k.to_le_bytes());
+        packed.extend_from_slice(&v.to_le_bytes());
+        packed.extend_from_slice(&[0u8; 6]);
+    }
+    let seven_off: u64 = 8192;
+    let seven_mask: u64 = tables.seven_mask;
+    for &(k, v) in tables.flush_entries {
+        packed.extend_from_slice(&k.to_le_bytes());
+        packed.extend_from_slice(&v.to_le_bytes());
+        packed.extend_from_slice(&[0u8; 6]);
+    }
+    let flush_off: u64 = 8192 + (tables.seven_entries.len() as u64) * 16;
+    let flush_mask: u64 = tables.flush_mask;
+    (packed, seven_off, seven_mask, flush_off, flush_mask)
+}
+
+/// Pack a 4-card turn board into a u32 (4 bytes, one per card id, LE).
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub fn pack_board4(board: &[cham_core::card::Card; 4]) -> u32 {
+    (board[0].0 as u32)
+        | ((board[1].0 as u32) << 8)
+        | ((board[2].0 as u32) << 16)
+        | ((board[3].0 as u32) << 24)
+}
+
+/// Turn EHS: given N 4-card turn boards, write the exact `2*wins + ties`
+/// numerator for every (board, hole) pair to `out`. `out[i*1326 + h]` is
+/// board i's value for `hole2_index` h; entries where the hole overlaps
+/// the board are left 0 by the kernel (skip them in checks).
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub fn launch_ehs_turn(
+    ctx: &GpuContext,
+    tables: &EvalTables<'_>,
+    boards_packed: &[u32],
+    out: &mut [u32],
+) -> Result<(), KernelError> {
+    let (bytes, so, sm, fo, fm) = pack_tables_metal(tables);
+    crate::mtl::dispatch_ehs_turn(ctx, &bytes, boards_packed, out, so, sm, fo, fm)
+}
+
+/// Non-macOS / feature-off stub for launch_ehs_turn.
+#[cfg(not(all(target_os = "macos", feature = "metal")))]
+pub fn launch_ehs_turn(
+    _ctx: &GpuContext,
+    _tables: &EvalTables<'_>,
+    _boards_packed: &[u32],
+    _out: &mut [u32],
+) -> Result<(), KernelError> {
+    Err(KernelError::NoDevice("metal unavailable".into()))
+}
+
+/// Non-macOS / feature-off stub for pack_board4 (does not need the GPU).
+pub fn pack_board4_stub(board: &[cham_core::card::Card; 4]) -> u32 {
+    (board[0].0 as u32)
+        | ((board[1].0 as u32) << 8)
+        | ((board[2].0 as u32) << 16)
+        | ((board[3].0 as u32) << 24)
+}
+
 /// Dispatch `eval7_kernel` over `hands_packed`, writing `out[i]`.
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub fn launch_eval7(
