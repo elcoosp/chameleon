@@ -312,6 +312,43 @@ fn tables() -> &'static Tables {
     TABLES.get_or_init(build_tables)
 }
 
+/// Immutable view of cham-core's 7-card evaluator lookup tables (additive;
+/// no existing code path is affected). `cham-gpu` consumes this to replicate
+/// `evaluate7` on Metal bit-for-bit. Layout is exactly the in-memory layout
+/// used by `evaluate7` — do not add or reorder fields without updating the
+/// GPU side (`crates/cham-gpu/src/msl/eval7.msl`).
+#[derive(Clone, Copy, Debug)]
+pub struct EvalTables<'a> {
+    /// `straight[8192]`: 13-bit rank mask -> top rank index of best straight,
+    /// or 0xFF if none. Wheel (A2345) yields rank index 3.
+    pub straight: &'a [u8; 8192],
+    /// Open-addressed linear-probe map: 7-rank prime-product -> dense rank
+    /// (1..=7462). Each entry is `(key, val)`; empty slots use `key == u64::MAX`.
+    pub seven_entries: &'a [(u64, u16)],
+    /// Mask for `seven_entries` (capacity - 1, capacity is a power of two).
+    pub seven_mask: u64,
+    /// Same shape, for flush-context packed-5-card values.
+    pub flush_entries: &'a [(u64, u16)],
+    pub flush_mask: u64,
+    /// Sorted distinct packed 5-card values, length 7462. Not read by
+    /// `evaluate7`; exposed for GPU-side consistency assertions.
+    pub dense: &'a [u32],
+}
+
+/// Borrow cham-core's initialized evaluator tables. The OnceLock initializes
+/// on first call (identical to `evaluate7`); subsequent calls are free.
+pub fn eval_tables() -> EvalTables<'static> {
+    let t = tables();
+    EvalTables {
+        straight: &t.straight,
+        seven_entries: &t.seven_map.entries,
+        seven_mask: t.seven_map.mask,
+        flush_entries: &t.flush_map.entries,
+        flush_mask: t.flush_map.mask,
+        dense: &t.dense,
+    }
+}
+
 #[inline]
 fn dense_rank(packed: u32) -> u16 {
     let t = tables();
