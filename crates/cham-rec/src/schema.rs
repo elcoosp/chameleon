@@ -70,44 +70,19 @@ impl RecordKind {
         match self {
             RecordKind::OppSession => &["spec_id", "family", "arch", "seed", "params"],
             RecordKind::Match => &[
-                "label",
-                "spec_ids",
-                "seeds",
-                "deals",
-                "seatings",
-                "mb_per_seating",
-                "se_mb",
-                "vr_factor",
-                "wall_s",
+                "label", "spec_ids", "seeds", "deals", "seatings", "mb_per_seating", "se_mb",
+                "vr_factor", "wall_s",
             ],
             RecordKind::Decision => &[
-                "hand_idx",
-                "street",
-                "slot",
-                "action",
-                "weights_frozen",
-                "expert_visits",
-                "fallback_used",
-                "abstraction_hash",
+                "hand_idx", "street", "slot", "action", "weights_frozen", "expert_visits",
+                "fallback_used", "abstraction_hash",
             ],
-            RecordKind::BpSnapshot => &[
-                "iters",
-                "infosets",
-                "bytes",
-                "wall_s",
-                "thread_mode",
-                "threads",
-            ],
+            RecordKind::BpSnapshot => &["iters", "infosets", "bytes", "wall_s", "thread_mode", "threads"],
             RecordKind::BpProbe => &["lbr_mb", "coverage", "iters"],
             RecordKind::WarmstartStep => &["src_artifact", "depth_bb", "keys_transferred"],
             RecordKind::RouterTrain => &[
-                "rows",
-                "top1_b_dev",
-                "top1_b_test",
-                "ece_b_test",
-                "ece_family_c",
-                "per_class_recall",
-                "gates_passed",
+                "rows", "top1_b_dev", "top1_b_test", "ece_b_test", "ece_family_c",
+                "per_class_recall", "gates_passed",
             ],
             RecordKind::SearchDecision => &["triggered", "solver", "iters", "truncated", "lbr_gap"],
             RecordKind::AgentLoad => &["mode", "artifact_hashes", "depth_bb", "experts"],
@@ -145,10 +120,7 @@ fn reject_non_finite(v: &serde_json::Value) -> Result<(), RecError> {
 /// Validate a payload against the registry: object shape, required fields, finiteness.
 pub fn check_payload(kind: RecordKind, data: &serde_json::Value) -> Result<(), RecError> {
     let obj = data.as_object().ok_or_else(|| {
-        RecError::Invalid(format!(
-            "payload for `{}` must be a JSON object",
-            kind.as_str()
-        ))
+        RecError::Invalid(format!("payload for `{}` must be a JSON object", kind.as_str()))
     })?;
     for field in kind.required_fields() {
         if !obj.contains_key(*field) {
