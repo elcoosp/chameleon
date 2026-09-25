@@ -61,3 +61,15 @@ Baseline bench capture: see bench-before-gpu.txt (run separately, long).
 - MSL kernel signature updated accordingly (device const ulong*).
 - Public cham-gpu API uses &[u64]; the CPU-side packer lives in kernels.rs.
 - Recorded here so the plan text can be corrected during G4.0 doc sync.
+
+## G0.2b MSL eval7 kernel + scoped-unsafe dispatch
+
+- MSL body written: full evaluate7 transcription (flush-select via if-chain,
+  straight[8192] lookup, flush_top5, prime-product lookup, LinearMap probe).
+- Hand packing: 6 bits/card × 7 = 42 bits in u64 (was u32 in plan text).
+- Table packing: straight bytes || seven entries*16 || flush entries*16, where
+  each entry is (u64 key LE || u16 val LE || 6 pad) — mirrors Rust Vec<(u64,u16)>.
+- SAFETY DEVIATION from plan: docs/GPU-PLAN.md Part II says cham-gpu "stays
+  #![forbid(unsafe_code)]"; impossible with `metal` FFI. Downgraded to
+  #![deny(unsafe_code)]; #[allow(unsafe_code)] scoped to src/mtl.rs only.
+  Same pattern as D-001/memmap2.
