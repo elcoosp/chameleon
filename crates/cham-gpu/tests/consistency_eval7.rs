@@ -12,7 +12,7 @@ use cham_core::eval::{EvalTables, eval_tables};
 use cham_core::rng::{next_u32, rng_from_seed};
 
 /// Pinned seed for the 1M-hand corpus (docs/GPU-PLAN.md G0.2 step 3).
-const CORPUS_SEED: u64 = 0x60C0_FFE;
+const CORPUS_SEED: u64 = 0x0000_060C_0FFE;
 const N_HANDS: usize = 1_000_000;
 
 /// Draw `N_HANDS` distinct 7-card hands deterministically from CORPUS_SEED.
@@ -97,9 +97,11 @@ fn consistency_eval7_one_million_hands() {
             }
         }
         assert_eq!(
-            mismatches, 0,
+            mismatches,
+            0,
             "GPU vs CPU mismatches: {}/{} (first: idx={:?}, cpu={:?}, gpu={:?})",
-            mismatches, N_HANDS,
+            mismatches,
+            N_HANDS,
             first_bad.map(|t| t.0),
             first_bad.map(|t| t.1),
             first_bad.map(|t| t.2)
@@ -124,7 +126,13 @@ fn consistency_eval7_one_million_hands() {
 #[test]
 fn pack_unpack_roundtrip() {
     let h: [Card; 7] = [
-        Card(0), Card(1), Card(2), Card(3), Card(4), Card(5), Card(6),
+        Card(0),
+        Card(1),
+        Card(2),
+        Card(3),
+        Card(4),
+        Card(5),
+        Card(6),
     ];
     let p = pack_hand(&h);
     for (i, c) in h.iter().enumerate() {

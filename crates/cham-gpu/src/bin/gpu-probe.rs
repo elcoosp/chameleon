@@ -21,7 +21,7 @@ use cham_core::card::Card;
 use cham_core::eval::evaluate7;
 use cham_core::rng::{next_u32, rng_from_seed};
 
-const CORPUS_SEED: u64 = 0x60C0_FFE;
+const CORPUS_SEED: u64 = 0x0000_060C_0FFE;
 
 fn parse_arg(name: &str, default: usize) -> usize {
     let args: Vec<String> = env::args().collect();
@@ -151,7 +151,7 @@ fn run_enum(boards: usize) -> f64 {
 
     // Each "board" here is a 5-card river; each hero hole is 2 of the
     // remaining 47 cards. Use 990 villain holes per hero hole (C(45,2)).
-    let mut rng = rng_from_seed(0x60C0_FFE ^ 0xE11);
+    let mut rng = rng_from_seed(0x0000_060C_0FFE ^ 0xE11);
     let mut packed: Vec<u64> = Vec::with_capacity(boards * 1_326 * 990);
     for _ in 0..boards {
         // Fresh 52-card deck; draw 7 cards. The eval7_kernel only needs 7
