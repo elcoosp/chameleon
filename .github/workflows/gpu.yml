@@ -91,13 +91,20 @@ jobs:
       - name: gpu-doctor smoke
         run: cargo run -q -p cham-cli -- gpu-doctor
 
-      # When G5.0 lands (wgpu feature + WGSL kernel), the following step
-      # becomes active and runs the real P7 correctness gate on llvmpipe:
-      #
+      # P7 correctness gate on Linux/Vulkan. Uses Mesa's llvmpipe software
+      # rasterizer, so no hardware GPU is required. Slow (minutes for 1M
+      # hands) but this is the cross-platform correctness guarantee that
+      # Amendment 002 promised — same corpus, same seed, same bit-exact
+      # assertion as the macOS-Metal path.
+      - name: install llvmpipe (mesa-vulkan-drivers)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers
+
       - name: wgpu correctness (llvmpipe)
-      #   run: |
-      #     sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
-      #     cargo nextest run -p cham-gpu --features wgpu --no-fail-fast --nocapture
+        run: |
+          cargo nextest run -p cham-gpu --features wgpu --test consistency_eval7 \
+            --no-fail-fast --nocapture
 
   gpu-bench-macos:
     # Manual only — macOS runners cost 10x Linux minutes. This job is the
