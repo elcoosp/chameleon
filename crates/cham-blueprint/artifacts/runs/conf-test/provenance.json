@@ -1,0 +1,15 @@
+{
+  "abstraction_hash": 1,
+  "artifact_hash": 10677504214984813161,
+  "mode": "Exploit",
+  "opponent_id": null,
+  "depth_bb": 100,
+  "iters": 100,
+  "train_seed": 1,
+  "thread_mode": "Deterministic",
+  "threads": 1,
+  "parent": null,
+  "wall_s": 0.0,
+  "infosets": 1,
+  "created_unix": 0
+}
