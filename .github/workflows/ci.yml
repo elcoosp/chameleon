@@ -12,6 +12,12 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+# Override the workspace `.cargo/config.toml`'s `target-cpu=native` with a
+# portable x86_64 feature level. The local dev machine sets `native` (fine
+# there); on GitHub Actions runners `native` resolves to whatever the
+# transient host supports and has produced SIGILL crashes when the runner
+# VM lacked a feature the compiler had enabled. Matches bench.yml.
+RUSTFLAGS: "-C target-cpu=x86-64-v3"
 
 jobs:
   test:
