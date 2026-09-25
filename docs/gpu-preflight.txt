@@ -1,0 +1,40 @@
+=== GPU-PLAN G0.0 preflight ===
+timestamp: 2026-09-25T15:57:18Z
+host: Darwin arm64
+
+--- hw.memsize / hw.ncpu / cpu brand ---
+17179869184
+8
+Apple M1
+
+--- GPU (SPDisplaysDataType) ---
+Graphics/Displays:
+
+    Apple M1:
+
+      Chipset Model: Apple M1
+      Type: GPU
+      Bus: Built-In
+      Total Number of Cores: 8
+      Vendor: Apple (0x106b)
+      Metal Support: Metal 4
+      Displays:
+        BenQ GL2450:
+          Resolution: 1920 x 1080 (1080p FHD - Full High Definition)
+          UI Looks like: 1920 x 1080 @ 60.00Hz
+          Main Display: Yes
+          Mirror: Off
+          Online: Yes
+          Rotation: Supported
+
+
+--- disk free on repo volume ---
+Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1   460Gi   417Gi    18Gi    96%    5.1M  187M    3%   /System/Volumes/Data
+
+--- toolchain ---
+rustc 1.98.1 (48a229cea 2026-09-01)
+cargo 1.98.1 (797e8a9bc 2026-08-05)
+
+--- metal compiler ---
+/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.5.188.0.stjtEu/Metal.xctoolchain/usr/bin/metal
