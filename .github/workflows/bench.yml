@@ -115,20 +115,29 @@ jobs:
       - name: bench (save baseline)
         if: steps.mode.outputs.save == 'true'
         run: |
-          if [ -n "${{ steps.mode.outputs.filter }}" ]; then
-            cargo bench --workspace -- "${{ steps.mode.outputs.filter }}" --save-baseline ci
-          else
-            cargo bench --workspace -- --save-baseline ci
-          fi
+          # Enumerate every [[bench]] target explicitly:
+          # `cargo bench --workspace -- --save-baseline` ALSO runs lib
+          # unittests (libtest harness), which rejects criterion args.
+          cargo bench -p cham-agent --bench decision -- --save-baseline ci
+          cargo bench -p cham-blueprint --bench mccfr -- --save-baseline ci
+          cargo bench -p cham-core --bench eval -- --save-baseline ci
+          cargo bench -p cham-core --bench engine -- --save-baseline ci
+          cargo bench -p cham-engine --bench encode -- --save-baseline ci
+          cargo bench -p cham-eval --bench match_throughput -- --save-baseline ci
+          cargo bench -p cham-search --bench solve -- --save-baseline ci
+          cargo bench -p cham-search --bench trigger_cache -- --save-baseline ci
 
       - name: bench (compare to baseline)
         if: steps.mode.outputs.save != 'true'
         run: |
-          if [ -n "${{ steps.mode.outputs.filter }}" ]; then
-            cargo bench --workspace -- "${{ steps.mode.outputs.filter }}" --baseline ci || true
-          else
-            cargo bench --workspace -- --baseline ci || true
-          fi
+          cargo bench -p cham-agent --bench decision -- --baseline ci || true
+          cargo bench -p cham-blueprint --bench mccfr -- --baseline ci || true
+          cargo bench -p cham-core --bench eval -- --baseline ci || true
+          cargo bench -p cham-core --bench engine -- --baseline ci || true
+          cargo bench -p cham-engine --bench encode -- --baseline ci || true
+          cargo bench -p cham-eval --bench match_throughput -- --baseline ci || true
+          cargo bench -p cham-search --bench solve -- --baseline ci || true
+          cargo bench -p cham-search --bench trigger_cache -- --baseline ci || true
 
       - name: summary table
         if: always()
