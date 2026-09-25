@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 
 use rand::Rng as _;
 
-use crate::card::{Card, Hand2, ALL_CARDS};
+use crate::card::{ALL_CARDS, Card, Hand2};
 use crate::rng::Rng;
 
 mod range;
@@ -99,7 +99,10 @@ struct LinearMap {
 impl LinearMap {
     fn new(n: usize) -> LinearMap {
         let cap = (n * 2).next_power_of_two().max(16);
-        LinearMap { entries: vec![(u64::MAX, 0); cap], mask: (cap - 1) as u64 }
+        LinearMap {
+            entries: vec![(u64::MAX, 0); cap],
+            mask: (cap - 1) as u64,
+        }
     }
     #[inline]
     fn hash(x: u64) -> u64 {
@@ -200,14 +203,23 @@ fn best_nonflush_packed_from_counts(counts: &[u8; 13]) -> u32 {
     if let Some(&p) = pairs.first() {
         return pack(
             CAT_PAIR,
-            &[p, *singles.first().unwrap_or(&0), *singles.get(1).unwrap_or(&0), *singles.get(2).unwrap_or(&0)],
+            &[
+                p,
+                *singles.first().unwrap_or(&0),
+                *singles.get(1).unwrap_or(&0),
+                *singles.get(2).unwrap_or(&0),
+            ],
         );
     }
     pack(
         CAT_HIGH,
-        &[singles.first().copied().unwrap_or(0), singles.get(1).copied().unwrap_or(0),
-          singles.get(2).copied().unwrap_or(0), singles.get(3).copied().unwrap_or(0),
-          singles.get(4).copied().unwrap_or(0)],
+        &[
+            singles.first().copied().unwrap_or(0),
+            singles.get(1).copied().unwrap_or(0),
+            singles.get(2).copied().unwrap_or(0),
+            singles.get(3).copied().unwrap_or(0),
+            singles.get(4).copied().unwrap_or(0),
+        ],
     )
 }
 
@@ -262,11 +274,13 @@ fn build_tables() -> Tables {
     });
     values.sort_unstable();
     values.dedup();
-    assert_eq!(values.len(), 7462, "dense 5-card scale must have exactly 7462 classes");
+    assert_eq!(
+        values.len(),
+        7462,
+        "dense 5-card scale must have exactly 7462 classes"
+    );
 
-    let rank_of = |packed: u32| -> u16 {
-        (values.partition_point(|&v| v < packed) + 1) as u16
-    };
+    let rank_of = |packed: u32| -> u16 { (values.partition_point(|&v| v < packed) + 1) as u16 };
 
     // ---- flush-context map: packed → dense rank ----
     let mut flush_map = LinearMap::new(flush_values.len());
@@ -286,7 +300,12 @@ fn build_tables() -> Tables {
         let best = best_nonflush_packed_from_counts(counts);
         seven_map.insert(prod, rank_of(best));
     });
-    Tables { straight, seven_map, flush_map, dense: values }
+    Tables {
+        straight,
+        seven_map,
+        flush_map,
+        dense: values,
+    }
 }
 
 fn tables() -> &'static Tables {
@@ -300,39 +319,74 @@ fn dense_rank(packed: u32) -> u16 {
 }
 
 /// Evaluate a 7-card hand → dense rank 1..=7462 (1 weakest, 7462 royal flush).
+///
+/// Hot path (P1 gate): ONE pass over the 7 cards builds rank-prime product,
+/// per-suit rank bitmasks and per-suit counts together (no re-iteration). Flush
+/// detection is a straight-line suit-count select (no per-suit loop with
+/// early returns), so the common non-flush path is branch-predictor friendly.
 #[inline]
 pub fn evaluate7(c: &[Card; 7]) -> u16 {
     let t = tables();
     let mut suit_mask = [0u16; 4];
+    let mut suit_count = [0u8; 4];
     let mut prod: u64 = 1;
-    for &card in c {
-        let s = card.suit() as usize;
-        suit_mask[s] |= 1 << card.rank();
-        prod = prod.wrapping_mul(PRIMES[card.rank() as usize]);
+    // Fixed-size array: lengths asserted by the type; no bounds checks needed.
+    for i in 0..7 {
+        let idx = c[i].0;
+        let rank = idx >> 2; // rank = idx/4 (power of two: shift, no divide)
+        let suit = (idx & 3) as usize; // suit = idx%4 (power of two: mask)
+        suit_mask[suit] |= 1u16 << rank;
+        suit_count[suit] += 1;
+        prod = prod.wrapping_mul(PRIMES[rank as usize]);
     }
-    // flush path (at most one suit can hold ≥ 5 of 7 cards)
-    for s in 0..4 {
-        if suit_mask[s].count_ones() >= 5 {
-            let m = suit_mask[s];
-            let st = t.straight[m as usize];
-            if st != 0xff {
-                return t.flush_map.get(pack(CAT_STRAIGHT_FLUSH, &[st]) as u64);
+    // flush path (at most one suit can hold ≥ 5 of 7 cards): straight-line
+    // select over the counts built above.
+    let flush_suit = if suit_count[0] >= 5 {
+        0
+    } else if suit_count[1] >= 5 {
+        1
+    } else if suit_count[2] >= 5 {
+        2
+    } else if suit_count[3] >= 5 {
+        3
+    } else {
+        return t.seven_map.get(prod);
+    };
+    let m = suit_mask[flush_suit];
+    let st = t.straight[m as usize];
+    if st != 0xff {
+        return t.flush_map.get(pack(CAT_STRAIGHT_FLUSH, &[st]) as u64);
+    }
+    flush_top5(m, t)
+}
+
+/// Top-5 flush kicker lookup shared by [`evaluate7`] (out of line so the
+/// non-flush fast path stays small and inlinable).
+#[inline(never)]
+fn flush_top5(m: u16, t: &Tables) -> u16 {
+    let mut ks = [0u8; 5];
+    let mut n = 0;
+    for r in (0..13).rev() {
+        if m & (1 << r) != 0 {
+            ks[n] = r as u8;
+            n += 1;
+            if n == 5 {
+                break;
             }
-            let mut ks = [0u8; 5];
-            let mut n = 0;
-            for r in (0..13).rev() {
-                if m & (1 << r) != 0 {
-                    ks[n] = r as u8;
-                    n += 1;
-                    if n == 5 {
-                        break;
-                    }
-                }
-            }
-            return t.flush_map.get(pack(CAT_FLUSH, &ks) as u64);
         }
     }
-    t.seven_map.get(prod)
+    t.flush_map.get(pack(CAT_FLUSH, &ks) as u64)
+}
+
+/// Batch evaluation exposing instruction-level parallelism: hands are
+/// independent, so the CPU pipelines N scalar evals (shared table lookups
+/// autovectorize under `target-cpu=native`).
+#[inline]
+pub fn evaluate7_batch<const N: usize>(hands: &[[Card; 7]; N], out: &mut [u16; N]) {
+    debug_assert_eq!(hands.len(), out.len());
+    for i in 0..N {
+        out[i] = evaluate7(&hands[i]);
+    }
 }
 
 /// Evaluate exactly 5 cards → dense rank.
@@ -368,16 +422,37 @@ pub fn evaluate5(c: &[Card; 5]) -> u16 {
 /// Best 5-card subset of 7 (off hot path; exhaustive over the 21 subsets).
 pub fn best5(c: &[Card; 7]) -> ([Card; 5], u16) {
     const COMBOS: [[usize; 5]; 21] = [
-        [0, 1, 2, 3, 4], [0, 1, 2, 3, 5], [0, 1, 2, 3, 6], [0, 1, 2, 4, 5], [0, 1, 2, 4, 6],
-        [0, 1, 2, 5, 6], [0, 1, 3, 4, 5], [0, 1, 3, 4, 6], [0, 1, 3, 5, 6], [0, 1, 4, 5, 6],
-        [0, 2, 3, 4, 5], [0, 2, 3, 4, 6], [0, 2, 3, 5, 6], [0, 2, 4, 5, 6], [0, 3, 4, 5, 6],
-        [1, 2, 3, 4, 5], [1, 2, 3, 4, 6], [1, 2, 3, 5, 6], [1, 2, 4, 5, 6], [1, 3, 4, 5, 6],
+        [0, 1, 2, 3, 4],
+        [0, 1, 2, 3, 5],
+        [0, 1, 2, 3, 6],
+        [0, 1, 2, 4, 5],
+        [0, 1, 2, 4, 6],
+        [0, 1, 2, 5, 6],
+        [0, 1, 3, 4, 5],
+        [0, 1, 3, 4, 6],
+        [0, 1, 3, 5, 6],
+        [0, 1, 4, 5, 6],
+        [0, 2, 3, 4, 5],
+        [0, 2, 3, 4, 6],
+        [0, 2, 3, 5, 6],
+        [0, 2, 4, 5, 6],
+        [0, 3, 4, 5, 6],
+        [1, 2, 3, 4, 5],
+        [1, 2, 3, 4, 6],
+        [1, 2, 3, 5, 6],
+        [1, 2, 4, 5, 6],
+        [1, 3, 4, 5, 6],
         [2, 3, 4, 5, 6],
     ];
     let mut best: Option<([Card; 5], u16)> = None;
     for combo in COMBOS {
-        let five: [Card; 5] =
-            [c[combo[0]], c[combo[1]], c[combo[2]], c[combo[3]], c[combo[4]]];
+        let five: [Card; 5] = [
+            c[combo[0]],
+            c[combo[1]],
+            c[combo[2]],
+            c[combo[3]],
+            c[combo[4]],
+        ];
         let v = evaluate5(&five);
         if best.as_ref().is_none_or(|(_, bv)| v > *bv) {
             best = Some((five, v));
@@ -426,11 +501,7 @@ pub fn strength_now(hero: Hand2, board: &[Card]) -> f64 {
             }
         }
     }
-    if n == 0.0 {
-        0.5
-    } else {
-        score / n
-    }
+    if n == 0.0 { 0.5 } else { score / n }
 }
 
 /// Exact equity of hero vs a Range: enumeration, no MC. On a complete 5-card board
@@ -456,13 +527,29 @@ pub fn equity_exact(hero: Hand2, villain: &Range, board: &[Card]) -> (f64, f64) 
     let mut total = 0.0f64;
 
     if need == 0 {
-        let hr = evaluate7(&[ha, hb, board_full[0], board_full[1], board_full[2], board_full[3], board_full[4]]);
+        let hr = evaluate7(&[
+            ha,
+            hb,
+            board_full[0],
+            board_full[1],
+            board_full[2],
+            board_full[3],
+            board_full[4],
+        ]);
         for combo in villain.iter() {
             let [va, vb] = Hand2::from_combo(combo).cards();
             if dead[va.idx() as usize] || dead[vb.idx() as usize] {
                 continue;
             }
-            let vr = evaluate7(&[va, vb, board_full[0], board_full[1], board_full[2], board_full[3], board_full[4]]);
+            let vr = evaluate7(&[
+                va,
+                vb,
+                board_full[0],
+                board_full[1],
+                board_full[2],
+                board_full[3],
+                board_full[4],
+            ]);
             total += 1.0;
             if hr > vr {
                 win += 1.0;
@@ -487,16 +574,24 @@ pub fn equity_exact(hero: Hand2, villain: &Range, board: &[Card]) -> (f64, f64) 
             let mut n_local = 0.0f64;
             let mut w_local = 0.0f64;
             let mut t_local = 0.0f64;
-            fill_rec(&pool, need, 0, &mut idx, &mut board_full, board.len(), &mut |bf: &[Card; 5]| {
-                let hr = evaluate7(&[ha, hb, bf[0], bf[1], bf[2], bf[3], bf[4]]);
-                let vr = evaluate7(&[va, vb, bf[0], bf[1], bf[2], bf[3], bf[4]]);
-                n_local += 1.0;
-                if hr > vr {
-                    w_local += 1.0;
-                } else if hr == vr {
-                    t_local += 1.0;
-                }
-            });
+            fill_rec(
+                &pool,
+                need,
+                0,
+                &mut idx,
+                &mut board_full,
+                board.len(),
+                &mut |bf: &[Card; 5]| {
+                    let hr = evaluate7(&[ha, hb, bf[0], bf[1], bf[2], bf[3], bf[4]]);
+                    let vr = evaluate7(&[va, vb, bf[0], bf[1], bf[2], bf[3], bf[4]]);
+                    n_local += 1.0;
+                    if hr > vr {
+                        w_local += 1.0;
+                    } else if hr == vr {
+                        t_local += 1.0;
+                    }
+                },
+            );
             total += n_local;
             win += w_local;
             tie += t_local;
@@ -534,7 +629,13 @@ fn fill_rec(
 /// MC equity — EXISTS ONLY FOR OFFLINE TABLE BUILDING (SPECS/02 §3) and nothing else.
 /// Callers restricted by review to cham-engine's table builder and cham-opponents'
 /// chart builder.
-pub fn equity_mc(hero: Hand2, villain: &Range, board: &[Card], iters: u32, rng: &mut Rng) -> (f64, f64) {
+pub fn equity_mc(
+    hero: Hand2,
+    villain: &Range,
+    board: &[Card],
+    iters: u32,
+    rng: &mut Rng,
+) -> (f64, f64) {
     let [ha, hb] = hero.cards();
     let mut dead = [false; 52];
     dead[ha.idx() as usize] = true;
@@ -571,8 +672,24 @@ pub fn equity_mc(hero: Hand2, villain: &Range, board: &[Card], iters: u32, rng: 
         for s in 0..need {
             board_full[board.len() + s] = Card(pool[2 + s]);
         }
-        let hr = evaluate7(&[ha, hb, board_full[0], board_full[1], board_full[2], board_full[3], board_full[4]]);
-        let vr = evaluate7(&[va, vb, board_full[0], board_full[1], board_full[2], board_full[3], board_full[4]]);
+        let hr = evaluate7(&[
+            ha,
+            hb,
+            board_full[0],
+            board_full[1],
+            board_full[2],
+            board_full[3],
+            board_full[4],
+        ]);
+        let vr = evaluate7(&[
+            va,
+            vb,
+            board_full[0],
+            board_full[1],
+            board_full[2],
+            board_full[3],
+            board_full[4],
+        ]);
         used += 1;
         if hr > vr {
             win += 1;
