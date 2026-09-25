@@ -1,0 +1,38 @@
+[package]
+name = "cham-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The `chameleon` binary: 11 subcommands, orchestration only (SPECS/09)"
+
+[[bin]]
+name = "chameleon"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+blake3 = { workspace = true }
+rustc-hash = { workspace = true }
+cham-core = { path = "../cham-core" }
+cham-engine = { path = "../cham-engine" }
+cham-opponents = { path = "../cham-opponents" }
+cham-blueprint = { path = "../cham-blueprint" }
+cham-router = { path = "../cham-router" }
+cham-search = { path = "../cham-search" }
+cham-agent = { path = "../cham-agent" }
+cham-eval = { path = "../cham-eval" }
+cham-rec = { path = "../cham-rec" }
+cham-proofs = { path = "../cham-proofs" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# CLI tests spawn the binary via env!("CARGO_BIN_EXE_chameleon") — std only,
+# keeping the dep whitelist closed (assert_cmd would violate SPECS/00 §2).
+
+[lints]
+workspace = true
