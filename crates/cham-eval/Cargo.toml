@@ -1,0 +1,30 @@
+[package]
+name = "cham-eval"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Numbers with defensible intervals: duplicate matches, clustered stats, SPRT, A/B, ledger, Slumbot (SPECS/08)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+ureq = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
+thiserror = { workspace = true }
+cham-core = { path = "../cham-core" }
+cham-opponents = { path = "../cham-opponents" }
+cham-rec = { path = "../cham-rec" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+criterion = { workspace = true }
+cham-opponents = { path = "../cham-opponents" }
+
+[[bench]]
+name = "match_throughput"
+harness = false
+
+[lints]
+workspace = true
