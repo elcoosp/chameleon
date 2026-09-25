@@ -5,10 +5,10 @@
 
 use arrayvec::ArrayVec;
 
-use crate::CoreError;
 use crate::card::{Card, Hand2};
 use crate::engine::{Action, State, Street};
 use crate::rng::Rng;
+use crate::CoreError;
 
 /// Seat in a heads-up hand: SB (player 0) or BB (player 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -20,7 +20,11 @@ pub enum Player {
 
 impl Player {
     pub fn from_usize(p: usize) -> Player {
-        if p == 0 { Player::Sb } else { Player::Bb }
+        if p == 0 {
+            Player::Sb
+        } else {
+            Player::Bb
+        }
     }
     pub fn as_usize(self) -> usize {
         self as usize
@@ -139,10 +143,7 @@ pub trait Agent: Send {
     /// (SPECS/03 §4): returns (action, p) pairs covering the agent's full intended
     /// distribution at this decision. Default: Err(NotProbabilistic) — only
     /// archetype scripts (and CallBot) implement it.
-    fn action_probs(
-        &self,
-        _obs: &Observables<'_>,
-    ) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
+    fn action_probs(&self, _obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
         Err(AgentError::NotProbabilistic)
     }
     /// Public information only (v2 leak fix, invariant I9). Default no-op.
