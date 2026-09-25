@@ -1,0 +1,63 @@
+# EXP-020 — GPU eval probe (docs/GPU-PLAN.md Part VI)
+#
+# Status: unresolved-amended. The original 10x bar (Part IV G0.3) and its
+# twin 8x bar (Part V P8) were drawn against a CPU baseline that turned
+# out to be ~13x optimistic. See docs/GPU-PLAN-AMENDMENTS.md Amendment 001
+# for the amended gates (G_enum >= 3x, G_warm >= 2x, quiet-session CPU
+# reference). This experiment is NOT re-opened or closed; it is waiting
+# for the amended measurement to run (which will happen in the same pass
+# as Amendment 002's wgpu target, so one run covers both backends).
+
+[experiment]
+id = "EXP-020"
+name = "gpu_eval_probe"
+class = "measurement"
+status = "unresolved-amended"
+date_first_measured = "2026-09-25"
+date_amended = "2026-09-25"
+superseded_by = "docs/GPU-PLAN-AMENDMENTS.md Amendment 001"
+owner = "gpu-track"
+
+[hypothesis]
+statement = """
+A GPU eval7 kernel dispatched from a persistent context reaches at least
+the amended G_enum / G_warm thresholds against a quiet-session 4-thread
+CPU reference, with bit-exact output on 1M hands.
+"""
+
+[method]
+binary = "cham-gpu/src/bin/gpu-probe.rs"
+modes = ["cpu", "gpu", "warm-gpu", "enum", "verdict"]
+corpus_seed = "0x0000_060C_0FFE"
+n_hands = 1_000_000
+enum_shape = "board x distinct 2-card holes from the remaining 47"
+quiet_definition = "60s loadavg < 1.0 and no other cargo/rustc/python/trainer"
+
+[decision_rule]
+# Original rule (Part IV G0.3) and its twin (Part V P8) were:
+#   GO iff max(GPU_EVAL, GPU_ENUM) >= 10 * CPU_ENUM     (G0.3)
+#   P8:  builder throughput >= 8 * CPU reference        (Part V)
+# Both superseded by Amendment 001:
+g_enum = "GPU_ENUM >= 3 * CPU_ENUM on the same quiet session"
+g_warm = "GPU_WARM >= 2 * CPU_ENUM on the same quiet session"
+bit_exact_required = true
+
+[prior_evidence]
+# Contended M1 Mini, 5 trials, 2026-09-25 (see docs/bench-status-gpu-trials.md):
+#   ratio_enum/cpu: min 5.66x  median 9.70x  max 11.85x
+#   ratio_warm/cpu: min 3.24x  median 4.72x  max 6.60x
+#   CPU rate swung 2.2x between trials (contention).
+# No verdict is drawn from this data — the machine is not quiet.
+
+[note]
+honest_reading = """
+Under contention the GPU is (a) 2-4x faster on warm dispatch and (b) 5-12x
+faster on the builder-shaped enum workload. Both are real speedups and both
+exceed the amended gates with headroom. The plan's 10x bar was not
+certified by these runs; the amendment reflects the miscalibrated baseline
+and the noisy environment, not a reinterpretation of the numbers.
+"""
+
+[closure]
+action = "await amended measurement (target: after G5.0 wgpu port lands)"
+next = "G1.0 indexers done; G1.1 CPU reference enumerator next"

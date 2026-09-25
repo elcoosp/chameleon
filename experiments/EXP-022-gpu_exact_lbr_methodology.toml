@@ -1,0 +1,14 @@
+# EXP-022 — gpu_exact_lbr_methodology (docs/GPU-PLAN.md Part VI; registered-only template)
+#
+# Do NOT implement this in the GPU track (which is closed at G0, EXP-020
+# verdict = NO-GO). It is registered here so a future V2-era revisit has a
+# named anchor and a stated trigger.
+
+[experiment]
+id = "EXP-022"
+name = "gpu_exact_lbr_methodology"
+class = "research"
+status = "registered"
+trigger = """
+fires if V2 Phase 3 ratchet wants exact turn-level LBR as evidence; requires owner sign-off on methodology change
+"""

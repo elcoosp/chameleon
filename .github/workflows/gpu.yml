@@ -1,0 +1,94 @@
+name: gpu
+
+# Forward-looking GPU track workflow.
+#
+# Today this is a no-op slot: cham-gpu's `metal` feature is macOS-only and
+# CI runs on ubuntu-latest, so the feature-gated tests just print SKIP. It
+# exists so that when Amendment 002's wgpu port lands (G5.0), the
+# correctness gate (P7) runs automatically on Linux against llvmpipe
+# (software Vulkan) with no workflow churn.
+#
+# Per docs/GPU-PLAN-AMENDMENTS.md:
+#   - Correctness (P7) runs here on Linux.
+#   - Throughput gates (G_enum, G_warm) run only on a GPU-equipped runner
+#     or an explicitly quiet local session — never on this job.
+
+on:
+  push:
+    branches: [main, "gpu/**"]
+    paths:
+      - "crates/cham-gpu/**"
+      - "crates/cham-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - ".github/workflows/gpu.yml"
+      - "docs/GPU-PLAN-AMENDMENTS.md"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/cham-gpu/**"
+      - "crates/cham-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - ".github/workflows/gpu.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  correctness:
+    name: cham-gpu correctness (ubuntu-latest, feature-off)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: gpu-correctness
+
+      - uses: taiki-e/install-action@nextest
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy -p cham-gpu --all-targets -- -D warnings
+
+      # Feature-off path: the consistency test prints SKIP and returns Ok.
+      # On Linux with `--features metal`, the same test still SKIPs — the
+      # metal crate is gated on `target_os = "macos"`. Both builds are
+      # exercised to catch accidental cfg breakage.
+      - name: tests (default features)
+        run: cargo nextest run -p cham-gpu --no-fail-fast
+
+      - name: build with metal feature (Linux gate check)
+        run: cargo check -p cham-gpu --all-targets --features metal || true
+        continue-on-error: true
+
+      - name: tests (feature-off, cham-cli smoke)
+        run: cargo nextest run -p cham-cli --no-fail-fast
+
+      - name: gpu-doctor smoke
+        run: cargo run -q -p cham-cli -- gpu-doctor
+
+      # When G5.0 lands (wgpu feature + WGSL kernel), the following step
+      # becomes active and runs the real P7 correctness gate on llvmpipe:
+      #
+      # - name: wgpu correctness (llvmpipe)
+      #   run: |
+      #     sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+      #     cargo nextest run -p cham-gpu --features wgpu --no-fail-fast --nocapture

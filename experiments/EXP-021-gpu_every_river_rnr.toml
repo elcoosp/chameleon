@@ -1,0 +1,14 @@
+# EXP-021 — gpu_every_river_rnr (docs/GPU-PLAN.md Part VI; registered-only template)
+#
+# Do NOT implement this in the GPU track (which is closed at G0, EXP-020
+# verdict = NO-GO). It is registered here so a future V2-era revisit has a
+# named anchor and a stated trigger.
+
+[experiment]
+id = "EXP-021"
+name = "gpu_every_river_rnr"
+class = "research"
+status = "registered"
+trigger = """
+fires only if a future live-budget analysis shows every-river re-solve fits the move clock with tables; gate = promotion ratchet
+"""

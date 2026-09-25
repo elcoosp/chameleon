@@ -1,0 +1,14 @@
+# EXP-023 — gpu_exact_histo_phase5 (docs/GPU-PLAN.md Part VI; registered-only template)
+#
+# Do NOT implement this in the GPU track (which is closed at G0, EXP-020
+# verdict = NO-GO). It is registered here so a future V2-era revisit has a
+# named anchor and a stated trigger.
+
+[experiment]
+id = "EXP-023"
+name = "gpu_exact_histo_phase5"
+class = "research"
+status = "registered"
+trigger = """
+fires when V2 Phase 5.3 runs and tables are present; A/B sampled vs exact histograms, standard ratchet
+"""

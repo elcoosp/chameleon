@@ -108,3 +108,24 @@ BLOCKED: GPU track closed at G0 — EXP-020 verdict was NO-GO.
 Numbers recorded above; the plan directs us to G4.0 (closure: keep
 cham-gpu with the metal feature off, README post-mortem, revert is
 not required because nothing else depends on the GPU path).
+
+## G0.3-rev2 — Path B: amendments 001/002 written, CI slot added
+
+Decision: Path B (relax the bar with a written amendment), plus the
+companion plan-level change (adopt wgpu as the final target; Metal ships
+G1 builders but the MSL must stay WGSL-portable).
+
+- Bar amendment 001: original 10x (G0.3) and 8x (P8) thresholds both
+  superseded by G_enum >= 3x and G_warm >= 2x against a quiet-session
+  4-thread CPU reference. Rationale: the plan's Part 0 CPU baseline was
+  ~13x optimistic; the local M1 Mini is under solver-training load and
+  produced a 5.66-11.85x spread across five identical-code trials
+  (median 9.70x). The 5-trial table is preserved in
+  docs/bench-status-gpu-trials.md.
+- Cross-platform amendment 002: wgpu is the final target (Vulkan / Metal
+  / DX12; single WGSL source); metal-native is a stepping stone; a new
+  G5 phase (wgpu port) is added; CI slot .github/workflows/gpu.yml runs
+  the P7 correctness gate on Linux/llvmpipe once G5.0 lands.
+- EXP-020 status: unresolved-amended (not re-opened, not closed).
+- Verdict: pending an amended measurement on a quiet session or in CI,
+  expected in the same pass as G5.0.

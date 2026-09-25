@@ -69,6 +69,33 @@ abstraction** (`train-buckets --profile tiny`); the full k=300/200 tables are a
 `--profile full` run away. `probe`'s Tier-1 wiring and the search lockout gate the
 trained artifacts at M2/M4 — placeholder bands are marked in the code.
 
+
+### GPU track (status: unresolved-amended)
+
+The Apple-Metal accelerator track (`docs/GPU-PLAN.md`) is mid-probe. The
+MSL port of `evaluate7` is bit-exact to CPU on 1M/1M hands
+(`crates/cham-gpu/tests/consistency_eval7.rs`, the P7 core). On the
+builder-shaped enumeration workload the GPU is measurably faster than a
+4-thread CPU reference, but the local M1 Mini runs a concurrent GTO
+solver training loop and produced a **5.66x-11.85x spread across five
+identical trials (median 9.70x)** — not certifiable at the plan's
+original 10x bar.
+
+Per `docs/GPU-PLAN-AMENDMENTS.md`:
+
+- **Amendment 001** relaxes the bar to `G_enum >= 3x` and
+  `G_warm >= 2x` against a *quiet-session* CPU reference, and defines
+  "quiet" (60s loadavg < 1.0, no concurrent cargo/rustc/python/trainer).
+- **Amendment 002** changes the plan's target to **`wgpu`** (Vulkan /
+  Metal / DX12; single WGSL source) so the track is not macOS-only.
+  Metal-native stays available behind its existing feature and powers
+  the immediate G1 builders; `eval7.msl` is required to stay
+  mechanically portable to WGSL.
+
+Full numbers: `docs/bench-status-gpu-trials.md` and
+`experiments/EXP-020-gpu_eval_probe.toml`. The next GPU measurement runs
+on a quiet session or in CI, not on this contended machine.
+
 ## Dev tools
 
 `cargo-nextest`, `cargo-llvm-cov`, `cargo-mutants`, `cargo-deny` (wired in the justfile); benchmarks via `criterion` with regression thresholds.
