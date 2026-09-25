@@ -1,9 +1,9 @@
 //! Cross-entropy trainer (SPECS/05 §3): minibatch 512 SGD, lr 0.05 ×0.5/10 epochs,
 //! L2 1e-4, ≤ 100 epochs, early stop on B-dev loss plateau.
 
-use crate::RouterError;
 use crate::dataset::{RbinRow, SESSION_A, SESSION_BDEV};
 use crate::model::SoftmaxModel;
+use crate::RouterError;
 
 pub const MINIBATCH: usize = 512;
 pub const LR0: f64 = 0.05;
@@ -33,10 +33,7 @@ pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), Rout
     let a: Vec<&RbinRow> = split_rows(rows, SESSION_A);
     let bdev: Vec<&RbinRow> = split_rows(rows, SESSION_BDEV);
     if a.len() < 100 {
-        return Err(RouterError::Dataset(format!(
-            "split-A too small: {}",
-            a.len()
-        )));
+        return Err(RouterError::Dataset(format!("split-A too small: {}", a.len())));
     }
     // class balance check: any class < 2k rows in A → refuse (spec: trainer refuses)
     for c in 0..4u8 {
@@ -75,10 +72,8 @@ pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), Rout
             }
         }
         for chunk in order.chunks(MINIBATCH) {
-            let batch: Vec<(Vec<f32>, usize)> = chunk
-                .iter()
-                .map(|&i| (a[i].features.clone(), a[i].label as usize))
-                .collect();
+            let batch: Vec<(Vec<f32>, usize)> =
+                chunk.iter().map(|&i| (a[i].features.clone(), a[i].label as usize)).collect();
             model.sgd_step(&batch, lr, L2);
         }
         // dev loss
@@ -88,7 +83,7 @@ pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), Rout
             best_epoch = epoch;
         } else if epoch - best_epoch >= 15 {
             break; // plateau early stop (patience 15: batch-averaged lr-0.05
-            // gradients move slowly — patience 5 stopped before learning)
+                   // gradients move slowly — patience 5 stopped before learning)
         }
         if (epoch + 1) % 10 == 0 {
             lr *= 0.5;
@@ -140,11 +135,7 @@ fn top1(model: &SoftmaxModel, rows: &[&RbinRow]) -> f64 {
         .iter()
         .filter(|r| {
             let p = model.forward(&r.features);
-            p.iter()
-                .enumerate()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(i, _)| i)
-                == Some(r.label as usize)
+            p.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i) == Some(r.label as usize)
         })
         .count();
     hits as f64 / rows.len() as f64
@@ -161,11 +152,7 @@ fn recall(model: &SoftmaxModel, rows: &[&RbinRow]) -> [f64; 4] {
                 .iter()
                 .filter(|r| {
                     let p = model.forward(&r.features);
-                    p.iter()
-                        .enumerate()
-                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-                        .map(|(i, _)| i)
-                        == Some(c as usize)
+                    p.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i) == Some(c as usize)
                 })
                 .count();
             hits as f64 / class_rows.len() as f64
