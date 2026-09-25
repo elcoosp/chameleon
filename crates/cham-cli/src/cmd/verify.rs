@@ -198,6 +198,19 @@ fn perf_gates() -> Vec<PerfGate> {
             threshold_ns: 30_000.0,
             meaning: "match throughput",
         },
+        // B10.1/10.2: hero decision latency becomes a measured gate.
+        PerfGate {
+            gate: "P7",
+            bench: "decision_latency",
+            threshold_ns: 1_000_000.0,
+            meaning: "hero decision p99 < 1 ms (search off)",
+        },
+        PerfGate {
+            gate: "P8",
+            bench: "decision_latency_search",
+            threshold_ns: 50_000_000.0,
+            meaning: "hero decision p99 < 50 ms (search on)",
+        },
     ]
 }
 
