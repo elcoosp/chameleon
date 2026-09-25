@@ -37,6 +37,15 @@ tempfile = "3"
 opt-level = 3 # tests run the real algorithms; debug builds must not be glacial (SPECS/00 §1)
 
 [profile.test]
+opt-level = 1 # fast dev loop (B10.3); numerics-critical crates keep O3 below
+
+# Integer fixed-point tests are level-insensitive; the crates below run the
+# real algorithms and stay at opt-level 3 so numeric gates are unaffected.
+[profile.test.package.cham-core]
+opt-level = 3
+[profile.test.package.cham-blueprint]
+opt-level = 3
+[profile.test.package.cham-engine]
 opt-level = 3
 
 [profile.release]

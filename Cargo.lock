@@ -176,6 +176,7 @@ dependencies = [
  "cham-rec",
  "cham-router",
  "cham-search",
+ "criterion",
  "rand 0.8.8",
  "serde",
  "serde_json",
@@ -334,6 +335,7 @@ name = "cham-search"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
+ "blake3",
  "cham-core",
  "cham-engine",
  "cham-rec",
