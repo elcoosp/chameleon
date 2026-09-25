@@ -1,0 +1,187 @@
+//! Cross-entropy trainer (SPECS/05 §3): minibatch 512 SGD, lr 0.05 ×0.5/10 epochs,
+//! L2 1e-4, ≤ 100 epochs, early stop on B-dev loss plateau.
+
+use crate::dataset::{RbinRow, SESSION_A, SESSION_BDEV};
+use crate::model::SoftmaxModel;
+use crate::RouterError;
+
+pub const MINIBATCH: usize = 512;
+pub const LR0: f64 = 0.05;
+pub const L2: f64 = 1e-4;
+pub const MAX_EPOCHS: usize = 100;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TrainReport {
+    pub epochs: usize,
+    pub final_loss_b_dev: f64,
+    pub top1_b_dev: f64,
+    pub top1_b_test: f64,
+    pub ece_b_test: f64,
+    pub ece_family_c: f64,
+    pub per_class_recall: [f64; 4],
+    pub gates_passed: bool,
+}
+
+fn split_rows(rows: &[RbinRow], split: u8) -> Vec<&RbinRow> {
+    rows.iter()
+        .filter(|r| crate::dataset::split_of_session(r.session_id) == split)
+        .collect()
+}
+
+/// Train on split-A rows, early stop on B-dev plateau; returns the model + report.
+pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), RouterError> {
+    let a: Vec<&RbinRow> = split_rows(rows, SESSION_A);
+    let bdev: Vec<&RbinRow> = split_rows(rows, SESSION_BDEV);
+    if a.len() < 100 {
+        return Err(RouterError::Dataset(format!("split-A too small: {}", a.len())));
+    }
+    // class balance check: any class < 2k rows in A → refuse (spec: trainer refuses)
+    for c in 0..4u8 {
+        let n = a.iter().filter(|r| r.label == c).count();
+        if n < 2 {
+            return Err(RouterError::Dataset(format!("class {c} has {n} rows in A")));
+        }
+    }
+    let mut model = SoftmaxModel::new(20, 4);
+    let mut lr = LR0;
+    let mut best_loss = f64::INFINITY;
+    let mut best_epoch = 0usize;
+    let mut epochs_used = 0usize;
+    for epoch in 0..MAX_EPOCHS {
+        // minibatches: CLASS-BALANCED round-robin interleave (deterministic).
+        // A plain label sort puts each class in one contiguous block, so a
+        // 512-row minibatch is 1-2 classes and the bias updates oscillate —
+        // the interleave gives every minibatch the same class mix.
+        let mut buckets: [Vec<usize>; 4] = Default::default();
+        for (i, r) in a.iter().enumerate() {
+            buckets[r.label as usize % 4].push(i);
+        }
+        let mut order: Vec<usize> = Vec::with_capacity(a.len());
+        let mut cursors = [0usize; 4];
+        loop {
+            let mut advanced = false;
+            for (k, b) in buckets.iter().enumerate() {
+                if cursors[k] < b.len() {
+                    order.push(b[cursors[k]]);
+                    cursors[k] += 1;
+                    advanced = true;
+                }
+            }
+            if !advanced {
+                break;
+            }
+        }
+        for chunk in order.chunks(MINIBATCH) {
+            let batch: Vec<(Vec<f32>, usize)> =
+                chunk.iter().map(|&i| (a[i].features.clone(), a[i].label as usize)).collect();
+            model.sgd_step(&batch, lr, L2);
+        }
+        // dev loss
+        let dev_loss = loss(&model, &bdev);
+        if dev_loss < best_loss - 1e-5 {
+            best_loss = dev_loss;
+            best_epoch = epoch;
+        } else if epoch - best_epoch >= 15 {
+            break; // plateau early stop (patience 15: batch-averaged lr-0.05
+                   // gradients move slowly — patience 5 stopped before learning)
+        }
+        if (epoch + 1) % 10 == 0 {
+            lr *= 0.5;
+        }
+        epochs_used = epoch + 1;
+    }
+    let top1_b_dev = top1(&model, &bdev);
+    let btest: Vec<&RbinRow> = split_rows(rows, crate::dataset::SESSION_BTEST);
+    let c: Vec<&RbinRow> = split_rows(rows, crate::dataset::SESSION_C);
+    let top1_b_test = top1(&model, &btest);
+    let ece_b_test = ece(&model, &btest);
+    let ece_family_c = ece(&model, &c);
+    let per_class_recall = recall(&model, &bdev);
+    // G3 gates (SPECS/10 §6): top-1 ≥ 0.80 B-dev; ECE ≤ 0.15 on B-test and family-C
+    let gates_passed = top1_b_dev >= 0.80 && ece_b_test <= 0.15 && ece_family_c <= 0.15;
+    Ok((
+        model,
+        TrainReport {
+            epochs: epochs_used,
+            final_loss_b_dev: best_loss,
+            top1_b_dev,
+            top1_b_test,
+            ece_b_test,
+            ece_family_c,
+            per_class_recall,
+            gates_passed,
+        },
+    ))
+}
+
+fn loss(model: &SoftmaxModel, rows: &[&RbinRow]) -> f64 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    rows.iter()
+        .map(|r| {
+            let p = model.forward(&r.features);
+            -(p[r.label as usize].max(1e-12)).ln()
+        })
+        .sum::<f64>()
+        / rows.len() as f64
+}
+
+fn top1(model: &SoftmaxModel, rows: &[&RbinRow]) -> f64 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    let hits = rows
+        .iter()
+        .filter(|r| {
+            let p = model.forward(&r.features);
+            p.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i) == Some(r.label as usize)
+        })
+        .count();
+    hits as f64 / rows.len() as f64
+}
+
+fn recall(model: &SoftmaxModel, rows: &[&RbinRow]) -> [f64; 4] {
+    let mut out = [0f64; 4];
+    for c in 0..4u8 {
+        let class_rows: Vec<&&RbinRow> = rows.iter().filter(|r| r.label == c).collect();
+        out[c as usize] = if class_rows.is_empty() {
+            0.0
+        } else {
+            let hits = class_rows
+                .iter()
+                .filter(|r| {
+                    let p = model.forward(&r.features);
+                    p.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i) == Some(c as usize)
+                })
+                .count();
+            hits as f64 / class_rows.len() as f64
+        };
+    }
+    out
+}
+
+/// Expected calibration error (10 equal-width bins on max probability).
+fn ece(model: &SoftmaxModel, rows: &[&RbinRow]) -> f64 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    let mut bins = [(0u64, 0.0f64, 0.0f64); 10]; // count, conf_sum, correct_sum
+    for r in rows {
+        let p = model.forward(&r.features);
+        let (imax, &pmax) = p
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or((0, &0.0));
+        let b = (pmax * 9.999).floor().min(9.0) as usize;
+        bins[b].0 += 1;
+        bins[b].1 += pmax;
+        bins[b].2 += (imax == r.label as usize) as u64 as f64;
+    }
+    let total = rows.len() as f64;
+    bins.iter()
+        .filter(|b| b.0 > 0)
+        .map(|b| (b.0 as f64 / total) * (b.1 / b.0 as f64 - b.2 / b.0 as f64).abs())
+        .sum()
+}
