@@ -30,6 +30,12 @@ enum Command {
         count_infosets: bool,
         #[arg(long)]
         proofs: bool,
+        /// GPU-track gates (P7/P8/P9); reads pre-built tables
+        #[arg(long)]
+        gpu: bool,
+        /// Tables directory for --gpu (default: artifacts/gpu-tables)
+        #[arg(long)]
+        tables: Option<String>,
     },
     /// OFFLINE: flop/turn iso tables + k-means (SPECS/02 §3)
     TrainBuckets {
@@ -156,7 +162,9 @@ fn main() -> anyhow::Result<()> {
             perf,
             count_infosets,
             proofs,
-        } => cmd::verify::run(perf, count_infosets, proofs),
+            gpu,
+            tables,
+        } => cmd::verify::run(perf, count_infosets, proofs, gpu, tables.as_deref()),
         Command::TrainBuckets {
             config,
             out,

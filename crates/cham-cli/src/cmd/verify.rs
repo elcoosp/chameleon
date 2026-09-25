@@ -49,7 +49,7 @@ fn walk_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     out
 }
 
-pub fn run(perf: bool, count_infosets: bool, proofs: bool) -> i32 {
+pub fn run(perf: bool, count_infosets: bool, proofs: bool, gpu: bool, tables: Option<&str>) -> i32 {
     let mut failures = Vec::new();
 
     // 1. workspace greps
@@ -84,6 +84,13 @@ pub fn run(perf: bool, count_infosets: bool, proofs: bool) -> i32 {
     // 4. perf gates are ENFORCED from criterion estimates (SPECS/00 §6).
     if perf {
         check_perf_gates(&mut failures);
+    }
+
+    // 5. GPU-track gates (GPU-PLAN G3.0): P7 bit-exactness + P8 throughput.
+    //    Reads pre-built tables under --tables; does NOT build. On non-macOS
+    //    or feature-off, prints SKIP and returns — the CI path.
+    if gpu {
+        check_gpu_gates(tables, &mut failures);
     }
 
     if failures.is_empty() {
@@ -294,4 +301,256 @@ fn check_perf_gates(failures: &mut Vec<String>) {
             if pass { "PASS" } else { "FAIL" }
         );
     }
+}
+
+/// `verify --gpu` (GPU-PLAN G3.0). Reads pre-built tables under `tables`
+/// (default `artifacts/gpu-tables`) and enforces:
+///
+/// - **P7 GPU-CONSISTENCY**: N random (board, hole) per complete table
+///   compared to the CPU reference `ehs_reference`. Runs on **any** host
+///   (no GPU needed — verification is a CPU re-derivation of GPU output).
+/// - **P8 BUILD-THROUGHPUT**: manifest's recorded `throughput_evals_per_s`
+///   must clear a sanity floor.
+/// - **P9 INTEGRATION**: with G2.x SKIP'd, zero consumers exist.
+///
+/// Never fails on a missing/empty tables dir: prints "no tables built" and
+/// exits clean. Partial builds (manifest absent or stale) are reported but
+/// do not fail — the operator is expected to be running a build.
+fn check_gpu_gates(tables: Option<&str>, failures: &mut Vec<String>) {
+    let dir = tables.unwrap_or("artifacts/gpu-tables");
+    println!("verify --gpu: tables dir = {dir}");
+
+    let dir_path = std::path::Path::new(dir);
+    if !dir_path.is_dir() {
+        println!("verify --gpu: no tables dir at {dir} — nothing to check (OK)");
+        return;
+    }
+
+    let mut manifests: Vec<(String, std::path::PathBuf)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir_path) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("json")
+                && let Some(stem) = p.file_stem().and_then(|s| s.to_str())
+            {
+                manifests.push((stem.to_string(), p));
+            }
+        }
+    }
+    if manifests.is_empty() {
+        println!("verify --gpu: no manifests under {dir} — nothing to check (OK)");
+        return;
+    }
+    manifests.sort_by(|a, b| a.0.cmp(&b.0));
+
+    for (kind, manifest_path) in &manifests {
+        let raw = match std::fs::read_to_string(manifest_path) {
+            Ok(s) => s,
+            Err(e) => {
+                failures.push(format!(
+                    "verify --gpu: cannot read {}: {e}",
+                    manifest_path.display()
+                ));
+                continue;
+            }
+        };
+        let m: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(e) => {
+                failures.push(format!(
+                    "verify --gpu: {} is not JSON: {e}",
+                    manifest_path.display()
+                ));
+                continue;
+            }
+        };
+        let boards = m.get("boards").and_then(|v| v.as_u64()).unwrap_or(0);
+        let holes = m.get("holes").and_then(|v| v.as_u64()).unwrap_or(0);
+        let denom = m.get("denom").and_then(|v| v.as_u64()).unwrap_or(0);
+        let bytes = m.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+        let rate = m
+            .get("throughput_evals_per_s")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let blake3_str = m
+            .get("blake3")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<missing>");
+        let complete = m.get("complete").and_then(|v| v.as_bool()).unwrap_or(false);
+        println!(
+            "  table {kind:<8} boards={boards} holes={holes} denom={denom} bytes={bytes} complete={complete}"
+        );
+        println!(
+            "    blake3={}",
+            &blake3_str[..blake3_str.len().min(16)]
+        );
+        println!("    manifest throughput = {rate:.2e} evals/s");
+
+        let bin_path = dir_path.join(format!("{kind}.bin"));
+        if !bin_path.is_file() {
+            if complete {
+                failures.push(format!(
+                    "verify --gpu: manifest {kind}.json present but {kind}.bin missing"
+                ));
+            } else {
+                println!("    bin absent (build incomplete) — skipped");
+            }
+            continue;
+        }
+        let bin_size = std::fs::metadata(&bin_path).map(|m| m.len()).unwrap_or(0);
+        if complete && bin_size != bytes {
+            failures.push(format!(
+                "verify --gpu: {kind}.bin size {} != manifest bytes {}",
+                bin_size, bytes
+            ));
+            continue;
+        }
+        if !complete && bin_size > bytes {
+            println!(
+                "    bin size {} > manifest bytes {} (mid-build; manifest is stale)",
+                bin_size, bytes
+            );
+        }
+
+        // P7 resample: on ANY host (verification is CPU-side). Only the
+        // "turn" layout is implemented; other kinds print SKIP.
+        let n_sample: usize = 24;
+        if kind == "turn" && complete {
+            use cham_core::card::Card;
+            use cham_gpu::reference::{EhsDenom, ehs_reference};
+            use std::io::{Read, Seek, SeekFrom};
+
+            let mut f = match std::fs::File::open(&bin_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    failures.push(format!("verify --gpu: open {kind}.bin: {e}"));
+                    continue;
+                }
+            };
+            let per_board = (holes * 4).max(1);
+            let mut rng: u64 = 0x9E37_79B9_7F4A_7C15;
+            let mut checked = 0usize;
+            let mut bad: Vec<(u64, u64, u32, u64)> = Vec::new();
+            let mut attempts = 0;
+            while checked < n_sample && attempts < n_sample * 4 {
+                attempts += 1;
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                let board_i = rng % boards.max(1);
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                let hole_i = (rng % holes.max(1)) as u16;
+                let (lo, hi) = match hole2_lo_hi(hole_i) {
+                    Some(v) => v,
+                    None => continue,
+                };
+                let board = nth_board4(board_i);
+                if board.iter().any(|c| c.0 == lo || c.0 == hi) {
+                    continue;
+                }
+                let off = board_i * per_board + (hole_i as u64) * 4;
+                if f.seek(SeekFrom::Start(off)).is_err() {
+                    continue;
+                }
+                let mut buf = [0u8; 4];
+                if f.read_exact(&mut buf).is_err() {
+                    continue;
+                }
+                let gpu_val = u32::from_le_bytes(buf);
+                let hole = [Card(lo), Card(hi)];
+                let cpu_val = ehs_reference(&board, hole, EhsDenom::Turn) as u64;
+                checked += 1;
+                if gpu_val as u64 != cpu_val {
+                    bad.push((board_i, hole_i as u64, gpu_val, cpu_val));
+                }
+            }
+            if bad.is_empty() {
+                println!("    P7 resample: {checked}/{checked} bit-equal");
+            } else {
+                for (b, h, g, c) in &bad {
+                    eprintln!(
+                        "verify --gpu: P7 mismatch board={b} hole={h} gpu={g} cpu={c}"
+                    );
+                }
+                failures.push(format!(
+                    "verify --gpu: {}/{} resample mismatches on {kind}",
+                    bad.len(),
+                    checked
+                ));
+            }
+        } else if !complete {
+            println!("    P7 resample: SKIP (table incomplete)");
+        } else {
+            println!("    P7 resample: SKIP (kind={kind} resample not implemented)");
+        }
+
+        // P8: rate floor. 1e8 is 30x below real builds and 40x above the
+        // old boards-only formula's off-by-1326x value — a real build
+        // clears, a bogus one fails loudly.
+        const FLOOR_RATE: f64 = 1.0e8;
+        if complete {
+            if rate >= FLOOR_RATE {
+                println!("    P8 rate:     {rate:.2e} >= {FLOOR_RATE:.1e} (floor)");
+            } else {
+                failures.push(format!(
+                    "verify --gpu: {kind} manifest rate {rate:.2e} below floor {FLOOR_RATE:.1e}"
+                ));
+            }
+        } else {
+            println!("    P8 rate:     SKIP (table incomplete)");
+        }
+    }
+
+    println!("  P9: 0 shipped consumers (G2.0 skip) — informational");
+
+    let gpu_failures = failures
+        .iter()
+        .filter(|f| f.starts_with("verify --gpu"))
+        .count();
+    println!(
+        "verify --gpu: {} table(s) checked — {}",
+        manifests.len(),
+        if gpu_failures == 0 {
+            "all gates green".to_string()
+        } else {
+            format!("{gpu_failures} FAILURES")
+        }
+    );
+}
+
+/// Reconstruct the (lo, hi) card ids of a `hole2_index` value, or `None` if
+/// the index is not a valid unordered pair (lo < hi).
+fn hole2_lo_hi(idx: u16) -> Option<(u8, u8)> {
+    let mut hi: u16 = 1;
+    while ((hi as u32) * (hi as u32 - 1)) / 2 <= idx as u32 && hi < 52 {
+        hi += 1;
+    }
+    hi -= 1;
+    let lo = idx - (hi * (hi - 1)) / 2;
+    if lo >= hi {
+        return None;
+    }
+    Some((lo as u8, hi as u8))
+}
+
+/// The i-th 4-card board in ascending lexicographic order over card ids.
+/// Matches the ordering produced by `cham-gpu/src/bin/gpu-build.rs`.
+fn nth_board4(i: u64) -> [cham_core::card::Card; 4] {
+    use cham_core::card::Card;
+    let mut count = 0u64;
+    for a in 0u8..52 {
+        for b in (a + 1)..52 {
+            for c in (b + 1)..52 {
+                for d in (c + 1)..52 {
+                    if count == i {
+                        return [Card(a), Card(b), Card(c), Card(d)];
+                    }
+                    count += 1;
+                }
+            }
+        }
+    }
+    [Card(0), Card(1), Card(2), Card(3)]
 }
