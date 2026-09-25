@@ -1,6 +1,6 @@
-# SPECS/07 — Crate `cham-agent` — v2
+# SPECS/07 — Crate `cham-agent` — v1
 
-Composition: (encoder + router + experts + searcher + tracker) → one `Agent`, in config-driven modes. v2 deltas: tracker consumes **PublicHistory** (leak fix), router weights frozen per hand, the reach-weighted behavioral mixture lives here (SPECS/05 §5 formulas), modes updated (soft-bucket mode cut, BayesPolicy arm added), loader is depth-flexible (v1 required 200 bb while `play --depth 100` existed).
+Composition: (encoder + router + experts + searcher + tracker) → one `Agent`, in config-driven modes. v1 deltas: tracker consumes **PublicHistory** (leak fix), router weights frozen per hand, the reach-weighted behavioral mixture lives here (SPECS/05 §5 formulas), modes updated (soft-bucket mode cut, BayesPolicy arm added), loader is depth-flexible (v1 required 200 bb while `play --depth 100` existed).
 
 ---
 
@@ -73,7 +73,7 @@ One instance plays one seat; mirror matches instantiate two independent agents (
 
 ## 6. `loader.rs` — artifact integrity (depth-flexible, one place)
 
-Loads: abstraction config + blake3 hash (TOML+artifacts), 4 specialists + robust (hash-checked), optional bayes blueprint, router model + metrics, mode config. **Depth rule (v2 fix): every blueprint's `depth_bb` must equal the requested play depth** (`play --depth 100` works with 100 bb artifacts; the Slumbot anchor uses the 200 bb artifact set). Produces the `agent_load` record (the dashboard's "who am I playing" card). Hash mismatch or metrics-missing = hard error, as v1.
+Loads: abstraction config + blake3 hash (TOML+artifacts), 4 specialists + robust (hash-checked), optional bayes blueprint, router model + metrics, mode config. **Depth rule (v1 fix): every blueprint's `depth_bb` must equal the requested play depth** (`play --depth 100` works with 100 bb artifacts; the Slumbot anchor uses the 200 bb artifact set). Produces the `agent_load` record (the dashboard's "who am I playing" card). Hash mismatch or metrics-missing = hard error, as v1.
 
 ## 7. Tests (contractual)
 

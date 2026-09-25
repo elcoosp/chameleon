@@ -1,6 +1,6 @@
-# SPECS/05 — Crate `cham-router` — v2
+# SPECS/05 — Crate `cham-router` — v1
 
-The classifier + switching policy. v2 fixes the three math/structure errors of v1 (review A6, A7):
+The classifier + switching policy. v1 fixes the three math/structure errors of v1 (review A6, A7):
 
 1. **Features are opponent-type-informative only** — tracker stats + opportunity counts, frozen at hand start. The circular self-confidence features (31/32) and opponent-blind hero features (25–30) are deleted; N = 20.
 2. **Mixture weights are per-hand** (frozen within the hand — experts must stay coherent across streets), sharpened by `w ∝ p^(1/T)` (softmax over probabilities flattened, making a certain posterior weigh the right expert at 0.58 — G2 would fail by construction).

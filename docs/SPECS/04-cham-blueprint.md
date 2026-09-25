@@ -1,6 +1,6 @@
-# SPECS/04 — Crate `cham-blueprint` — v2
+# SPECS/04 — Crate `cham-blueprint` — v1
 
-The trainer. v2 is a **correctness rewrite** of the traversal (v1's estimator was invalid: double-weighted opponent sampling, no importance correction on the sampled hero action, an unsound "baseline"), plus: Hogwild-vs-deterministic threading, visit-counter confidence (v1's regret-ratio "confidence" saturated exactly when least converged), delayed linear averaging in both modes, regret-based pruning, one regret row per infoset, the Bayes belief-bin mode, **robust-warm-start replacing the depth curriculum**, and quantized mmap inference artifacts.
+The trainer. v1 is a **correctness rewrite** of the traversal (v1's estimator was invalid: double-weighted opponent sampling, no importance correction on the sampled hero action, an unsound "baseline"), plus: Hogwild-vs-deterministic threading, visit-counter confidence (v1's regret-ratio "confidence" saturated exactly when least converged), delayed linear averaging in both modes, regret-based pruning, one regret row per infoset, the Bayes belief-bin mode, **robust-warm-start replacing the depth curriculum**, and quantized mmap inference artifacts.
 
 ---
 
@@ -99,7 +99,7 @@ One policy, hidden opponent type, belief in the key:
 - **`BeliefBins`:** posterior (Dirichlet-multinomial, uniform prior) quantized to 4×3 bins = (argmax type × confidence tercile) + a "cold" bin (n < 30 hands) = **13 bins**; the bin byte is part of the infoset key.
 - This trains a single policy whose strategy conditions on quantized belief — the sound alternative to runtime mixing. Table ×13 warning: at reduced action tree (00 §4 reduced tree) and 100 bb this fits the 6 GB budget; `verify --count-infosets` gates it.
 
-## 6. `policy.rs` — inference artifacts (v2: quantized, mmap, shared)
+## 6. `policy.rs` — inference artifacts (v1: quantized, mmap, shared)
 
 ```rust
 pub struct BlueprintPolicy { /* mmap'd quantized artifact + provenance */ }
@@ -111,7 +111,7 @@ impl BlueprintPolicy {
     /// tables). No regrets ship in inference artifacts.
     pub fn load(path: &Path, expected_abstraction_hash: u64) -> Result<Self, BlueprintError>;
     pub fn strategy(&self, obs: &Observables<'_>, enc: &Encoder) -> Option<Vec<f64>>; // None = uncovered
-    /// Confidence (v2, review B5): visit-based. c(i) = visits / (visits + C0), C0 = 64.
+    /// Confidence (v1, review B5): visit-based. c(i) = visits / (visits + C0), C0 = 64.
     /// v1's R⁺/(Σ|R|+1) is DELETED — under CFR+ flooring it saturates toward 1 precisely when
     /// the infoset is least converged. The u32 visit counter rides in every row (§2).
     pub fn confidence(&self, obs: &Observables<'_>, enc: &Encoder) -> Option<f64>;

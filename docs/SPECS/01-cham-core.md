@@ -1,4 +1,4 @@
-# SPECS/01 — Crate `cham-core` — v2
+# SPECS/01 — Crate `cham-core` — v1
 
 Foundation crate: cards, **fast** hand evaluation, HUNL rules engine (allocation-free hot paths), RNG, observables, agent trait with **leak-proof public histories**. Zero policy logic. Zero dependency on `cham-rec`.
 
@@ -43,7 +43,7 @@ impl Hand2 {
 }
 ```
 
-## 3. Hand evaluator — `eval/` (v2: fast, swappable, honestly gated)
+## 3. Hand evaluator — `eval/` (v1: fast, swappable, honestly gated)
 
 **Gate P1: ≥ 100M `evaluate7`/s release, M1.** v1's 21×`evaluate5`-max at 1M/s is rejected — it would bless a design that cripples MCCFR downstream.
 
@@ -71,7 +71,7 @@ impl Range { pub fn set(&mut self, combo: usize, on: bool); pub fn get(&self, co
 
 Unchanged: `Rng = ChaCha8Rng`, `rng_from_seed`, `child(seed, label)`, `pick`, `weighted`. Thread model: per-worker `(base_seed, worker_id)` derivation — results independent of thread count **in Deterministic mode** (single worker); Hogwild training is interleaving-dependent by design (00 §3.5).
 
-## 5. Rules engine — `engine/` (v2: allocation-free)
+## 5. Rules engine — `engine/` (v1: allocation-free)
 
 ```rust
 #[derive(Clone, Copy)] pub struct State { /* fixed arrays ONLY — no Vec, no String */ }
@@ -108,7 +108,7 @@ impl PublicHistory { pub fn from(hh: &HandHistory) -> PublicHistory; }   // the 
 
 `fuzz.rs`: proptest harness as v1, invariants I2–I7, 1M-hand release tier, plus invariant **I9**: serializing every `PublicHistory` produced from 10k fuzzed hands and grepping for hole cards of folded players must find zero (the leak test now covers the new type).
 
-## 6. Observables & Agent trait — `obs.rs` (v2: borrowed views, no leak surface)
+## 6. Observables & Agent trait — `obs.rs` (v1: borrowed views, no leak surface)
 
 ```rust
 /// Borrowed view over a State for one seat — no ownership, no hidden info, no Vec.
@@ -124,14 +124,14 @@ pub trait Agent: Send {
     /// Returns (action, p) pairs covering the agent's full intended distribution at this decision.
     /// Default: Err(NotProbabilistic) — only archetype scripts implement it.
     fn action_probs(&self, obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, AgentError> { Err(NotProbabilistic) }
-    /// Public information only (v2 leak fix). Default no-op.
+    /// Public information only (v1 leak fix). Default no-op.
     fn on_hand_end(&mut self, _ph: &PublicHistory, _hero_net: i64) {}
 }
 ```
 
 `Observables::view` is the only constructor; a test asserts the villain's hole cards are unreachable through any `pub` API of `Observables` (serialization + type-system argument documented in the test).
 
-## 7. Tests (contractual; v2 deltas bolded)
+## 7. Tests (contractual; v1 deltas bolded)
 
 | Test | Pins |
 |---|---|

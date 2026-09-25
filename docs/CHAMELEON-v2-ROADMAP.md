@@ -1,18 +1,18 @@
-# CHAMELEON v3 — Roadmap
+# CHAMELEON v2 — Roadmap
 
-**Status:** v2 core is sound and should ship as-is. v3 is a layer on top, not a rewrite: it makes "competitive" measurable, imports two literature techniques that survived fact-checking, cuts one that didn't fit the project's own determinism contract, and adds several original, cheap, evidence-gated mechanisms. Every item below enters through the existing M-1 / EXP-registry / ledger machinery — v3 adds **zero** new trust mechanisms, only new things to measure with the ones you already have.
+**Status:** core is sound and should ship as-is. v2 is a layer on top, not a rewrite: it makes "competitive" measurable, imports two literature techniques that survived fact-checking, cuts one that didn't fit the project's own determinism contract, and adds several original, cheap, evidence-gated mechanisms. Every item below enters through the existing M-1 / EXP-registry / ledger machinery — v2 adds **zero** new trust mechanisms, only new things to measure with the ones you already have.
 
 ---
 
 ## 0. The one rule that governs this whole document
 
-Nothing in v3 becomes a default until it has a ledger entry with a CI that beats the v2 baseline, exactly like every other change in this project. Where a technique is imported from a paper, the paper's headline number is a *hypothesis*, not a budget line. Treat every row below as an `experiments/EXP-*.toml` candidate, not a spec change, until it's proven on your own hardware.
+Nothing in v2 becomes a default until it has a ledger entry with a CI that beats the v1 baseline, exactly like every other change in this project. Where a technique is imported from a paper, the paper's headline number is a *hypothesis*, not a budget line. Treat every row below as an `experiments/EXP-*.toml` candidate, not a spec change, until it's proven on your own hardware.
 
 ---
 
 ## 1. The core reframe: making "beat other bots" a real, measurable claim
 
-v2 correctly killed v1's fantasy Slumbot target and made it diagnostic-only. That was right — but it left "competitive" with no teeth. There is no second runnable bot to benchmark against on this hardware; ACPC-era bots were never released, and Slumbot is the only stable external opponent that exists. So v3 redefines "beat other bots" as five concrete, cheap-to-add measurements instead of one impossible one.
+v1 correctly killed v1's fantasy Slumbot target and made it diagnostic-only. That was right — but it left "competitive" with no teeth. There is no second runnable bot to benchmark against on this hardware; ACPC-era bots were never released, and Slumbot is the only stable external opponent that exists. So v2 redefines "beat other bots" as five concrete, cheap-to-add measurements instead of one impossible one.
 
 ### 1.1 — M6: Self-Exploit Audit (the headline new idea)
 
@@ -29,7 +29,7 @@ This trains a genuine best-response specialist against your own deployed policy,
 Two variants, both cheap:
 
 - **Cold-start self-exploit**: weights frozen at the session-start prior (no tracker history). This is functionally the same number as `lbr_vs(cold_start_full_policy)` (§1.2 below), just obtained via training instead of exact enumeration — use the LBR version as the cheap diagnostic and this as the expensive confirmation once per release.
-- **Adaptive self-exploit (the actually new part)**: the wrapped opponent runs the *real* tracker + router across a session, so the trained exploiter can try to **manipulate the classifier** — e.g. play like a nit for 40 hands to get routed toward the nit-specialist mixture, then deviate. Nothing in v2 checks for this. This is the single biggest unaddressed risk in a router-based architecture, and it's answerable with tooling you already have.
+- **Adaptive self-exploit (the actually new part)**: the wrapped opponent runs the *real* tracker + router across a session, so the trained exploiter can try to **manipulate the classifier** — e.g. play like a nit for 40 hands to get routed toward the nit-specialist mixture, then deviate. Nothing in v1 checks for this. This is the single biggest unaddressed risk in a router-based architecture, and it's answerable with tooling you already have.
 
 **Gate `G-SELF`** (diagnostic, tracked in the final report, not a promotion blocker): self-exploit winrate vs `full`, with CI. This is your honest exploitability headline number — the number you'd want to know before anyone else finds it.
 
@@ -55,14 +55,14 @@ I checked the four load-bearing claims in the brainstorm doc against the actual 
 |---|---|---|
 | **CCS-MCCFR** (correlated chance sampling) | Real — arXiv:2607.27035, Jul 2026 | Adopt as `EXP-009`. ~100 LOC, essentially free to implement. **But the paper's own ablations show every paired interval crosses zero on Liar's Dice, reduced Flop Hold'em, and Libratus turn/river endgames** — the games structurally closest to yours. The 20–34% headline is real but concentrated in tiny, high-revisit games (Kuhn/Leduc). Validate in the M-1 harness, expect near-zero production gain, don't budget on it. |
 | **CS-RNR** (confidence-scheduled restricted response) | Real — arXiv:2607.28520, Jul 2026 | Adopt as `EXP-010` after G4/G5 are green. Directly extends your existing `solve_rnr.rs` with a self-audited safety certificate. Their measured certificate cost (3–22 ms) is on Leduc-scale games — **re-measure at your river-subgame scale against the 250 ms live budget** before assuming it's cheap enough for `play`/Slumbot; it's almost certainly fine for eval-mode (`Iterations`). |
-| **Embedding CFR** | Real — arXiv:2511.12083, AAAI 2026 | Keep as `EXP-008`, post-M5, exactly as v2 already scoped it. Independent reviewers of the paper flag: *"validation limited to a simplified poker variant; extension to full-scale games absent."* Don't let the "first algorithm to..." framing raise its priority. |
+| **Embedding CFR** | Real — arXiv:2511.12083, AAAI 2026 | Keep as `EXP-008`, post-M5, exactly as v1 already scoped it. Independent reviewers of the paper flag: *"validation limited to a simplified poker variant; extension to full-scale games absent."* Don't let the "first algorithm to..." framing raise its priority. |
 | Dirichlet-posterior router confidence | Underlying math is sound; the "Nov 2025 lecture" citation is unverifiable | **Skip.** Your existing visit-counter `c = v/(v+64)` is already shape-equivalent to a Dirichlet posterior's variance under a monotonic transform for this use case — added complexity for no demonstrated behavior gap. Only revisit if `cargo-mutants` triage on the router finds a real edge case the visit counter misses. |
 | LLM-as-router labels | N/A | **Cut, not deferred.** It introduces a non-seed-reproducible, unversioned, unauditable input into a pipeline whose entire value proposition is determinism and provenance hashing (00 §3). Directly violates your own contract. If you want richer labels later, get them from finer deterministic clustering on tracker features, not a model call. |
-| Hyperparameter Schedules (RBP/discount tuning) | Not independently verified | Don't hardcode borrowed numbers. Treat as `EXP-011`: sweep your existing `θ₀=10bb, δ=0.99, γ=0.9` against any imported schedule, gated the same as everything else. Ship with your own values as default in the meantime — they're already in the v2 spec and untested imports shouldn't jump the queue. |
+| Hyperparameter Schedules (RBP/discount tuning) | Not independently verified | Don't hardcode borrowed numbers. Treat as `EXP-011`: sweep your existing `θ₀=10bb, δ=0.99, γ=0.9` against any imported schedule, gated the same as everything else. Ship with your own values as default in the meantime — they're already in the v1 spec and untested imports shouldn't jump the queue. |
 
 ---
 
-## 3. Original additions (new to v3, none require new dependencies)
+## 3. Original additions (new to v2, none require new dependencies)
 
 ### 3.1 Shadow ladder — a champion/challenger regression gauntlet
 
@@ -95,13 +95,13 @@ Nothing currently verifies buckets group hands by *realized* EV, only by *equity
 
 | Milestone | Adds |
 |---|---|
-| M-1 → M5 | unchanged from v2 |
+| M-1 → M5 | unchanged from v1 |
 | **M3** | + cold-start mixture LBR reported alongside every EXP-001 run (§1.2) |
 | **M4** | + abstraction-free LBR sanity pass before trusting G1 (§1.3); + shadow-ladder opponents registered (§3.1) |
 | **M5** | + Slumbot aspirational target tracked on dashboard (§1.4); + bucket-quality audit (§3.4) |
 | **M6 — Self-Exploit Audit** (new, 3–4 days, after M5) | Wrap frozen `full` agent as an analytic opponent; train cold-start and adaptive self-exploiters via existing `Exploit` mode; report `G-SELF` in the final report; run cross-abstraction ensemble retrain (§3.2) if time remains; compute the meta-strategy solve over the mode zoo (§3.3) |
 
-**EXP registry additions:** `EXP-008` (Embedding CFR, unchanged from v2, post-M5), `EXP-009` (CCS-MCCFR), `EXP-010` (CS-RNR), `EXP-011` (schedule sweep). All Holm-corrected secondaries under the same primary-endpoint discipline as everything else.
+**EXP registry additions:** `EXP-008` (Embedding CFR, unchanged from v1, post-M5), `EXP-009` (CCS-MCCFR), `EXP-010` (CS-RNR), `EXP-011` (schedule sweep). All Holm-corrected secondaries under the same primary-endpoint discipline as everything else.
 
 ---
 
@@ -113,4 +113,4 @@ Soft buckets (EXP-007 stretch, unchanged), Glicko ELO, dashboard scope creep, re
 
 ## 7. Honest closing expectation
 
-On an M1 Mac mini with a tabular blueprint, you will not beat neural, GPU-trained SOTA (ReBeL/Supremus-class systems) — that was already correctly ruled out in v2. What v3 adds is the ability to say, with a computed number and a CI, whether your own agent would survive a bot built specifically to beat it (§1.1), whether your central thesis is safe from its own known failure mode (§1.2–1.3), and whether you clear a real, externally-verifiable bar (§1.4) — which is a stronger, more honest claim than "we didn't lose too badly to Slumbot," and it's achievable with code you're already writing.
+On an M1 Mac mini with a tabular blueprint, you will not beat neural, GPU-trained SOTA (ReBeL/Supremus-class systems) — that was already correctly ruled out in v1. What v2 adds is the ability to say, with a computed number and a CI, whether your own agent would survive a bot built specifically to beat it (§1.1), whether your central thesis is safe from its own known failure mode (§1.2–1.3), and whether you clear a real, externally-verifiable bar (§1.4) — which is a stronger, more honest claim than "we didn't lose too badly to Slumbot," and it's achievable with code you're already writing.

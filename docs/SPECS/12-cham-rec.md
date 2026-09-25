@@ -1,4 +1,4 @@
-# SPECS/12 — Crate `cham-rec` — v2 (NEW: v1 had no spec for this crate and mis-pointed its registry at SPECS/08 §7)
+# SPECS/12 — Crate `cham-rec` — v1 (NEW: v1 had no spec for this crate and mis-pointed its registry at SPECS/08 §7)
 
 The flight recorder: a leaf crate (depends only on `serde`/`serde_json`) that owns ALL structured event writing in the workspace. No crate re-implements JSONL writing; no crate embeds recorder logic.
 

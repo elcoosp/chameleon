@@ -1,6 +1,6 @@
-# SPECS/06 — Crate `cham-search` — v2
+# SPECS/06 — Crate `cham-search` — v1
 
-Inference-time river solving. v2 replaces v1's anchored CFR+ (an unsound hack that would **un-exploit us**: solving a Nash subgame against a blueprint-reach range discards exactly the specialist's edge — thin value vs stations — and v1's λ-anchor had no safety guarantee; review B2). The v2 solver family:
+Inference-time river solving. v1 replaces v1's anchored CFR+ (an unsound hack that would **un-exploit us**: solving a Nash subgame against a blueprint-reach range discards exactly the specialist's edge — thin value vs stations — and v1's λ-anchor had no safety guarantee; review B2). The v1 solver family:
 
 - **Fixed-Model Best Response (FMBR)** — vs known-ish opponents: pure BR against the prior strategy. Maximum exploitation.
 - **Restricted Nash Response (RNR)** — opponent plays the model with probability p, freely with 1−p: a principled interpolation with a safety knob.
@@ -31,7 +31,7 @@ crates/cham-search/src/
 pub struct SearchConfig { pub enabled: bool,
     pub solver: SolverChoice /* Fmbr | Rnr{p} | ReachGadget */,   // default Rnr{p: 0.9}; ablation arms pin the others
     pub budget: SearchBudget /* Iterations{iters: u32} | WallClock{ms: u64} */,
-    pub min_pot_bb: f64 /* 8.0 */, pub river_only: bool /* true — turn search is v2 stretch */ }
+    pub min_pot_bb: f64 /* 8.0 */, pub river_only: bool /* true — turn search is v1 stretch */ }
 pub enum SearchBudget { Iterations { iters: u32 }, WallClock { ms: u64 } }
 pub fn should_search(obs: &Observables<'_>, cfg: &SearchConfig) -> bool;
 ```
@@ -42,7 +42,7 @@ pub fn should_search(obs: &Observables<'_>, cfg: &SearchConfig) -> bool;
 
 Extensive-form river tree: check/bet-fracs/raise (≤ cap)/call/fold for both seats, `river_bet_fracs` + jam. Ranges:
 
-- **Opponent prior:** routed blueprint's reach over its abstraction, weighted by **pseudo-harmonic** mapping of their actual off-tree sizes (SPECS/02 §4), then **visit-confidence flattening** (v2 signal): per-path product of `c(i) = visits/(visits+64)`; paths with product < 0.1 floored at 0.1× prior share — the solver knows where the blueprint is unvisited.
+- **Opponent prior:** routed blueprint's reach over its abstraction, weighted by **pseudo-harmonic** mapping of their actual off-tree sizes (SPECS/02 §4), then **visit-confidence flattening** (v1 signal): per-path product of `c(i) = visits/(visits+64)`; paths with product < 0.1 floored at 0.1× prior share — the solver knows where the blueprint is unvisited.
 - **Our range:** blueprint-consistent hands for our line (actual hole always included), ≤ 64 combos; opponent ≤ 128 combos by prior weight.
 - Payoffs: `evaluate7` showdown + fold values, bb-normalized; per-(board, pair) results memoized within the build.
 - v1's "matrix game" framing and its exact-BR-proxy claim are replaced: exploitability of the solved extensive-form subgame is reported as the **LBR gap** per seat, computed exactly on the built tree (cheap: enumeration over ≤ 128×64 leaf paths per action).
@@ -91,7 +91,7 @@ Acceptance (G5): mean EV loss vs independent oracles ≤ 10 mb/hand across the s
 
 `search_off_by_default_until_g4` — the agent builder refuses `SearchMode::On` unless the config carries a passing G4 ledger reference (prevents shipping an unproven solver by accident).
 
-## 8. Stretch (v2 roadmap, not v1)
+## 8. Stretch (v1 roadmap, not v1)
 
 Turn re-solving with depth-limited rollouts; a small DeepStack-style river/turn value net via `candle` (Metal) — the real SOTA path, explicitly out of v1 scope, requires M4 gates green with ≥ 2 days margin and a human green light.
 

@@ -1,6 +1,6 @@
-# SPECS/08 — Crate `cham-eval` — v2
+# SPECS/08 — Crate `cham-eval` — v1
 
-Everything that produces a number with a defensible interval. v2 fixes the statistics and compute-budget inconsistencies (review C): correct duplicate formula, session-clustered CIs, SPRT early stopping, Holm correction, AIVAT-style variance reduction, honest wall-clock budgets, per-opponent σ calibration, the real Slumbot dialect with a verify-first gate, and **Glicko ELO is cut** (replaced by the exploitation-vs-exploitability frontier). House rule unchanged: every promotable number carries a CI; everything else is labeled diagnostic.
+Everything that produces a number with a defensible interval. v1 fixes the statistics and compute-budget inconsistencies (review C): correct duplicate formula, session-clustered CIs, SPRT early stopping, Holm correction, AIVAT-style variance reduction, honest wall-clock budgets, per-opponent σ calibration, the real Slumbot dialect with a verify-first gate, and **Glicko ELO is cut** (replaced by the exploitation-vs-exploitability frontier). House rule unchanged: every promotable number carries a CI; everything else is labeled diagnostic.
 
 ---
 
@@ -73,7 +73,7 @@ pub fn required_seatings(sigma_pair: f64, delta_mb: f64, conf: f64) -> u64;
 
 ## 5. `slumbot.rs` — the real dialect, verify-first (review A10)
 
-v1's `/api/init` + `/api/bet/<token>` + `"r"<size>` was invented. v2 pins the **published public-client dialect** and refuses to ship until verified:
+v1's `/api/init` + `/api/bet/<token>` + `"r"<size>` was invented. v1 pins the **published public-client dialect** and refuses to ship until verified:
 
 - Endpoints: `POST /api/login`, `POST /api/new_hand`, `POST /api/act`; actions encoded as `k` (check/call — per their convention), `c`, `f`, `b<amount>`; responses carry game state and `winnings` on completed hands.
 - **Gate `slumbot_dialect_verified`:** before any long run, the implementer fetches Slumbot's published sample client and runs a 50-hand `--real --yes-i-am-live` session; the observed request/response shapes are diffed against `mock/` and any mismatch updates BOTH mock and client in one commit. The mock exists so tests never touch the network; the mock is only as good as that one verification — recorded in `decisions.jsonl`.
@@ -114,7 +114,7 @@ At P6 = 60k seatings/min (recalibrate at M1), one thread-hour ≈ 3.6M seatings:
 | promotion (`ab`) | 2 arms × (4 archetypes × 25k deals ×2) | 800k | ≤ 30–60 min |
 | headline (G1/G2) | 100k seatings/opp × 4 opps, 3 session clusters | 1.2M+ | 2–4 h |
 
-v1's "~96 min for ladder --fast at 15k/min" was the honest number for v1's too-slow P6; v2 fixes P6 itself (fast engine, §2) and the tier table above is derived from it. Slumbot: ~10 h wall at 20k seatings (rate-limited), run overnight.
+v1's "~96 min for ladder --fast at 15k/min" was the honest number for v1's too-slow P6; v1 fixes P6 itself (fast engine, §2) and the tier table above is derived from it. Slumbot: ~10 h wall at 20k seatings (rate-limited), run overnight.
 
 ## 10. Tests (contractual)
 

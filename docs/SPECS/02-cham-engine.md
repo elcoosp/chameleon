@@ -1,6 +1,6 @@
-# SPECS/02 — Crate `cham-engine` — v2
+# SPECS/02 — Crate `cham-engine` — v1
 
-The abstraction layer. **v2 core principle: infoset keys are pure functions of (hole, board, geometry) — zero Monte Carlo at encode time, zero in-key noise.** v1's MC-in-the-key was a silent-corruption bug and its P3 gate was unsatisfiable. Also: river keys are now board-aware (v1 made A♠K♠ on 2-3-4-5-7 and on A-Q-J-T-9 the same infoset — fatal), depth bands are replaced by SPR bands (fixing the v1 self-contradiction with cross-depth alignment), legal masks live in the key, and soft buckets are **cut**.
+The abstraction layer. **v1 core principle: infoset keys are pure functions of (hole, board, geometry) — zero Monte Carlo at encode time, zero in-key noise.** v1's MC-in-the-key was a silent-corruption bug and its P3 gate was unsatisfiable. Also: river keys are now board-aware (v1 made A♠K♠ on 2-3-4-5-7 and on A-Q-J-T-9 the same infoset — fatal), depth bands are replaced by SPR bands (fixing the v1 self-contradiction with cross-depth alignment), legal masks live in the key, and soft buckets are **cut**.
 
 ---
 
@@ -23,7 +23,7 @@ crates/cham-engine/src/
 └── bench.rs            (P3a/P3b)
 ```
 
-## 2. `config.rs` — `AbstractionConfig` (v2)
+## 2. `config.rs` — `AbstractionConfig` (v1)
 
 ```rust
 pub struct AbstractionConfig {
@@ -67,7 +67,7 @@ impl ActionLadder {
     pub fn to_real(&self, obs: &Observables<'_>, slot: usize) -> Action;
     /// Nearest-slot mapping — used ONLY for infoset key encoding (deterministic).
     pub fn nearest_slot(&self, obs: &Observables<'_>, a: Action) -> usize;
-    /// PSEUDO-HARMONIC off-tree weights (v2, review D7): for a real off-tree size with pot fraction f_real,
+    /// PSEUDO-HARMONIC off-tree weights (v1, review D7): for a real off-tree size with pot fraction f_real,
     /// w_i ∝ 1/(ε + (f_real − f_i)²) over the top-2 nearest slots, ε = 0.01, normalized.
     /// Consumers: search range weighting (SPECS/06 §3) and AIVAT baselines (SPECS/08 §5).
     /// NEVER used to make keys nondeterministic.
@@ -75,7 +75,7 @@ impl ActionLadder {
 }
 ```
 
-## 5. `encoder.rs` — the key (v2)
+## 5. `encoder.rs` — the key (v1)
 
 ```rust
 pub struct Encoder { cfg, ladder, flop: MmapTable, turn: MmapTable, river_meta: RiverMeta }

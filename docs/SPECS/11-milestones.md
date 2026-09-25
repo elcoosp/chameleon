@@ -1,6 +1,6 @@
-# SPECS/11 — Milestones & Agent Work Plan — v2 (M-1 → M5, 5–6 weeks)
+# SPECS/11 — Milestones & Agent Work Plan — v1 (M-1 → M5, 5–6 weeks)
 
-v2 restructure per review F: **M-1 "prove it" before any scaffold** (tiny-game proofs of every core claim), a **walking skeleton** before scale, honest throughput calibration, trimmed v1 scope (soft buckets, ELO, replay animation, turn search, 5th specialist — all cut), development at 100 bb, and a 5–6 week timeline (v1's 2–4 weeks was not credible).
+v1 restructure per review F: **M-1 "prove it" before any scaffold** (tiny-game proofs of every core claim), a **walking skeleton** before scale, honest throughput calibration, trimmed v1 scope (soft buckets, ELO, replay animation, turn search, 5th specialist — all cut), development at 100 bb, and a 5–6 week timeline (v1's 2–4 weeks was not credible).
 
 ---
 
@@ -13,7 +13,7 @@ Before the 10-crate scaffold, in self-contained micro-implementations (Kuhn, Led
 3. **P-3 Router + reach-weighted mixture beats the best single specialist** against a hidden-type opponent, and achieves ≥ 90% of the **exact Bayes-optimal policy's EV** (enumerable in the toy). *This tests the project's central claim for the cost of an afternoon.*
 4. **P-4 River solver = LP:** the FMBR/RNR machinery matches enumerative-LP solutions on small river trees to 1e-6.
 
-Plus the **throughput/infoset spike**: run the pilot ES-MCCFR at 200 bb with the v2 abstraction on a draft table build; measure P4 reality (expect 300–1500 iters/s/thread, memory-bound); observe actual table growth for the infoset estimator (drop v1's "analytic growth" — a 50k-deal sample cannot see rare paths).
+Plus the **throughput/infoset spike**: run the pilot ES-MCCFR at 200 bb with the v1 abstraction on a draft table build; measure P4 reality (expect 300–1500 iters/s/thread, memory-bound); observe actual table growth for the infoset estimator (drop v1's "analytic growth" — a 50k-deal sample cannot see rare paths).
 
 **Gate G-M-1:** all four proofs green in `chameleon verify --proofs`; spike numbers recorded in `decisions.jsonl` and folded into P4/P6/§3 budgets. **If P-1..P-4 fail, the architecture is wrong — stop and redesign; nothing downstream is built.**
 

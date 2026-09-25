@@ -1,8 +1,8 @@
-# SPECS/00 — Workspace Conventions (READ FIRST, ALWAYS) — v2
+# SPECS/00 — Workspace Conventions (READ FIRST, ALWAYS) — v1
 
 This file is a contract. Every crate spec assumes it. The implementation agent re-reads this file at the start of every session.
 
-**v2 changes (post-review):** closed dep whitelist extended (memmap2, bytemuck, arrayvec, blake3, criterion/proptest/insta as dev-deps); deterministic-vs-Hogwild threading contract; no-`Vec` hot-path rule; optimized test profiles; action canonicalization; artifact hashes via blake3; `cham-rec` is a leaf crate with its own spec (`SPECS/12`).
+**v1 changes (post-review):** closed dep whitelist extended (memmap2, bytemuck, arrayvec, blake3, criterion/proptest/insta as dev-deps); deterministic-vs-Hogwild threading contract; no-`Vec` hot-path rule; optimized test profiles; action canonicalization; artifact hashes via blake3; `cham-rec` is a leaf crate with its own spec (`SPECS/12`).
 
 ---
 
@@ -79,7 +79,7 @@ cham-cli        → cham-eval, cham-blueprint, cham-router, cham-engine, cham-ag
 
 CLI dev-tools (not Cargo deps, wired into the justfile): `cargo-nextest`, `cargo-llvm-cov`, `cargo-mutants` (negative-test philosophy), `cargo-deny` (whitelist enforcement).
 
-Forbidden: `nalgebra`, `ndarray`, `linfa`, `tch`, `burn`, `candle` (v2 stretch only, see SPECS/06 §8), `tokio`, `rusqlite`, `polars`, anything with a C toolchain.
+Forbidden: `nalgebra`, `ndarray`, `linfa`, `tch`, `burn`, `candle` (v1 stretch only, see SPECS/06 §8), `tokio`, `rusqlite`, `polars`, anything with a C toolchain.
 
 ## 3. Determinism & threading contract
 

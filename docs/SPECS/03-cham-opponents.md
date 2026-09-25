@@ -1,6 +1,6 @@
-# SPECS/03 — Crate `cham-opponents` — v2
+# SPECS/03 — Crate `cham-opponents` — v1
 
-All opponents implement `cham_core::Agent`. v2 changes driven by review A4 + B1:
+All opponents implement `cham_core::Agent`. v1 changes driven by review A4 + B1:
 
 - **Scripts are probability-oracles:** exact equity lookups (no MC), **fresh independent draws per decision** (no persistent per-hand uniforms), so `action_probs(obs)` is analytic and per-decision independent — a hard requirement for one-sided CFR reach products.
 - **Out-of-family evaluation opponents** (the anti-circularity fix): perturbed-Nash bots, a second script implementation family, and a human-like noise wrapper.
@@ -32,7 +32,7 @@ crates/cham-opponents/src/
 
 Same table as v1 (nit/TAG/LAG/station rows for `open_raise, complete, call_open, three_bet, call_3bet, four_bet, iso_check, cbet_flop, barrel_turn, barrel_river, donk, check_raise, bluff_river, call_factor, value_bet, size_idx, trap`) with jitter ranges ±0.05–0.10 as v1. The v1 in-prose self-corrections are gone; the decision procedure below is the single source of truth.
 
-**v2 decision-procedure changes (A4):**
+**v1 decision-procedure changes (A4):**
 1. All equity thresholds use **exact** chart/`equity_exact` values (postflop ehs = exact equity vs uniform on the current board — a table-adjacent computation, ~10 µs, only when the script must decide).
 2. All randomness is **fresh per decision**: draw `u ~ U(0,1)` from a stream derived `child(session_seed, &format!("h{hand}.{street}.{idx}.{kind}"))` — no `hand_urs` persistence (v1's per-hand uniforms made within-hand decisions correlated, which breaks the reach-product interpretation of `action_probs`).
 3. Because draws are independent and thresholds are exact, **the marginal probability of every action is analytic**: `P(action) = threshold expression evaluated at the exact equity` — `action_probs` returns exactly this (including the percentile-gating preflop paths, where thresholds are piecewise in `pct(h)` and known analytically).

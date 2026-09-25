@@ -1,6 +1,6 @@
-# SPECS/09 — Crate `cham-cli` (bin: `chameleon`) — v2
+# SPECS/09 — Crate `cham-cli` (bin: `chameleon`) — v1
 
-Orchestration only. v2 fixes the review's hygiene list: subcommand count is exact (11), the justfile never calls a bare binary, `collect` exists (router datasets have an owner), `probe` has an owner (cham-eval orchestrates, cham-blueprint/cham-router compute), `replay` animation is cut, and depth flags are consistent with the depth-flexible loader.
+Orchestration only. v1 fixes the review's hygiene list: subcommand count is exact (11), the justfile never calls a bare binary, `collect` exists (router datasets have an owner), `probe` has an owner (cham-eval orchestrates, cham-blueprint/cham-router compute), `replay` animation is cut, and depth flags are consistent with the depth-flexible loader.
 
 ---
 

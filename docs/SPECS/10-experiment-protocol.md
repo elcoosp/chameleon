@@ -1,6 +1,6 @@
-# SPECS/10 — Experiment Protocol — v2 (normative)
+# SPECS/10 — Experiment Protocol — v1 (normative)
 
-The rules that make results trustworthy. v2 fixes the circularity and the statistics (review B1, C): out-of-family evaluation, one preregistered primary endpoint with Holm correction, SPRT early stopping, session-clustered CIs, exploitation-efficiency gates derived from computed ceilings, and honest expectations (Slumbot is diagnostic; the goal is **best-in-class exploitative HUNL agent with rigorous evaluation on M1**, not Nash-adjacency).
+The rules that make results trustworthy. v1 fixes the circularity and the statistics (review B1, C): out-of-family evaluation, one preregistered primary endpoint with Holm correction, SPRT early stopping, session-clustered CIs, exploitation-efficiency gates derived from computed ceilings, and honest expectations (Slumbot is diagnostic; the goal is **best-in-class exploitative HUNL agent with rigorous evaluation on M1**, not Nash-adjacency).
 
 ---
 
@@ -11,7 +11,7 @@ The rules that make results trustworthy. v2 fixes the circularity and the statis
 - **Promotion** = `chameleon ab --promote` moving `baseline.toml`. No other path exists.
 - **In-family** = jittered nit/TAG/LAG/station from family-A scripts. **Out-of-family** = perturbed-Nash, family-B scripts, noisy wrapper (SPECS/03 §5).
 
-## 2. Seed & family governance (anti-leak v2)
+## 2. Seed & family governance (anti-leak v1)
 
 - **Seed partition** (FNV-1a mod 10): **A** (0–5) router training + specialist jitter draws; **B-dev** (6–7) tuning, temperature sweeps, SPRT screening; **B-test** (8) headline numbers — touched at most twice per experiment, never tuned on; **C-registered** (9) reserved for out-of-family session seeds.
 - **Family governance** (the v1 hole): C is defined by *opponent family*, not seed novelty. "Unseen jitter draws" are not adversarial — the jitter distribution was the training distribution. Out-of-family opponents never appear in any training or tuning dataset, enforced at the dataset loader (`family` field) and the pool config.
@@ -31,7 +31,7 @@ Duplicate-pair σ per opponent measured in the M1 pilot (v1 borrowed CallBot's �
 
 SPRT defaults: H0 Δ=0 vs H1 Δ=+25 mb/seating, α=0.05, β=0.10 — screening arms stop early on boundaries; stopped arms are ledger-labeled.
 
-## 4. Multiple comparisons (v2)
+## 4. Multiple comparisons (v1)
 
 **One preregistered primary endpoint: G2-primary** (full vs robust-only, overall pool delta, promotion A/B). Every other gate is a **secondary**; the gate family is Holm-corrected at α=0.05 within each experiment's pre-registered list (`experiments/EXP-*.toml` carries the family). v1 ran 9 gates × 4 archetypes × many experiments with no correction — a false-promotion machine.
 
@@ -45,7 +45,7 @@ change → just test → just verify (Tier 0, incl. cham-proofs)
        → nightly: ladder --full + slumbot --seatings 20000 (Tier 4, diagnostic anchors)
 ```
 
-## 6. Acceptance gates v2
+## 6. Acceptance gates v1
 
 | ID | Claim | Gate | Tier |
 |---|---|---|---|
