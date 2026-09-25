@@ -1,0 +1,17 @@
+# EXP-006 `depth-ladder` — the old Idea #2 as a pre-registered experiment vs the
+# robust warm-start (SPECS/04 §7). Dies in the ledger if it cannot win.
+id = "EXP-006"
+slug = "depth-ladder"
+gate = "G2-secondary"
+tier = "ab"
+a = "ladder-warmstart"
+b = "robust-warmstart"
+pool = ["arch:nit", "arch:tag", "arch:lag", "arch:station"]
+deals_per_opp = 10000
+clusters = 1
+seeds = [1, 2]
+margin_mb = 0.0
+sprt = true
+[expect]
+direction = "a_ge_b"
+primary_ci_lower_mb = 0.0
