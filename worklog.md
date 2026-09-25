@@ -103,3 +103,8 @@ verdict                = NO-GO
 ```
 
 Pre-registered rule: GO iff bit-exact AND max(GPU_EVAL, GPU_ENUM) ≥ 10 × CPU_ENUM.
+
+BLOCKED: GPU track closed at G0 — EXP-020 verdict was NO-GO.
+Numbers recorded above; the plan directs us to G4.0 (closure: keep
+cham-gpu with the metal feature off, README post-mortem, revert is
+not required because nothing else depends on the GPU path).
