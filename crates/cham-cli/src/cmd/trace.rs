@@ -42,10 +42,7 @@ pub fn run(run: &str, top: usize, by: &str) -> i32 {
             decisions.push((v["seq"].as_u64().unwrap_or(0), v["data"].clone()));
         }
     }
-    let fallbacks = decisions
-        .iter()
-        .filter(|(_, d)| d["fallback_used"].as_bool() == Some(true))
-        .count();
+    let fallbacks = decisions.iter().filter(|(_, d)| d["fallback_used"].as_bool() == Some(true)).count();
     let searched = decisions
         .iter()
         .filter(|(_, d)| {
@@ -55,11 +52,7 @@ pub fn run(run: &str, top: usize, by: &str) -> i32 {
                 .unwrap_or(false)
         })
         .count();
-    println!(
-        "trace {run}: {} records, kinds {:?}",
-        text.lines().count(),
-        kinds
-    );
+    println!("trace {run}: {} records, kinds {:?}", text.lines().count(), kinds);
     println!(
         "trace {run}: {} decisions, {fallbacks} fallback_used, {searched} searches triggered",
         decisions.len()
@@ -69,11 +62,7 @@ pub fn run(run: &str, top: usize, by: &str) -> i32 {
         match by {
             // fallback: rank decisions where the mixture fell back highest
             "fallback" => {
-                if d["fallback_used"].as_bool() == Some(true) {
-                    1.0
-                } else {
-                    0.0
-                }
+                if d["fallback_used"].as_bool() == Some(true) { 1.0 } else { 0.0 }
             }
             // search: rank by solver work invested
             "search" => d["search"]["iters"].as_f64().unwrap_or(0.0),
