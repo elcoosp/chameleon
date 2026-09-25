@@ -1,0 +1,6 @@
+/target
+/artifacts/runs
+/artifacts/**/*.tmp
+/artifacts/reports
+Cargo.lock.bak
+*.snap.new
