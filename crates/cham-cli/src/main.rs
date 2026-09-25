@@ -10,7 +10,11 @@ mod cmd;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "chameleon", version, about = "Project CHAMELEON — routed mixture of specialist blueprints")]
+#[command(
+    name = "chameleon",
+    version,
+    about = "Project CHAMELEON — routed mixture of specialist blueprints"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -52,6 +56,10 @@ enum Command {
         out: String,
         #[arg(long)]
         status: Option<String>,
+        /// Worker threads (default: available parallelism; on Apple M1
+        /// 4 workers usually beats 8 for this memory-bound workload)
+        #[arg(long)]
+        threads: Option<u32>,
     },
     /// Train the router on a .rbin dataset (SPECS/05)
     TrainRouter {
@@ -139,21 +147,59 @@ enum Command {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let code = match cli.command {
-        Command::Verify { perf, count_infosets, proofs } => cmd::verify::run(perf, count_infosets, proofs),
-        Command::TrainBuckets { config, out, profile } => cmd::train_buckets::run(&config, &out, &profile),
-        Command::TrainBp { mode, opponent, seed, depth, iters, out, status } => {
-            cmd::train_bp::run(&mode, opponent.as_deref(), seed, depth, iters, &out, status.as_deref())
-        }
+        Command::Verify {
+            perf,
+            count_infosets,
+            proofs,
+        } => cmd::verify::run(perf, count_infosets, proofs),
+        Command::TrainBuckets {
+            config,
+            out,
+            profile,
+        } => cmd::train_buckets::run(&config, &out, &profile),
+        Command::TrainBp {
+            mode,
+            opponent,
+            seed,
+            depth,
+            iters,
+            out,
+            status,
+            threads,
+        } => cmd::train_bp::run(
+            &mode,
+            opponent.as_deref(),
+            seed,
+            depth,
+            iters,
+            &out,
+            status.as_deref(),
+            threads,
+        ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),
         Command::Probe { agent } => cmd::probe::run(&agent),
-        Command::Ladder { fast, full, agent, pool } => cmd::ladder::run(fast, full, &agent, &pool),
-        Command::Ab { a, b, deals, clusters, margin, sprt, promote } => {
-            cmd::ab::run(&a, &b, deals, clusters, margin, sprt, promote)
-        }
-        Command::Slumbot { seatings, real, yes_i_am_live, resume } => {
-            cmd::slumbot::run(seatings, real, yes_i_am_live, resume.as_deref())
-        }
+        Command::Ladder {
+            fast,
+            full,
+            agent,
+            pool,
+        } => cmd::ladder::run(fast, full, &agent, &pool),
+        Command::Ab {
+            a,
+            b,
+            deals,
+            clusters,
+            margin,
+            sprt,
+            promote,
+        } => cmd::ab::run(&a, &b, deals, clusters, margin, sprt, promote),
+        Command::Slumbot {
+            seatings,
+            real,
+            yes_i_am_live,
+            resume,
+        } => cmd::slumbot::run(seatings, real, yes_i_am_live, resume.as_deref()),
         Command::Play { agent, depth } => cmd::play::run(&agent, depth),
         Command::Trace { run, top, by } => cmd::trace::run(&run, top, &by),
         Command::Dashboard { out, last } => cmd::dashboard::run(&out, last),

@@ -10,13 +10,17 @@ pub fn run(
     iters: u64,
     out: &str,
     status: Option<&str>,
+    threads: Option<u32>,
 ) -> i32 {
     if let Some(run_dir) = status {
         return print_status(run_dir);
     }
     let engine_cfg = cham_core::engine::config::EngineConfig::depth(depth);
     let cfg = cham_engine::config::AbstractionConfig::tiny();
-    let mut enc = match cham_engine::Encoder::from_artifacts_dir(Path::new("artifacts/buckets-tiny"), cfg.clone()) {
+    let mut enc = match cham_engine::Encoder::from_artifacts_dir(
+        Path::new("artifacts/buckets-tiny"),
+        cfg.clone(),
+    ) {
         Ok(e) => e,
         Err(_) => cham_engine::Encoder::cfg_only(cfg.clone()).expect("enc"),
     };
@@ -31,7 +35,10 @@ pub fn run(
                     return crate::cmd::EXIT_FAIL;
                 }
             };
-            cham_blueprint::TrainMode::Exploit { opponent: opp, jitter_seed: seed }
+            cham_blueprint::TrainMode::Exploit {
+                opponent: opp,
+                jitter_seed: seed,
+            }
         }
         other => {
             eprintln!("unknown mode {other} (robust | exploit | exploit-bayes)");
@@ -47,8 +54,26 @@ pub fn run(
     };
     let runs = std::path::Path::new(out).join(format!("{mode}-{seed}"));
     let thread_mode = cham_blueprint::ThreadMode::Deterministic;
+    // PERF-PLAN T5: worker count defaults to available parallelism (on Apple
+    // M1 4 workers usually beats 8 for this memory-bound workload);
+    // --threads overrides.
+    let threads = threads.unwrap_or_else(|| {
+        std::thread::available_parallelism()
+            .map(|n: std::num::NonZeroUsize| n.get() as u32)
+            .unwrap_or(4)
+    });
     let t0 = std::time::Instant::now();
-    let (table, prov) = match cham_blueprint::train(&tcfg, &train_mode, engine_cfg, &mut enc, thread_mode, &runs, None, None) {
+    let (table, prov) = match cham_blueprint::train_with_threads(
+        &tcfg,
+        &train_mode,
+        engine_cfg,
+        &mut enc,
+        thread_mode,
+        threads,
+        &runs,
+        None,
+        None,
+    ) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("train: {e}");
@@ -66,7 +91,7 @@ pub fn run(
         iters,
         train_seed: seed,
         thread_mode: "Deterministic".into(),
-        threads: 1,
+        threads,
         parent: None,
         wall_s: prov.wall_s,
         infosets: table.len(),
@@ -86,7 +111,11 @@ pub fn run(
         art_dir.display()
     );
     if let Ok(bytes) = std::fs::read(art_dir.join("policy.bin")) {
-        println!("policy.bin: {} bytes blake3 {}", bytes.len(), &blake3::hash(&bytes).to_string()[..16]);
+        println!(
+            "policy.bin: {} bytes blake3 {}",
+            bytes.len(),
+            &blake3::hash(&bytes).to_string()[..16]
+        );
     }
     crate::cmd::EXIT_OK
 }
