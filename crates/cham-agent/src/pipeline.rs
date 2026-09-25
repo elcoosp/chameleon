@@ -20,14 +20,14 @@
 use cham_blueprint::policy::BlueprintPolicy;
 use cham_core::engine::Action;
 use cham_core::obs::{Agent, Observables, Player};
-use cham_core::rng::{Rng, next_f64};
+use cham_core::rng::{next_f64, Rng};
 use cham_engine::encoder::{ActionSeq, Encoder};
 use cham_rec::Recorder;
 
-use crate::AgentError;
 use crate::modes::AgentMode;
-use crate::trace::{DecisionTrace, record as trace_record};
+use crate::trace::{record as trace_record, DecisionTrace};
 use crate::tracker::Tracker;
+use crate::AgentError;
 
 pub struct ChameleonAgent {
     pub mode: AgentMode,
@@ -64,9 +64,7 @@ impl ChameleonAgent {
     ) -> Result<ChameleonAgent, AgentError> {
         mode.validate()?;
         if experts.len() != 4 {
-            return Err(AgentError::Pipeline(
-                "exactly 4 specialists required".into(),
-            ));
+            return Err(AgentError::Pipeline("exactly 4 specialists required".into()));
         }
         Ok(ChameleonAgent {
             mode,
@@ -232,9 +230,7 @@ impl ChameleonAgent {
             }
             "bayes" => {
                 let sigma = match bayes {
-                    Some(bp) => bp
-                        .strategy(obs, encoder, seq)
-                        .unwrap_or_else(|| vec![1.0 / n as f64; n]),
+                    Some(bp) => bp.strategy(obs, encoder, seq).unwrap_or_else(|| vec![1.0 / n as f64; n]),
                     None => vec![1.0 / n as f64; n],
                 };
                 slots[argmax_of(&sigma)].action // bayes-greedy consumes NO rng
