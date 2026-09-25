@@ -66,6 +66,10 @@ enum Command {
         /// 4 workers usually beats 8 for this memory-bound workload)
         #[arg(long)]
         threads: Option<u32>,
+        /// Thread mode: deterministic (default, bit-exact single-thread),
+        /// hogwild (atomic adds), snapbatch (buffered atomic adds)
+        #[arg(long)]
+        thread_mode: Option<String>,
     },
     /// Train the router on a .rbin dataset (SPECS/05)
     TrainRouter {
@@ -179,6 +183,7 @@ fn main() -> anyhow::Result<()> {
             out,
             status,
             threads,
+            thread_mode,
         } => cmd::train_bp::run(
             &mode,
             opponent.as_deref(),
@@ -188,6 +193,7 @@ fn main() -> anyhow::Result<()> {
             &out,
             status.as_deref(),
             threads,
+            thread_mode.as_deref(),
         ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),

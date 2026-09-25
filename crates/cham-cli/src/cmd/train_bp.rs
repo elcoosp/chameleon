@@ -11,6 +11,7 @@ pub fn run(
     out: &str,
     status: Option<&str>,
     threads: Option<u32>,
+    thread_mode: Option<&str>,
 ) -> i32 {
     if let Some(run_dir) = status {
         return print_status(run_dir);
@@ -53,7 +54,15 @@ pub fn run(
         bayes_session_block: 2000,
     };
     let runs = std::path::Path::new(out).join(format!("{mode}-{seed}"));
-    let thread_mode = cham_blueprint::ThreadMode::Deterministic;
+    let thread_mode = match thread_mode.unwrap_or("deterministic") {
+        "deterministic" => cham_blueprint::ThreadMode::Deterministic,
+        "hogwild" => cham_blueprint::ThreadMode::Hogwild,
+        "snapbatch" => cham_blueprint::ThreadMode::Snapbatch,
+        other => {
+            eprintln!("unknown --thread-mode {other} (deterministic | hogwild | snapbatch)");
+            return crate::cmd::EXIT_FAIL;
+        }
+    };
     // PERF-PLAN T5: worker count defaults to available parallelism (on Apple
     // M1 4 workers usually beats 8 for this memory-bound workload);
     // --threads overrides.
