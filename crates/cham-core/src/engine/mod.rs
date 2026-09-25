@@ -18,12 +18,24 @@ use arrayvec::ArrayVec;
 pub use config::EngineConfig;
 pub use history::{HandHistory, PublicHistory};
 
+use crate::CoreError;
 use crate::card::{Card, Deck, Hand2};
 use crate::obs::LegalAction;
-use crate::CoreError;
 
 /// Betting street.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum Street {
     #[default]
@@ -239,12 +251,28 @@ impl State {
 
     // ---------- legality ----------
 
+    /// Minimum total-bet level for a full bet/raise this street
+    /// (`current_bet + last_full_raise`); all-ins below it are still legal
+    /// when they are the stack cap. Hoisted so `legal_actions` and `is_legal`
+    /// share one computation (no behavior change).
+    #[inline]
+    fn min_full_level(&self) -> i32 {
+        self.current_bet + self.last_full_raise
+    }
+
+    /// Stack cap for the player to act (this street's total-bet level all-in).
+    #[inline]
+    fn stack_cap(&self) -> i32 {
+        self.street_bet[self.to_act as usize] + self.stacks[self.to_act as usize]
+    }
+
     /// Legal actions into a caller-provided ArrayVec (NO allocation; cap 12).
     /// Pinned canonical order:
     /// - facing no bet: `[Check, Bet(min), Bet(all-in)]`
     /// - facing a bet:  `[Fold, Call, Raise(min-raise), Raise(all-in)]`
     ///
     /// When the opponent is all-in, betting/raising is moot: `[Check]` / `[Fold, Call]`.
+    #[inline]
     pub fn legal_actions(&self, out: &mut ArrayVec<LegalAction, 12>) {
         out.clear();
         if self.hand_over {
@@ -255,10 +283,13 @@ impl State {
         let facing = self.current_bet - self.street_bet[p];
         let opp_all_in = self.stacks[o] == 0;
         if facing == 0 {
-            out.push(LegalAction { action: Action::Check, is_all_in: false });
+            out.push(LegalAction {
+                action: Action::Check,
+                is_all_in: false,
+            });
             if self.stacks[p] > 0 && !opp_all_in {
                 let max_to = self.street_bet[p] + self.stacks[p];
-                let min_to = (self.current_bet + self.last_full_raise).min(max_to); // preflop BB: 200; postflop: bb; stack < min ⇒ all-in for less
+                let min_to = self.min_full_level().min(max_to); // preflop BB: 200; postflop: bb; stack < min ⇒ all-in for less
                 out.push(LegalAction {
                     action: Action::Bet { to: min_to as i64 },
                     is_all_in: min_to == max_to,
@@ -271,7 +302,10 @@ impl State {
                 }
             }
         } else {
-            out.push(LegalAction { action: Action::Fold, is_all_in: false });
+            out.push(LegalAction {
+                action: Action::Fold,
+                is_all_in: false,
+            });
             if self.stacks[p] > 0 {
                 out.push(LegalAction {
                     action: Action::Call,
@@ -280,8 +314,7 @@ impl State {
                 if !opp_all_in {
                     let max_to = self.street_bet[p] + self.stacks[p];
                     if max_to > self.current_bet {
-                        let full_to = self.current_bet + self.last_full_raise;
-                        let min_to = full_to.min(max_to); // all-in below min-raise allowed
+                        let min_to = self.min_full_level().min(max_to); // all-in below min-raise allowed
                         out.push(LegalAction {
                             action: Action::Raise { to: min_to as i64 },
                             is_all_in: min_to == max_to,
@@ -300,6 +333,7 @@ impl State {
 
     /// Rule-based legality (any `to` between the min-raise level and the stack cap
     /// is legal — the canonical slot list above is only the LADDER's view).
+    #[inline]
     fn is_legal(&self, a: Action) -> bool {
         if self.hand_over {
             return false;
@@ -308,7 +342,8 @@ impl State {
         let o = 1 - p;
         let facing = self.current_bet - self.street_bet[p];
         let opp_all_in = self.stacks[o] == 0;
-        let max_to = self.street_bet[p] + self.stacks[p];
+        let max_to = self.stack_cap();
+        let min_level = self.min_full_level();
         match a {
             Action::Fold => facing > 0,
             Action::Check => facing == 0,
@@ -319,7 +354,7 @@ impl State {
                     && !opp_all_in
                     && to > self.street_bet[p] as i64
                     && to <= max_to as i64
-                    && (to >= (self.current_bet + self.last_full_raise) as i64 || to == max_to as i64)
+                    && (to >= min_level as i64 || to == max_to as i64)
             }
             Action::Raise { to } => {
                 facing > 0
@@ -327,8 +362,7 @@ impl State {
                     && !opp_all_in
                     && to > self.current_bet as i64
                     && to <= max_to as i64
-                    && (to >= (self.current_bet + self.last_full_raise) as i64
-                        || to == max_to as i64)
+                    && (to >= min_level as i64 || to == max_to as i64)
             }
         }
     }
@@ -336,16 +370,36 @@ impl State {
     // ---------- apply ----------
 
     /// Apply one action. Validates against the legal set; allocation-free.
+    /// Thin copy-preserving wrapper: delegates to [`State::apply_in_place`]
+    /// so all existing callers keep compiling with identical semantics.
+    #[inline]
     pub fn apply(&mut self, a: Action) -> Result<ApplyOutcome, CoreError> {
+        self.apply_in_place(a)
+    }
+
+    /// In-place apply: mutates `self` without copying the (large, `Copy`)
+    /// state. Hot loops (benches, traversals) should call this directly;
+    /// [`State::apply`] is the same operation behind the legacy name.
+    pub fn apply_in_place(&mut self, a: Action) -> Result<ApplyOutcome, CoreError> {
         if self.hand_over {
-            return Err(CoreError::IllegalAction { action: a, reason: "hand already over".into() });
+            return Err(CoreError::IllegalAction {
+                action: a,
+                reason: "hand already over".into(),
+            });
         }
         if !self.is_legal(a) {
-            return Err(CoreError::IllegalAction { action: a, reason: "not in legal set".into() });
+            return Err(CoreError::IllegalAction {
+                action: a,
+                reason: "not in legal set".into(),
+            });
         }
         let p = self.to_act as usize;
         let o = 1 - p;
-        let mut out = ApplyOutcome { street_dealt: false, hand_over: false, all_in_runout: false };
+        let mut out = ApplyOutcome {
+            street_dealt: false,
+            hand_over: false,
+            all_in_runout: false,
+        };
 
         match a {
             Action::Fold => {
@@ -410,10 +464,7 @@ impl State {
         }
 
         // street completion: both acted and levels matched
-        if !self.hand_over
-            && self.acted == 0b11
-            && self.street_bet[0] == self.street_bet[1]
-        {
+        if !self.hand_over && self.acted == 0b11 && self.street_bet[0] == self.street_bet[1] {
             if self.street == Street::River as u8 {
                 self.showdown_terminal();
                 out.hand_over = true;
