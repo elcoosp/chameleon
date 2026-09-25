@@ -295,3 +295,21 @@ wasted work:
   and P8 (build throughput) on whatever tables exist, regardless of
   consumer status. It is a correctness/measurement gate, not a
   consumer-driven feature.
+
+## G1.2 turn EHS table — complete
+
+- `artifacts/gpu-tables/turn.bin`: 1,435,925,400 bytes
+  (270,725 boards × 1326 holes × 4 = exact).
+- blake3 `a1e260fbf3a381428165fe5c100cd57dd22f098d6f5f5508af346e80e884852c`.
+- Wall: 4,584.6 s (76.4 min) at 59.1 boards/s = **3.57e9 evals/s**.
+- sample_check: 40 / 40 PASS against `ehs_reference`.
+- `verify --gpu`: P7 resample 24/24 bit-equal, P8 rate floor pass, GREEN.
+
+The earlier 42% then OOM attempt (`turn-build-attempt-1.log`) and this
+successful run are both on record. Resume was not used here because the
+partial file had been cleaned; but it was verified bit-identical on
+limit=100 truncate tests before this run.
+
+Prereq for the overnight tiny-ladder experiment: artifacts/agent needs the
+EHS consumers. That work is G2.x, G2.0 skip outcome; the table has no v2
+consumer. It is however the v3 flagship's prerequisite (V3-BRAINSTORM).
