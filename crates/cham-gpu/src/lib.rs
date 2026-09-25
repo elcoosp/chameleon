@@ -22,6 +22,7 @@
 pub mod device;
 pub mod kernels;
 pub mod noop;
+pub mod reference;
 
 #[cfg(feature = "wgpu")]
 pub mod wgpu_backend;
