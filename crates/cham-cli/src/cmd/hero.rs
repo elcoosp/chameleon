@@ -1,0 +1,165 @@
+//! Shared hero-agent construction (BROAD-PERF-PLAN B1): the REAL agent wiring,
+//! factored out of `play` so `ladder`/`ab` build exactly the same pipeline.
+//!
+//! Construction mirrors `cmd::play::run`: `loader::load_agent(bundle, routing,
+//! depth)` → router (trained `router.bin` when present, deterministic default
+//! otherwise) → `ChameleonAgent::new`. One instance plays a whole match; its
+//! `on_hand_end` hook resets per-hand state deal-by-deal (see `matcheng`).
+
+use cham_agent::modes::{AgentMode, SearchCfg};
+use cham_agent::pipeline::ChameleonAgent;
+use cham_router::model::SoftmaxModel;
+
+/// CLI mode names → AgentMode routing strings (SPECS/07 §3 canonical set;
+/// must stay in sync with `cmd::play::run`).
+pub fn routing_for(agent: &str) -> &str {
+    match agent {
+        "full" | "no-search" | "full-no-search" => "mixture",
+        "argmax" => "argmax",
+        "robust-only" => "robust-only",
+        "bayes" => "bayes",
+        other => other,
+    }
+}
+
+/// Build a fresh hero for `agent` at `depth_bb`. Pure baselines (anything not
+/// requiring trained artifacts, e.g. `callbot`) yield a `CallBot`; trained
+/// modes load the `artifacts/agent` bundle or return the refusal message.
+pub fn build_hero(agent: &str, depth_bb: i64) -> Result<Box<dyn cham_core::obs::Agent>, String> {
+    if !crate::cmd::guard::requires_trained_artifacts(agent) {
+        return Ok(Box::new(cham_opponents::baselines::CallBot));
+    }
+    Ok(Box::new(build_chameleon(agent, depth_bb)?))
+}
+
+/// Build a concrete `ChameleonAgent` (trained path of [`build_hero`]).
+pub fn build_chameleon(agent: &str, depth_bb: i64) -> Result<ChameleonAgent, String> {
+    let bundle = std::path::Path::new("artifacts/agent");
+    let routing = routing_for(agent);
+    let loaded = cham_agent::loader::load_agent(bundle, routing, depth_bb)
+        .map_err(|e| format!("artifact bundle under artifacts/agent not loadable: {e}"))?;
+    let mode = AgentMode {
+        routing: routing.to_string(),
+        search: SearchCfg {
+            enabled: false,
+            solver: "Rnr".into(),
+            g4_ledger_ref: String::new(),
+        },
+    };
+    let router = match std::fs::read(bundle.join("router.bin")) {
+        Ok(bytes) => cham_router::runtime::RouterRuntime::from_model_bytes(&bytes)
+            .map_err(|e| format!("router model: {e}"))?,
+        Err(_) => {
+            cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5)
+        }
+    };
+    ChameleonAgent::new(
+        mode,
+        loaded.encoder,
+        router,
+        loaded.experts,
+        loaded.robust,
+        loaded.bayes,
+        None,
+    )
+    .map_err(|e| format!("agent: {e}"))
+}
+
+/// Counting wrapper: delegates every hook to the inner hero while tallying
+/// decisions and `fallback_used` traces (B1 fallback-rate guardrail). The enum
+/// keeps a concrete handle on `ChameleonAgent` for trace reads — no downcast,
+/// no pointers, no `unsafe` (all forbidden here).
+pub enum CountingHero {
+    Baseline {
+        inner: Box<dyn cham_core::obs::Agent>,
+        decisions: u64,
+    },
+    Chameleon {
+        bot: Box<ChameleonAgent>,
+        decisions: u64,
+        fallbacks: u64,
+    },
+}
+
+impl CountingHero {
+    /// Wrap a hero built by [`build_hero`] (baseline path: no trace reads).
+    pub fn new(inner: Box<dyn cham_core::obs::Agent>) -> CountingHero {
+        CountingHero::Baseline {
+            inner,
+            decisions: 0,
+        }
+    }
+
+    /// Wrap a concrete `ChameleonAgent` with fallback accounting.
+    pub fn chameleon(bot: ChameleonAgent) -> CountingHero {
+        CountingHero::Chameleon {
+            bot: Box::new(bot),
+            decisions: 0,
+            fallbacks: 0,
+        }
+    }
+
+    pub fn decisions(&self) -> u64 {
+        match self {
+            CountingHero::Baseline { decisions, .. } => *decisions,
+            CountingHero::Chameleon { decisions, .. } => *decisions,
+        }
+    }
+
+    pub fn fallbacks(&self) -> u64 {
+        match self {
+            CountingHero::Baseline { .. } => 0,
+            CountingHero::Chameleon { fallbacks, .. } => *fallbacks,
+        }
+    }
+}
+
+impl cham_core::obs::Agent for CountingHero {
+    fn name(&self) -> &str {
+        match self {
+            CountingHero::Baseline { inner, .. } => inner.name(),
+            CountingHero::Chameleon { bot, .. } => bot.name(),
+        }
+    }
+    fn act(
+        &mut self,
+        obs: &cham_core::obs::Observables<'_>,
+        rng: &mut cham_core::rng::Rng,
+    ) -> cham_core::engine::Action {
+        match self {
+            CountingHero::Baseline { inner, decisions } => {
+                *decisions += 1;
+                inner.act(obs, rng)
+            }
+            CountingHero::Chameleon {
+                bot,
+                decisions,
+                fallbacks,
+            } => {
+                let a = bot.act(obs, rng);
+                *decisions += 1;
+                if bot.last_trace.as_ref().is_some_and(|t| t.fallback_used) {
+                    *fallbacks += 1;
+                }
+                a
+            }
+        }
+    }
+    fn on_hand_end(&mut self, ph: &cham_core::engine::PublicHistory, hero_net: i64) {
+        match self {
+            CountingHero::Baseline { inner, .. } => inner.on_hand_end(ph, hero_net),
+            CountingHero::Chameleon { bot, .. } => bot.on_hand_end(ph, hero_net),
+        }
+    }
+    fn on_public_action(
+        &mut self,
+        obs: &cham_core::obs::Observables<'_>,
+        player: cham_core::obs::Player,
+        action: cham_core::engine::Action,
+    ) {
+        match self {
+            CountingHero::Baseline { inner, .. } => inner.on_public_action(obs, player, action),
+            CountingHero::Chameleon { bot, .. } => bot.on_public_action(obs, player, action),
+        }
+    }
+}

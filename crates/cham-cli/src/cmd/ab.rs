@@ -40,8 +40,10 @@ pub fn run(
             .iter()
             .filter_map(|id| cham_opponents::OpponentSpec::parse(id).ok())
             .collect();
-    // arms: A/B factories are mode-wired at M3 (agent artifacts); the default
-    // wiring plays the robust blueprint on both arms so the runner is exercised.
+    // B1: arms wire the REAL hero (same construction as `play`) — one shared
+    // instance per arm. Pure-baseline arms keep the CallBot path; the
+    // factory-based runner below is used only when NEITHER arm needs trained
+    // artifacts (identical behavior for stateless heroes either way).
     // fn items (not closures) so both `&F` args share ONE type — the generic
     // `AbRunner::run` requires `hero_factory_a: &F, hero_factory_b: &F`.
     fn factory() -> Box<dyn cham_core::obs::Agent> {
@@ -52,11 +54,44 @@ pub fn run(
         eprintln!("ledger: {e}");
         return crate::cmd::EXIT_FAIL;
     }
-    let verdict = match cham_eval::AbRunner::run(&spec, &pool, &factory, &factory, 100, None) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("ab: {e}");
-            return crate::cmd::EXIT_FAIL;
+    let needs_real = crate::cmd::guard::requires_trained_artifacts(a)
+        || crate::cmd::guard::requires_trained_artifacts(b);
+    let verdict = if needs_real {
+        let mut hero_a = match crate::cmd::hero::build_hero(a, 100) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("ab: arm '{a}': {e}");
+                return crate::cmd::EXIT_BUDGET;
+            }
+        };
+        let mut hero_b = match crate::cmd::hero::build_hero(b, 100) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("ab: arm '{b}': {e}");
+                return crate::cmd::EXIT_BUDGET;
+            }
+        };
+        match cham_eval::AbRunner::run_shared(
+            &spec,
+            &pool,
+            hero_a.as_mut(),
+            hero_b.as_mut(),
+            100,
+            None,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("ab: {e}");
+                return crate::cmd::EXIT_FAIL;
+            }
+        }
+    } else {
+        match cham_eval::AbRunner::run(&spec, &pool, &factory, &factory, 100, None) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("ab: {e}");
+                return crate::cmd::EXIT_FAIL;
+            }
         }
     };
     println!(
