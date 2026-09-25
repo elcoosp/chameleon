@@ -168,7 +168,7 @@ phase tiny-probe 900 \
 # ============================================================
 # Phase 6 — full flop EHS build (now the GPU is free)
 # ============================================================
-phase full-flop 10800 \
+phase full-flop 14400 \
   cargo run -q --release -p cham-gpu --features metal --bin gpu-build -- \
     --kind flop --limit 0 --out artifacts/gpu-tables --sample 40 --batch 512
 

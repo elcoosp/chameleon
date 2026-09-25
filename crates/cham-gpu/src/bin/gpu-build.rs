@@ -244,6 +244,31 @@ mod imp {
         let tables = eval_tables();
         fs::create_dir_all(&a.out_dir)?;
 
+        // Metal watchdog safety: Apple's GPU driver silently kills very
+        // long dispatches — Metal reports "completed", the output buffer
+        // contains only whatever was written before the kill. The flop
+        // kernel's per-thread work is 1,070,190 evals (vs turn's 45,540),
+        // so at equal thread counts flop runs 23x longer on the GPU and
+        // trips the watchdog first. Chunk to keep each dispatch under a
+        // few seconds: flop = 4 boards/dispatch (5,304 threads, ~1.5s),
+        // turn = 64 boards/dispatch (~46,000 threads, ~1s).
+        let batch = if a.kind == "flop" {
+            // Flop's per-thread work is 23x turn's, so the same thread count
+            // runs 23x longer on the GPU and trips Apple's silent watchdog.
+            // Empirically: 4 boards/dispatch (5,304 threads) stays under.
+            a.batch.min(4)
+        } else {
+            // Turn passes at every size we tested (verified 59 boards/s at
+            // batch=512 in the real full build). No clamp.
+            a.batch
+        };
+        if batch != a.batch {
+            eprintln!(
+                "  note: batch {} clamped to {} (Metal TDR safety)",
+                a.batch, batch
+            );
+        }
+
         let boards = enumerate(&a.kind, a.limit);
         let n_boards = boards.len();
 
@@ -301,11 +326,11 @@ mod imp {
             .map(|b| pack_one(&a.kind, b))
             .collect();
         let n_new = packed.len();
-        let mut out_buf: Vec<u32> = vec![0u32; a.batch * HOLES];
+        let mut out_buf: Vec<u32> = vec![0u32; batch * HOLES];
         let t0 = Instant::now();
         let mut done = 0usize;
         while done < n_new {
-            let take = a.batch.min(n_new - done);
+            let take = batch.min(n_new - done);
             launch(
                 &a.kind,
                 &ctx,

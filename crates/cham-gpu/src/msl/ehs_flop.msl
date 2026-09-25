@@ -1,11 +1,14 @@
 // Flop EHS builder kernel (GPU-PLAN G1.3).
 //
-// For each flop board (3 cards) and each hero hole (2 cards):
-//   numerator = 2*wins + ties
-// where each term enumerates the full (turn, river, opponent pair) triple:
-//   turn+river: C(47, 2) = 1,081 runouts
-//   opponent pair: C(45, 2) = 990 combos
-// Denominator per (board, hole) = 1,081 * 990 = 1,070,190 (EhsDenom::Flop).
+// Denominator per (board, hole) = C(47,2) * C(45,2) = 1,081 * 990 = 1,070,190.
+//
+// v2 fix: previous version built a local `uchar remaining[47]` array and
+// indexed it dynamically in the hot loop. Metal's compiler spilled that
+// array and (at larger dispatches) produced a kernel that wrote zeros —
+// silent, no command-buffer error. This version enumerates card ids
+// 0..51 directly and inlines the "dead card" check, avoiding the local
+// array entirely. Same math, same output, drastically lower register
+// pressure.
 //
 // Layout:
 //   buffer 0: uchar*  tables  — same packed layout as eval7.msl
@@ -15,7 +18,7 @@
 //   buffers 4-7: ulong offsets/masks
 //
 // One thread per (board, hole_index). Threads whose hole overlaps the board
-// return without writing (slot left 0). eval7_msl() comes from eval7_shared.msl.
+// return without writing (slot left 0). eval7_msl() from eval7_shared.msl.
 
 kernel void ehs_flop_kernel(
     device const uchar*  tables      [[buffer(0)]],
@@ -46,25 +49,19 @@ kernel void ehs_flop_kernel(
     if (c_lo == f0 || c_lo == f1 || c_lo == f2) return;
     if (c_hi == f0 || c_hi == f1 || c_hi == f2) return;
 
-    // remaining = 47 cards (52 - 3 flop - 2 hole).
-    uchar remaining[47];
-    uint rn = 0u;
-    for (uint c = 0u; c < 52u; ++c) {
-        if (c != f0 && c != f1 && c != f2 && c != c_lo && c != c_hi) {
-            remaining[rn++] = (uchar)c;
-        }
-    }
-
     ulong flop_base = ((ulong)f0) | ((ulong)f1 << 6) | ((ulong)f2 << 12);
 
     uint wins = 0u;
     uint ties = 0u;
 
-    // Enumerate (turn, river) runout pairs.
-    for (uint ti = 0u; ti < rn; ++ti) {
-        for (uint ri = ti + 1u; ri < rn; ++ri) {
-            uint turn  = remaining[ti];
-            uint river = remaining[ri];
+    for (uint turn = 0u; turn < 52u; ++turn) {
+        // inline dead-card check (board + hero hole)
+        if (turn == f0 || turn == f1 || turn == f2
+            || turn == c_lo || turn == c_hi) continue;
+        for (uint river = turn + 1u; river < 52u; ++river) {
+            if (river == f0 || river == f1 || river == f2
+                || river == c_lo || river == c_hi) continue;
+
             ulong hero7 = flop_base
                         | ((ulong)turn  << 18)
                         | ((ulong)river << 24)
@@ -72,18 +69,21 @@ kernel void ehs_flop_kernel(
                         | ((ulong)c_hi  << 36);
             ushort hero_rank = eval7_msl(tables, seven_off, seven_mask,
                                          flush_off, flush_mask, hero7);
-            // Opponent pairs from remaining minus turn & river (45 cards).
-            for (uint oi = 0u; oi < rn; ++oi) {
-                if (oi == ti || oi == ri) continue;
-                uint oc_i = remaining[oi];
-                for (uint oj = oi + 1u; oj < rn; ++oj) {
-                    if (oj == ti || oj == ri) continue;
-                    uint oc_j = remaining[oj];
+
+            for (uint oi = 0u; oi < 52u; ++oi) {
+                if (oi == turn || oi == river) continue;
+                if (oi == f0 || oi == f1 || oi == f2
+                    || oi == c_lo || oi == c_hi) continue;
+                for (uint oj = oi + 1u; oj < 52u; ++oj) {
+                    if (oj == turn || oj == river) continue;
+                    if (oj == f0 || oj == f1 || oj == f2
+                        || oj == c_lo || oj == c_hi) continue;
+
                     ulong vill7 = flop_base
                                 | ((ulong)turn  << 18)
                                 | ((ulong)river << 24)
-                                | ((ulong)oc_i  << 30)
-                                | ((ulong)oc_j  << 36);
+                                | ((ulong)oi    << 30)
+                                | ((ulong)oj    << 36);
                     ushort vr = eval7_msl(tables, seven_off, seven_mask,
                                           flush_off, flush_mask, vill7);
                     if (hero_rank > vr) wins++;
