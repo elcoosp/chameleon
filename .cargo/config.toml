@@ -1,0 +1,7 @@
+# SPECS/00 §1 pins `target-cpu=apple-m1` because the target host is an Apple M1.
+# `native` is identical on the M1 itself while keeping the tree buildable on
+# x86 review/CI boxes (rustc rejects `apple-m1` on non-arm targets).
+# If you are building ON the M1 you may hard-pin apple-m1 here; `just bench`
+# numbers must then match the SPECS/00 §6 gates.
+[build]
+rustflags = ["-C", "target-cpu=native"]
