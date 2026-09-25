@@ -1,0 +1,32 @@
+[package]
+name = "cham-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Foundation: cards, fast hand evaluation, HUNL rules engine, RNG, observables, Agent trait (SPECS/01)"
+
+[dependencies]
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+serde = { workspace = true }
+arrayvec = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+insta = { workspace = true }
+tempfile = { workspace = true }
+criterion = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "eval"
+harness = false
+
+[[bench]]
+name = "engine"
+harness = false
+
+[lints]
+workspace = true
