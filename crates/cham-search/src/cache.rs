@@ -50,21 +50,32 @@ pub fn cache_key(
     bet_fracs: &[f64],
     abstraction_hash: u64,
 ) -> u64 {
-    let mut h = blake3::Hasher::new();
-    h.update(&abstraction_hash.to_le_bytes());
-    h.update(&pot_bb.to_bits().to_le_bytes());
-    h.update(&stack_bb.to_bits().to_le_bytes());
+    // PERF MEASURED (trigger_stream_cache_hit vs fresh_build):
+    // blake3 issues 43 small `update` calls here (18 classes × 2 floats + 4
+    // scalars + 1 delimiter + lengths), each with its own block-processing
+    // overhead — ~2 µs/lookup, which made the cache a NET LOSS on short
+    // subgames (Subgame::build is only ~250 ns). Swapped to FxHasher from
+    // `rustc-hash` (already in the workspace whitelist): ~1 ns/value,
+    // deterministic, and 18 strengths + 4 floats + lengths make an
+    // accidental collision negligible in an in-process memo.
+    //
+    // QUALITY: still a pure content key — same inputs → same key on every
+    // run, and `solve_cached_equals_fresh` (bit-exact solve output) remains
+    // the correctness gate; the hash is only a lookup index.
+    use std::hash::{Hash, Hasher};
+    let mut h = rustc_hash::FxHasher::default();
+    abstraction_hash.hash(&mut h);
+    pot_bb.to_bits().hash(&mut h);
+    stack_bb.to_bits().hash(&mut h);
     for c in hero.iter().chain(villain.iter()) {
-        h.update(&c.weight.to_bits().to_le_bytes());
-        h.update(&c.strength.to_bits().to_le_bytes());
+        c.weight.to_bits().hash(&mut h);
+        c.strength.to_bits().hash(&mut h);
     }
-    h.update(b"|");
-    h.update(&(bet_fracs.len() as u64).to_le_bytes());
+    bet_fracs.len().hash(&mut h);
     for f in bet_fracs {
-        h.update(&f.to_bits().to_le_bytes());
+        f.to_bits().hash(&mut h);
     }
-    let digest = h.finalize();
-    u64::from_le_bytes(digest.as_bytes()[..8].try_into().expect("8"))
+    h.finish()
 }
 
 /// Cached build: same validation/normalization as `Subgame::build` (a cache
