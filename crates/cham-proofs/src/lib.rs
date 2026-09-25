@@ -89,7 +89,11 @@ impl KuhnState {
     pub fn utility(&self, seat: u8) -> f64 {
         let opp = 1 - seat;
         if let Some(f) = self.folded {
-            return if seat == f { -self.pot[f as usize] } else { self.pot[f as usize] };
+            return if seat == f {
+                -self.pot[f as usize]
+            } else {
+                self.pot[f as usize]
+            };
         }
         if self.cards[seat as usize] > self.cards[opp as usize] {
             self.pot[opp as usize]
@@ -121,21 +125,27 @@ pub fn proof_es_mccfr_kuhn(iters: u64) -> ProofResult {
     }
 }
 
-
 /// ES-MCCFR on Kuhn: external sampling, alternating seats, linear averaging.
 /// Returns (regrets, cumulative strategy sums) keyed by (card, seat, history).
 pub fn kuhn_mccfr(
     iters: u64,
     seed: u64,
-) -> (std::collections::BTreeMap<String, [f64; 2]>, std::collections::BTreeMap<String, [f64; 2]>) {
+) -> (
+    std::collections::BTreeMap<String, [f64; 2]>,
+    std::collections::BTreeMap<String, [f64; 2]>,
+) {
     // deterministic LCG (self-contained; no workspace RNG dep)
     let mut state = seed | 1;
     let mut next = move || -> f64 {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((state >> 33) as f64) / (1u64 << 31) as f64
     };
-    let mut regrets: std::collections::BTreeMap<String, [f64; 2]> = std::collections::BTreeMap::new();
-    let mut strat_sum: std::collections::BTreeMap<String, [f64; 2]> = std::collections::BTreeMap::new();
+    let mut regrets: std::collections::BTreeMap<String, [f64; 2]> =
+        std::collections::BTreeMap::new();
+    let mut strat_sum: std::collections::BTreeMap<String, [f64; 2]> =
+        std::collections::BTreeMap::new();
     let deals: Vec<[u8; 2]> = {
         let mut d = vec![];
         for a in 0..3u8 {
@@ -153,7 +163,11 @@ pub fn kuhn_mccfr(
         // counterfactual values and converges to a non-Nash fixed point)
         let seat = (t % 2) as u8;
         let cards = deals[((t / 2) as usize) % deals.len()];
-        let w_t = if t > iters / 4 { (t - iters / 4) as f64 } else { 0.0 };
+        let w_t = if t > iters / 4 {
+            (t - iters / 4) as f64
+        } else {
+            0.0
+        };
         kuhn_walk(
             &KuhnState::new(cards),
             seat,
@@ -198,13 +212,29 @@ fn kuhn_walk(
         // sample ONE action (external sampling = reach weighting)
         let a = if rng() < sigma[0] { 0 } else { 1 };
         let ns = s.apply(s.actions()[a]);
-        return kuhn_walk(&ns, hero, w_t, &format!("{path}/{a}"), regrets, strat_sum, rng);
+        return kuhn_walk(
+            &ns,
+            hero,
+            w_t,
+            &format!("{path}/{a}"),
+            regrets,
+            strat_sum,
+            rng,
+        );
     }
     // hero: ENUMERATE both actions
     let mut v = [0.0f64; 2];
     for (ai, action) in s.actions().iter().enumerate() {
         let ns = s.apply(action);
-        v[ai] = kuhn_walk(&ns, hero, w_t, &format!("{path}/{ai}"), regrets, strat_sum, rng);
+        v[ai] = kuhn_walk(
+            &ns,
+            hero,
+            w_t,
+            &format!("{path}/{ai}"),
+            regrets,
+            strat_sum,
+            rng,
+        );
     }
     let v_bar = sigma[0] * v[0] + sigma[1] * v[1];
     let entry = regrets.get_mut(&key).expect("entry");
@@ -226,11 +256,7 @@ pub fn kuhn_exploitability(strat_sum: &std::collections::BTreeMap<String, [f64; 
         match strat_sum.get(key) {
             Some([a, b]) => {
                 let t = a + b;
-                if t <= 0.0 {
-                    [0.5, 0.5]
-                } else {
-                    [a / t, b / t]
-                }
+                if t <= 0.0 { [0.5, 0.5] } else { [a / t, b / t] }
             }
             None => [0.5, 0.5],
         }
@@ -263,12 +289,23 @@ pub fn kuhn_exploitability(strat_sum: &std::collections::BTreeMap<String, [f64; 
             if s.terminal {
                 return s.utility(hero);
             }
-            let sigma = if s.to_act == 0 { sigma0(s.cards[0], path) } else { sigma1(s.cards[1], path) };
+            let sigma = if s.to_act == 0 {
+                sigma0(s.cards[0], path)
+            } else {
+                sigma1(s.cards[1], path)
+            };
             if s.to_act == seat {
                 // BR seat: max over actions
                 let mut best = f64::NEG_INFINITY;
                 for (ai, action) in s.actions().iter().enumerate() {
-                    let v = br(&s.apply(action), hero, seat, &format!("{path}/{ai}"), sigma0, sigma1);
+                    let v = br(
+                        &s.apply(action),
+                        hero,
+                        seat,
+                        &format!("{path}/{ai}"),
+                        sigma0,
+                        sigma1,
+                    );
                     if v > best {
                         best = v;
                     }
@@ -277,7 +314,17 @@ pub fn kuhn_exploitability(strat_sum: &std::collections::BTreeMap<String, [f64; 
             } else {
                 // opponent fixed: expectation
                 (0..2)
-                    .map(|ai| sigma[ai] * br(&s.apply(s.actions()[ai]), hero, seat, &format!("{path}/{ai}"), sigma0, sigma1))
+                    .map(|ai| {
+                        sigma[ai]
+                            * br(
+                                &s.apply(s.actions()[ai]),
+                                hero,
+                                seat,
+                                &format!("{path}/{ai}"),
+                                sigma0,
+                                sigma1,
+                            )
+                    })
                     .sum()
             }
         }
@@ -298,11 +345,7 @@ pub fn kuhn_profile_ev(strat_sum: &std::collections::BTreeMap<String, [f64; 2]>,
         match strat_sum.get(key) {
             Some([a, b]) => {
                 let t = a + b;
-                if t <= 0.0 {
-                    [0.5, 0.5]
-                } else {
-                    [a / t, b / t]
-                }
+                if t <= 0.0 { [0.5, 0.5] } else { [a / t, b / t] }
             }
             None => [0.5, 0.5],
         }
@@ -317,9 +360,22 @@ pub fn kuhn_profile_ev(strat_sum: &std::collections::BTreeMap<String, [f64; 2]>,
         if s.terminal {
             return s.utility(seat);
         }
-        let sigma = if s.to_act == 0 { sigma0(s.cards[0], path) } else { sigma1(s.cards[1], path) };
+        let sigma = if s.to_act == 0 {
+            sigma0(s.cards[0], path)
+        } else {
+            sigma1(s.cards[1], path)
+        };
         (0..2)
-            .map(|ai| sigma[ai] * walk(&s.apply(s.actions()[ai]), seat, &format!("{path}/{ai}"), sigma0, sigma1))
+            .map(|ai| {
+                sigma[ai]
+                    * walk(
+                        &s.apply(s.actions()[ai]),
+                        seat,
+                        &format!("{path}/{ai}"),
+                        sigma0,
+                        sigma1,
+                    )
+            })
             .sum()
     }
     let deals: Vec<[u8; 2]> = {
@@ -335,7 +391,11 @@ pub fn kuhn_profile_ev(strat_sum: &std::collections::BTreeMap<String, [f64; 2]>,
     };
     let sigma0 = |card: u8, path: &str| -> [f64; 2] { norm(&format!("{path}|c{card}a0")) };
     let sigma1 = |card: u8, path: &str| -> [f64; 2] { norm(&format!("{path}|c{card}a1")) };
-    deals.iter().map(|c| walk(&KuhnState::new(*c), seat, "", &sigma0, &sigma1)).sum::<f64>() / 6.0
+    deals
+        .iter()
+        .map(|c| walk(&KuhnState::new(*c), seat, "", &sigma0, &sigma1))
+        .sum::<f64>()
+        / 6.0
 }
 
 /// P-2: one-sided exploit training vs a fixed scripted opponent converges to the
@@ -426,7 +486,11 @@ pub fn proof_bayes_mixture() -> ProofResult {
     mixture_value /= px_total();
     best_single /= 2.0;
     let mixture_ok = mixture_value >= best_single;
-    let bayes_frac = if bayes_value > 1e-9 { mixture_value / bayes_value } else { 1.0 };
+    let bayes_frac = if bayes_value > 1e-9 {
+        mixture_value / bayes_value
+    } else {
+        1.0
+    };
     ProofResult {
         id: "P-3",
         passed: mixture_ok && bayes_frac >= 0.90,
@@ -470,7 +534,9 @@ pub fn proof_solver_matches_lp() -> ProofResult {
         id: "P-4",
         passed: ok,
         value: v,
-        detail: format!("LP value {v} (hero {p:?}, villain {q:?}) matches closed form {closed_form_v}"),
+        detail: format!(
+            "LP value {v} (hero {p:?}, villain {q:?}) matches closed form {closed_form_v}"
+        ),
     }
 }
 
@@ -494,7 +560,8 @@ pub fn solve_2x2(a: &[[f64; 2]; 2]) -> Option<(f64, [f64; 2], [f64; 2])> {
         let v = v1.max(v2);
         return Some((v, [0.5, 0.5], [0.5, 0.5]));
     }
-    let v = p * (q * a[0][0] + (1.0 - q) * a[0][1]) + (1.0 - p) * (q * a[1][0] + (1.0 - q) * a[1][1]);
+    let v =
+        p * (q * a[0][0] + (1.0 - q) * a[0][1]) + (1.0 - p) * (q * a[1][0] + (1.0 - q) * a[1][1]);
     Some((v, [p, 1.0 - p], [q, 1.0 - q]))
 }
 

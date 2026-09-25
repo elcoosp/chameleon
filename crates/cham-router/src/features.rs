@@ -67,13 +67,16 @@ pub fn from_inputs(inputs: &FeatureInputs) -> Result<RouterFeatures, RouterError
     }
     for (i, v) in inputs.opportunity.iter().enumerate() {
         if !v.is_finite() {
-            return Err(RouterError::Features(format!("opportunity[{i}] not finite")));
+            return Err(RouterError::Features(format!(
+                "opportunity[{i}] not finite"
+            )));
         }
         f[FeatureContract::OPPORTUNITY.start + i] = v.clamp(0.0, 1.0) as f32;
     }
     f[FeatureContract::TREND_Z] = inputs.trend_z.clamp(-1.0, 1.0) as f32;
     f[FeatureContract::HANDS_SINCE_SHOWDOWN] = inputs.hands_since_showdown.clamp(0.0, 1.0) as f32;
     let rf = RouterFeatures(f);
-    rf.validate().map_err(|e| RouterError::Features(format!("{e}")))?;
+    rf.validate()
+        .map_err(|e| RouterError::Features(format!("{e}")))?;
     Ok(rf)
 }

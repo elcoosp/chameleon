@@ -16,8 +16,8 @@ use std::cell::Cell;
 use arrayvec::ArrayVec;
 
 use cham_core::engine::{Action, Street};
-use cham_core::obs::{is_legal, Observables, Player};
-use cham_core::rng::{child, next_f64, Rng};
+use cham_core::obs::{Observables, Player, is_legal};
+use cham_core::rng::{Rng, child, next_f64};
 
 use crate::params::{ArchetypeId, ArchetypeParams};
 use crate::percentile::PercentileChart;
@@ -57,9 +57,14 @@ impl ArchetypeAgent {
 
     /// Jittered archetype: parameters drawn once per session from
     /// `child(session_seed, "jitter")` (the jitter MANIFOLD, not per-hand noise).
-    pub fn jittered(arch: ArchetypeId, session_seed: u64, chart: &'static PercentileChart) -> ArchetypeAgent {
+    pub fn jittered(
+        arch: ArchetypeId,
+        session_seed: u64,
+        chart: &'static PercentileChart,
+    ) -> ArchetypeAgent {
         let mut rng = child(session_seed, "jitter");
-        let params = crate::params::JitterSpec::standard().apply(&ArchetypeParams::point(arch), &mut rng);
+        let params =
+            crate::params::JitterSpec::standard().apply(&ArchetypeParams::point(arch), &mut rng);
         ArchetypeAgent {
             arch,
             params,
@@ -90,14 +95,22 @@ impl ArchetypeAgent {
         };
         let to = target.floor() as i64;
         let max = obs.max_raise_to;
-        let min = if over_current { obs.min_raise_to } else { obs.current_bet + 1 };
+        let min = if over_current {
+            obs.min_raise_to
+        } else {
+            obs.current_bet + 1
+        };
         // guard: an actor facing nothing may still be nearly all-in (min > max)
         to.clamp(min.min(max), max)
     }
 
     fn aggressive(&self, obs: &Observables<'_>, frac: f64, over_current: bool) -> Action {
         let to = self.size_to(obs, frac, over_current);
-        let a = if obs.to_call > 0 { Action::Raise { to } } else { Action::Bet { to } };
+        let a = if obs.to_call > 0 {
+            Action::Raise { to }
+        } else {
+            Action::Bet { to }
+        };
         if is_legal(obs, a) {
             return a;
         }
@@ -193,7 +206,10 @@ impl ArchetypeAgent {
             }
             // facing a 3bet (or 4bet+)
             let to = ((obs.current_bet as f64) * FOUR_BET_MULT) as i64;
-            if obs.current_bet <= 600 && pct < self.params.four_bet && is_legal(obs, Action::Raise { to }) {
+            if obs.current_bet <= 600
+                && pct < self.params.four_bet
+                && is_legal(obs, Action::Raise { to })
+            {
                 out.push((Action::Raise { to }, 1.0));
                 return out;
             }
@@ -214,7 +230,8 @@ impl ArchetypeAgent {
                 let bluff_window = (1.0 - self.params.bluff_river + 0.05).max(0.0);
                 if ehs < bluff_window {
                     let p = (bluff_window - ehs).min(1.0);
-                    let bet = self.aggressive(obs, SIZE_FRACS[self.params.size_idx as usize], false);
+                    let bet =
+                        self.aggressive(obs, SIZE_FRACS[self.params.size_idx as usize], false);
                     out.push((bet, p));
                     out.push((Action::Check, 1.0 - p));
                     return out;
@@ -261,7 +278,9 @@ fn is_ilrelevant_call(obs: &Observables<'_>) -> bool {
 }
 
 fn is_aggressive_legal(obs: &Observables<'_>) -> bool {
-    obs.legal.iter().any(|l| matches!(l.action, Action::Bet { .. } | Action::Raise { .. }))
+    obs.legal
+        .iter()
+        .any(|l| matches!(l.action, Action::Bet { .. } | Action::Raise { .. }))
 }
 
 fn pick(obs: &Observables<'_>, primary: Action, fallback: Action) -> Action {
@@ -299,7 +318,12 @@ impl cham_core::obs::Agent for ArchetypeAgent {
         // fresh per-decision draw (SPECS/03 §3.2): independent of everything prior
         let mut u_rng = child(
             self.session_seed ^ 0xA5A5_5A5A,
-            &format!("h{}.{}.{}.d", self.hand.get(), obs.street.as_u8(), self.decision.get()),
+            &format!(
+                "h{}.{}.{}.d",
+                self.hand.get(),
+                obs.street.as_u8(),
+                self.decision.get()
+            ),
         );
         let u = next_f64(&mut u_rng);
         let mut acc = 0.0;
@@ -312,7 +336,10 @@ impl cham_core::obs::Agent for ArchetypeAgent {
         dist[dist.len() - 1].0
     }
 
-    fn action_probs(&self, obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, cham_core::obs::AgentError> {
+    fn action_probs(
+        &self,
+        obs: &Observables<'_>,
+    ) -> Result<ArrayVec<(Action, f64), 12>, cham_core::obs::AgentError> {
         Ok(self.dist(obs))
     }
 

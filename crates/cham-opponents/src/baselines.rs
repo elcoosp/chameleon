@@ -5,7 +5,7 @@
 use arrayvec::ArrayVec;
 
 use cham_core::engine::Action;
-use cham_core::obs::{is_legal, Agent, AgentError, Observables};
+use cham_core::obs::{Agent, AgentError, Observables, is_legal};
 use cham_core::rng::Rng;
 
 /// Always call (or check when facing nothing).
@@ -21,7 +21,10 @@ impl Agent for CallBot {
             Action::Check
         }
     }
-    fn action_probs(&self, obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
+    fn action_probs(
+        &self,
+        obs: &Observables<'_>,
+    ) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
         let mut out: ArrayVec<(Action, f64), 12> = ArrayVec::new();
         if is_legal(obs, Action::Call) {
             out.push((Action::Call, 1.0));
@@ -88,7 +91,10 @@ impl Agent for RandomBot {
         let i = cham_core::rng::pick(rng, n);
         obs.legal[i].action
     }
-    fn action_probs(&self, obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
+    fn action_probs(
+        &self,
+        obs: &Observables<'_>,
+    ) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
         let n = obs.legal.len() as f64;
         let mut out: ArrayVec<(Action, f64), 12> = ArrayVec::new();
         for l in &obs.legal {
@@ -118,7 +124,10 @@ impl Agent for FishBot {
             Action::Check
         }
     }
-    fn action_probs(&self, obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
+    fn action_probs(
+        &self,
+        obs: &Observables<'_>,
+    ) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
         let mut out: ArrayVec<(Action, f64), 12> = ArrayVec::new();
         if !(obs.to_call > 0 && obs.to_call * 2 >= obs.pot) {
             if is_legal(obs, Action::Call) {
@@ -132,7 +141,14 @@ impl Agent for FishBot {
             out.push((Action::Fold, 0.2));
         }
         if is_legal(obs, Action::Call) {
-            out.push((Action::Call, if is_legal(obs, Action::Fold) { 0.8 } else { 1.0 }));
+            out.push((
+                Action::Call,
+                if is_legal(obs, Action::Fold) {
+                    0.8
+                } else {
+                    1.0
+                },
+            ));
         }
         if out.is_empty() {
             out.push((Action::Check, 1.0));

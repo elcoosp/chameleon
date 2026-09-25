@@ -20,8 +20,8 @@ pub mod perturbed;
 pub mod session;
 
 pub use archetype::ArchetypeAgent;
-pub use params::ArchetypeId;
 pub use factory::OpponentSpec;
+pub use params::ArchetypeId;
 pub use params::{ArchetypeParams, JitterSpec};
 pub use percentile::PercentileChart;
 

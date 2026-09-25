@@ -1,6 +1,8 @@
 //! Contractual proofs for cham-proofs (SPECS/11 M-1): P-1..P-4.
 
-use cham_proofs::{proof_bayes_mixture, proof_es_mccfr_kuhn, proof_one_sided_br, proof_solver_matches_lp, run_all};
+use cham_proofs::{
+    proof_bayes_mixture, proof_es_mccfr_kuhn, proof_one_sided_br, proof_solver_matches_lp, run_all,
+};
 
 #[test]
 fn p1_es_mccfr_validity() {

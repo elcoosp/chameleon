@@ -5,8 +5,8 @@
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use crate::schema::RecordKind;
 use crate::RecError;
+use crate::schema::RecordKind;
 
 /// Validation summary for one events file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +23,9 @@ fn validate_line(line: &str) -> Result<(String, u64), RecError> {
         .ok_or_else(|| RecError::Invalid("record must be an object".into()))?;
     for k in ["ts", "run", "kind", "seq", "data"] {
         if !obj.contains_key(k) {
-            return Err(RecError::Invalid(format!("record missing envelope field `{k}`")));
+            return Err(RecError::Invalid(format!(
+                "record missing envelope field `{k}`"
+            )));
         }
     }
     if !obj["ts"].is_u64() {
@@ -35,8 +37,8 @@ fn validate_line(line: &str) -> Result<(String, u64), RecError> {
     let kind_s = obj["kind"]
         .as_str()
         .ok_or_else(|| RecError::Invalid("`kind` must be a string".into()))?;
-    let kind = RecordKind::from_str(kind_s)
-        .ok_or_else(|| RecError::UnknownKind(kind_s.to_string()))?;
+    let kind =
+        RecordKind::from_str(kind_s).ok_or_else(|| RecError::UnknownKind(kind_s.to_string()))?;
     let seq = obj["seq"]
         .as_u64()
         .ok_or_else(|| RecError::Invalid("`seq` must be u64".into()))?;

@@ -16,7 +16,9 @@ pub fn run(out: &str, max_rows: usize) -> i32 {
         // epochs) need ~10⁵ gradient steps to reach the well-calibrated optimum
         // — at the real 2M-row scale that comes free; the stub matches it here.
         for _session in 0..625 {
-            let mut t = TrackerStub { hands: 60 + (session_id as u64 * 17) % 400 };
+            let mut t = TrackerStub {
+                hands: 60 + (session_id as u64 * 17) % 400,
+            };
             for _hand in 0..200 {
                 if rows.len() >= max_rows {
                     break;
@@ -72,7 +74,8 @@ impl TrackerStub {
         let mut f = vec![0.5f32; 20];
         for (i, v) in f.iter_mut().enumerate() {
             let x = cham_core::rng::next_f64(rng);
-            *v = (0.35 + 0.3 * x + 0.05 * ((self.hands as f64 + i as f64).sin())).clamp(0.0, 1.0) as f32;
+            *v = (0.35 + 0.3 * x + 0.05 * ((self.hands as f64 + i as f64).sin())).clamp(0.0, 1.0)
+                as f32;
         }
         f[0] = cham_router::features::maturity_feature(self.hands) as f32;
         // class signal: archetype k elevates its signature EWM stat (dims 1..=4

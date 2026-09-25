@@ -17,7 +17,12 @@ pub enum ArchetypeId {
 }
 
 impl ArchetypeId {
-    pub const ALL: [ArchetypeId; 4] = [ArchetypeId::Nit, ArchetypeId::Tag, ArchetypeId::Lag, ArchetypeId::Station];
+    pub const ALL: [ArchetypeId; 4] = [
+        ArchetypeId::Nit,
+        ArchetypeId::Tag,
+        ArchetypeId::Lag,
+        ArchetypeId::Station,
+    ];
     pub fn as_str(self) -> &'static str {
         match self {
             ArchetypeId::Nit => "nit",
@@ -257,7 +262,8 @@ impl JitterSpec {
             donk: jit!(base.donk, self.donk),
             check_raise: jit!(base.check_raise, self.check_raise),
             bluff_river: jit!(base.bluff_river, self.bluff_river),
-            call_factor: (base.call_factor + (cham_core::rng::next_f64(rng) * 2.0 - 1.0) * self.call_factor)
+            call_factor: (base.call_factor
+                + (cham_core::rng::next_f64(rng) * 2.0 - 1.0) * self.call_factor)
                 .clamp(0.3, 2.0),
             value_bet: jit!(base.value_bet, self.value_bet),
             size_idx: base.size_idx,

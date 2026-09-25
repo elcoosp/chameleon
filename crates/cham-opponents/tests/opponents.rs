@@ -6,13 +6,13 @@ use cham_core::engine::Street;
 use cham_core::obs::{Agent, Observables, Player};
 use cham_core::rng::rng_from_seed;
 use cham_opponents::baselines::{CallBot, RandomBot};
-use cham_opponents::factory::{build, OpponentSpec};
+use cham_opponents::factory::{OpponentSpec, build};
 use cham_opponents::params::ArchetypeId;
-use cham_opponents::percentile::{random_hand, PercentileChart};
+use cham_opponents::percentile::{PercentileChart, random_hand};
 use cham_opponents::perturbed::{PerturbedNashAgent, Tilt};
 use cham_opponents::{archetype::ArchetypeAgent, noisy::NoisyAgent};
 
-use common::{action_kind, play_hands, DecisionLog};
+use common::{DecisionLog, action_kind, play_hands};
 
 const CHART: fn() -> &'static PercentileChart = PercentileChart::global;
 
@@ -45,7 +45,14 @@ fn percentile_chart_anchors() {
     let best = chart.entry(0);
     let best_hand_classes = [best.class_id];
     let _ = best_hand_classes;
-    assert_eq!(chart.percentile(cham_core::card::Hand2::new(cham_core::card::Card::parse("As").unwrap(), cham_core::card::Card::parse("Ah").unwrap())), 0.0, "AA is rank 0");
+    assert_eq!(
+        chart.percentile(cham_core::card::Hand2::new(
+            cham_core::card::Card::parse("As").unwrap(),
+            cham_core::card::Card::parse("Ah").unwrap()
+        )),
+        0.0,
+        "AA is rank 0"
+    );
 }
 
 // ---------- gating ----------
@@ -77,7 +84,10 @@ fn preflop_gating_pinned() {
         }
         let _ = (&mut hero, &mut villain);
     }
-    assert!(found_open.is_some(), "LAG must open at 250 (2.5bb) sometimes");
+    assert!(
+        found_open.is_some(),
+        "LAG must open at 250 (2.5bb) sometimes"
+    );
     assert_eq!(found_open.unwrap().1, 250);
     // 3bet size = current raise + 300
     let _ = chart;
@@ -112,13 +122,20 @@ fn archetype_jitter_ranges() {
     let mut sum = 0.0;
     for _ in 0..n {
         let p = spec.apply(&base, &mut rng);
-        assert!((base.open_raise - spec.open_raise..=base.open_raise + spec.open_raise).contains(&p.open_raise));
+        assert!(
+            (base.open_raise - spec.open_raise..=base.open_raise + spec.open_raise)
+                .contains(&p.open_raise)
+        );
         assert!((0.0..=1.0).contains(&p.cbet_flop));
         assert!((0.3..=2.0).contains(&p.call_factor));
         sum += p.open_raise;
     }
     let mean = sum / n as f64;
-    assert!((mean - base.open_raise).abs() < 0.03, "jitter mean ≈ default: {mean} vs {}", base.open_raise);
+    assert!(
+        (mean - base.open_raise).abs() < 0.03,
+        "jitter mean ≈ default: {mean} vs {}",
+        base.open_raise
+    );
 }
 
 // ---------- analytic action_probs ----------
@@ -142,9 +159,14 @@ fn action_probs_analytic_consistency() {
             continue;
         }
         let emp = log.actions_by_kind[kind] as f64 / n;
-        let se = (predicted.max(1e-9) * (1.0 - predicted.max(1e-9)) / n).sqrt().max(1e-9);
+        let se = (predicted.max(1e-9) * (1.0 - predicted.max(1e-9)) / n)
+            .sqrt()
+            .max(1e-9);
         let z = (emp - predicted).abs() / se;
-        assert!(z < 3.5, "kind {kind}: emp {emp:.4} vs pred {predicted:.4} (z={z:.2})");
+        assert!(
+            z < 3.5,
+            "kind {kind}: emp {emp:.4} vs pred {predicted:.4} (z={z:.2})"
+        );
     }
 }
 
@@ -170,7 +192,11 @@ fn predicted_masses(arch: ArchetypeId, seed: u64, cap: u64) -> [f64; 5] {
                 let probs = hero.action_probs(&obs).expect("analytic");
                 let chosen = hero.act(&obs, rng);
                 let kind = action_kind(chosen);
-                out[kind] += probs.iter().filter(|(x, _)| action_kind(*x) == kind).map(|(_, p)| *p).sum::<f64>();
+                out[kind] += probs
+                    .iter()
+                    .filter(|(x, _)| action_kind(*x) == kind)
+                    .map(|(_, p)| *p)
+                    .sum::<f64>();
                 seen += 1;
                 chosen
             } else {
@@ -236,18 +262,27 @@ fn archetype_stats_sanity() {
     let mut nets = 0i64;
     for h in 0..2000u64 {
         let rng = &mut cham_core::rng::child(0x57A75, &format!("h{h}"));
-        let mut s = cham_core::engine::State::new(common::CFG, cham_core::card::Deck::shuffled(rng)).expect("s");
+        let mut s =
+            cham_core::engine::State::new(common::CFG, cham_core::card::Deck::shuffled(rng))
+                .expect("s");
         let mut guard = 0;
         while !s.is_terminal() && guard < 400 {
             guard += 1;
             let obs = Observables::view(&s, Player::from_usize(s.to_act()));
-            let a = if s.to_act() == 0 { hero.act(&obs, rng) } else { villain.act(&obs, rng) };
+            let a = if s.to_act() == 0 {
+                hero.act(&obs, rng)
+            } else {
+                villain.act(&obs, rng)
+            };
             s.apply(a).expect("legal");
         }
         nets += s.payoffs()[0];
     }
     let mb = nets as f64 / 1000.0 / 2000.0 * 1000.0; // mb/hand
-    assert!(mb > -200.0 && mb < 900.0, "TAG vs CallBot sane winrate: {mb} mb/hand");
+    assert!(
+        mb > -200.0 && mb < 900.0,
+        "TAG vs CallBot sane winrate: {mb} mb/hand"
+    );
 }
 
 #[test]
@@ -259,12 +294,19 @@ fn legal_fallback_paths() {
         Box::new(ArchetypeAgent::point(ArchetypeId::Station, chart)),
         Box::new(cham_opponents::baselines::JamBot),
         Box::new(cham_opponents::baselines::FishBot),
-        Box::new(cham_opponents::family_b::FamilyBAgent::new(ArchetypeId::Lag, chart)),
+        Box::new(cham_opponents::family_b::FamilyBAgent::new(
+            ArchetypeId::Lag,
+            chart,
+        )),
     ];
     for seed in 0..300u64 {
         let rng = &mut cham_core::rng::child(0xFACE, &format!("{seed}"));
         let mut s = cham_core::engine::State::new(
-            cham_core::engine::config::EngineConfig { start_stack: 2_000, sb: 50, bb: 100 },
+            cham_core::engine::config::EngineConfig {
+                start_stack: 2_000,
+                sb: 50,
+                bb: 100,
+            },
             cham_core::card::Deck::shuffled(rng),
         )
         .expect("s");
@@ -307,15 +349,21 @@ fn switcher_drifts() {
     let d_before = sw.action_probs(&obs).expect("probs");
     // force switch by feeding hand ends
     for _ in 0..60 {
-        sw.on_hand_end(&cham_core::engine::history::PublicHistory {
-            actions: vec![],
-            board: [cham_core::card::Card(0); 5],
-            showdown_holes: [None, None],
-            nets: [0, 0],
-        }, 0);
+        sw.on_hand_end(
+            &cham_core::engine::history::PublicHistory {
+                actions: vec![],
+                board: [cham_core::card::Card(0); 5],
+                showdown_holes: [None, None],
+                nets: [0, 0],
+            },
+            0,
+        );
     }
     let d_after = sw.action_probs(&obs).expect("probs");
-    assert_ne!(d_before, d_after, "switcher must change behavior at the drift hand");
+    assert_ne!(
+        d_before, d_after,
+        "switcher must change behavior at the drift hand"
+    );
     let _ = &mut st;
 }
 
@@ -339,9 +387,19 @@ fn factory_parse_roundtrip() {
         assert_eq!(spec.id(), id, "round-trip {id}");
     }
     assert_eq!(OpponentSpec::parse("famB:tag").expect("f").family(), "B");
-    assert_eq!(OpponentSpec::parse("pnash:overcall:0.2").expect("p").family(), "PN");
+    assert_eq!(
+        OpponentSpec::parse("pnash:overcall:0.2")
+            .expect("p")
+            .family(),
+        "PN"
+    );
     assert_eq!(OpponentSpec::parse("arch:tag").expect("a").family(), "A");
-    assert_eq!(OpponentSpec::parse("noisy:0.1:arch:lag").expect("n").family(), "noise");
+    assert_eq!(
+        OpponentSpec::parse("noisy:0.1:arch:lag")
+            .expect("n")
+            .family(),
+        "noise"
+    );
     assert!(OpponentSpec::parse("bogus").is_err());
 }
 
@@ -397,13 +455,10 @@ fn family_b_divergence() {
         let h = random_hand(&mut rng);
         let _ = h;
         // sample decision contexts from real play
-        let mut st = cham_core::engine::State::new(
-            common::CFG,
-            {
-                let r = &mut rng_from_seed(0xD177 ^ seed);
-                cham_core::card::Deck::shuffled(r)
-            },
-        )
+        let mut st = cham_core::engine::State::new(common::CFG, {
+            let r = &mut rng_from_seed(0xD177 ^ seed);
+            cham_core::card::Deck::shuffled(r)
+        })
         .expect("s");
         // walk a few random legal actions to a mid-hand spot
         for _ in 0..(seed % 4) {
@@ -425,7 +480,10 @@ fn family_b_divergence() {
         states += 1;
     }
     let kl = kl_sum / states.max(1) as f64;
-    assert!(kl > 0.05, "family-B must genuinely diverge from family-A: KL={kl}");
+    assert!(
+        kl > 0.05,
+        "family-B must genuinely diverge from family-A: KL={kl}"
+    );
 }
 
 fn kl(p: &[(cham_core::engine::Action, f64)], q: &[(cham_core::engine::Action, f64)]) -> f64 {
@@ -433,7 +491,12 @@ fn kl(p: &[(cham_core::engine::Action, f64)], q: &[(cham_core::engine::Action, f
     let mut kl = 0.0;
     for (a, pv) in p {
         let pv = pv / total_p.max(1e-12);
-        let qv = q.iter().filter(|(b, _)| b == a).map(|(_, x)| *x).sum::<f64>().max(1e-9);
+        let qv = q
+            .iter()
+            .filter(|(b, _)| b == a)
+            .map(|(_, x)| *x)
+            .sum::<f64>()
+            .max(1e-9);
         if pv > 1e-9 {
             kl += pv * (pv / qv).ln();
         }
@@ -468,8 +531,15 @@ fn perturbed_tilt_math() {
     let _ = st.apply(cham_core::engine::Action::Call).expect("ok");
     let obs = Observables::view(&st, Player::Sb);
     let tilted = pn.action_probs(&obs).expect("probs");
-    let fold_new: f64 = tilted.iter().filter(|(a, _)| matches!(a, cham_core::engine::Action::Fold)).map(|(_, p)| *p).sum();
-    assert!((fold_new - 0.35).abs() <= 0.01, "fold mass 0.2 + δ0.15 = 0.35, got {fold_new}");
+    let fold_new: f64 = tilted
+        .iter()
+        .filter(|(a, _)| matches!(a, cham_core::engine::Action::Fold))
+        .map(|(_, p)| *p)
+        .sum();
+    assert!(
+        (fold_new - 0.35).abs() <= 0.01,
+        "fold mass 0.2 + δ0.15 = 0.35, got {fold_new}"
+    );
     let total: f64 = tilted.iter().map(|(_, p)| *p).sum();
     assert!((total - 1.0).abs() < 1e-9, "renormalized");
 
@@ -483,8 +553,20 @@ fn perturbed_tilt_math() {
         ]
     }));
     let t2 = pc.action_probs(&obs).expect("probs");
-    let call_new: f64 = t2.iter().filter(|(a, _)| matches!(a, cham_core::engine::Action::Call | cham_core::engine::Action::Check)).map(|(_, p)| *p).sum();
-    assert!((call_new - 0.65).abs() <= 0.01, "call mass 0.5 + δ0.15 = 0.65, got {call_new}");
+    let call_new: f64 = t2
+        .iter()
+        .filter(|(a, _)| {
+            matches!(
+                a,
+                cham_core::engine::Action::Call | cham_core::engine::Action::Check
+            )
+        })
+        .map(|(_, p)| *p)
+        .sum();
+    assert!(
+        (call_new - 0.65).abs() <= 0.01,
+        "call mass 0.5 + δ0.15 = 0.65, got {call_new}"
+    );
 }
 
 #[test]

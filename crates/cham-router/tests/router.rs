@@ -1,10 +1,10 @@
 //! Contractual test set for cham-router (SPECS/05 §6).
 
 use cham_router::dataset::{
-    decode_dataset, encode_dataset, split_of_session, write_dataset, read_dataset, RbinRow,
-    SESSION_A, SESSION_BDEV, SESSION_BTEST, SESSION_C,
+    RbinRow, SESSION_A, SESSION_BDEV, SESSION_BTEST, SESSION_C, decode_dataset, encode_dataset,
+    read_dataset, split_of_session, write_dataset,
 };
-use cham_router::features::{from_inputs, FeatureInputs};
+use cham_router::features::{FeatureInputs, from_inputs};
 use cham_router::model::SoftmaxModel;
 use cham_router::runtime::RouterRuntime;
 use cham_router::train::train_model;
@@ -14,7 +14,11 @@ fn synthetic_rows(n_sessions: usize, hands_per_session: usize, seed: u64) -> Vec
     let mut rows = vec![];
     for s in 0..n_sessions {
         let session_id = (s * 7 + 1) as u16;
-        let family = if split_of_session(session_id) == SESSION_C { 1 } else { 0 };
+        let family = if split_of_session(session_id) == SESSION_C {
+            1
+        } else {
+            0
+        };
         for h in 0..hands_per_session {
             let label = ((h + s) % 4) as u8;
             let mut f = vec![0f32; 20];
@@ -29,7 +33,12 @@ fn synthetic_rows(n_sessions: usize, hands_per_session: usize, seed: u64) -> Vec
                 };
                 *v = (mean + 0.15 * x).clamp(0.0, 1.0);
             }
-            rows.push(RbinRow { features: f, label, session_id, family });
+            rows.push(RbinRow {
+                features: f,
+                label,
+                session_id,
+                family,
+            });
         }
     }
     let _ = seed;
@@ -47,7 +56,11 @@ fn features_golden_vector() {
     };
     let f = from_inputs(&inputs).expect("features");
     // maturity: log10(101)/3.5 ≈ 0.5776
-    assert!((f.0[0] - 0.5727).abs() < 0.001, "log10(101)/3.5 = {}", f.0[0]);
+    assert!(
+        (f.0[0] - 0.5727).abs() < 0.001,
+        "log10(101)/3.5 = {}",
+        f.0[0]
+    );
     assert!((f.0[1] - 0.5).abs() < 1e-6);
     assert_eq!(f.0[14], 0.25);
     assert_eq!(f.0[18], 0.0);
@@ -64,9 +77,14 @@ fn features_no_blueprint_inputs() {
     // Structural: `from_inputs` takes ONLY FeatureInputs (tracker data); no
     // blueprint/policy types exist in this crate's API — asserted by construction
     // plus a source grep against policy imports.
-    let src = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/features.rs"))
-        .expect("src");
-    assert!(!src.contains("Blueprint"), "features must not depend on blueprint types");
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/features.rs"),
+    )
+    .expect("src");
+    assert!(
+        !src.contains("Blueprint"),
+        "features must not depend on blueprint types"
+    );
     assert!(!src.contains("cham_blueprint"));
     let inputs = FeatureInputs::default();
     assert!(from_inputs(&inputs).is_ok());
@@ -111,7 +129,10 @@ fn sharpening_math() {
     features[0] = 1.0; // activates the overwhelming class-0 weight
     let mut rt = RouterRuntime::new(model.clone(), 0.7, 1.0, 0.5, -1.5);
     let w = rt.weights_for_hand(&features, 0.0);
-    assert!((w[0] - 1.0).abs() < 1e-9, "certain posterior → weight 1.0: {w:?}");
+    assert!(
+        (w[0] - 1.0).abs() < 1e-9,
+        "certain posterior → weight 1.0: {w:?}"
+    );
     // 0.7/0.1/0.1/0.1 posterior: p^(1/0.7) sharpens to w0 = 0.7^1.4286 / Σ ≈ 0.88
     model.weights = vec![vec![0.0; 20]; 4];
     let rt2 = RouterRuntime::new(model, 0.7, 1.0, 0.5, -1.5);
@@ -163,7 +184,9 @@ fn weights_frozen_per_hand() {
     let mut cold = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
     let w2_cold = cold.weights_for_hand(&features2, 0.0);
     assert!(
-        w2.iter().zip(w2_cold.iter()).any(|(a, b)| (a - b).abs() > 1e-6),
+        w2.iter()
+            .zip(w2_cold.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-6),
         "hysteresis state shifts hand-2 weights vs cold start"
     );
 }
@@ -198,20 +221,35 @@ fn hysteresis_math() {
     // first hand: w = renorm(α·w_inst) = w_inst exactly (Σw_inst = 1)
     for k in 0..4 {
         let expected = inst[k] / total;
-        assert!((w1[k] - expected).abs() < 1e-9, "hand-1 hysteresis dim {k}: {} vs {}", w1[k], expected);
+        assert!(
+            (w1[k] - expected).abs() < 1e-9,
+            "hand-1 hysteresis dim {k}: {} vs {}",
+            w1[k],
+            expected
+        );
     }
     // second hand: w = renorm(α·inst + (1−α)·w1)
     let w2 = rt.weights_for_hand(&features, 0.0);
-    let raw2: Vec<f64> = (0..4).map(|k| 0.3 * (inst[k] / total) + 0.7 * w1[k]).collect();
+    let raw2: Vec<f64> = (0..4)
+        .map(|k| 0.3 * (inst[k] / total) + 0.7 * w1[k])
+        .collect();
     let total2: f64 = raw2.iter().sum();
     for k in 0..4 {
         let expected = raw2[k] / total2;
-        assert!((w2[k] - expected).abs() < 1e-9, "hand-2 hysteresis dim {k}: {} vs {}", w2[k], expected);
+        assert!(
+            (w2[k] - expected).abs() < 1e-9,
+            "hand-2 hysteresis dim {k}: {} vs {}",
+            w2[k],
+            expected
+        );
     }
     // reset-per-session
     rt.reset_session();
     let w3 = rt.weights_for_hand(&features, 0.0);
-    assert!((w3[0] - w1[0]).abs() < 1e-9, "session reset restores hand-1 weights");
+    assert!(
+        (w3[0] - w1[0]).abs() < 1e-9,
+        "session reset restores hand-1 weights"
+    );
 }
 
 #[test]
@@ -220,7 +258,10 @@ fn shield_triggers() {
     let features = [0.5f32; 20];
     let w_healthy = rt.weights_for_hand(&features, 0.5);
     let w_drift = rt.weights_for_hand(&features, -3.0);
-    assert!(w_drift[4] > w_healthy[4], "shield raises robust weight on drift");
+    assert!(
+        w_drift[4] > w_healthy[4],
+        "shield raises robust weight on drift"
+    );
 }
 
 #[test]
@@ -233,7 +274,10 @@ fn fallback_redistribution_contract() {
     let features = [0.5f32; 20];
     let a = rt.weights_for_hand(&features, 0.0);
     let b = rt.weights_for_hand(&features, 0.0);
-    assert!(a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() < 1e-9) || true, "coverage-independent");
+    assert!(
+        a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() < 1e-9) || true,
+        "coverage-independent"
+    );
 }
 
 #[test]
@@ -261,7 +305,10 @@ fn session_disjoint_splits_enforced() {
     // session leakage + family governance: A/B-dev rows must be family A
     let mut rows = synthetic_rows(20, 50, 2);
     // inject an out-of-family row into an A session
-    if let Some(r) = rows.iter_mut().find(|r| split_of_session(r.session_id) == SESSION_A) {
+    if let Some(r) = rows
+        .iter_mut()
+        .find(|r| split_of_session(r.session_id) == SESSION_A)
+    {
         r.family = 2; // PN
         let bytes = encode_dataset(&rows, 20).expect("encode");
         let err = decode_dataset(&bytes).expect_err("family governance must refuse");
@@ -291,7 +338,11 @@ fn metrics_gates_negative() {
     let (_m, report) = train_model(&shuffled).expect("train (weak)");
     let rows_ok = synthetic_rows(30, 120, 3);
     let (_m2, good) = train_model(&rows_ok).expect("train (good)");
-    assert!(!report.gates_passed, "shuffled-label model must fail gates: {:?}", report);
+    assert!(
+        !report.gates_passed,
+        "shuffled-label model must fail gates: {:?}",
+        report
+    );
     let _ = good;
     let _ = rows_ok;
 }
@@ -299,7 +350,13 @@ fn metrics_gates_negative() {
 #[test]
 fn argmax_vs_mixture_vs_bayes_distinct() {
     // three arms produce structurally distinct weight vectors
-    let mut rt_argmax = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.0 + f64::MIN_POSITIVE, 0.0, 0.5, -1.5);
+    let mut rt_argmax = RouterRuntime::new(
+        SoftmaxModel::new(20, 4),
+        0.0 + f64::MIN_POSITIVE,
+        0.0,
+        0.5,
+        -1.5,
+    );
     let _ = &mut rt_argmax;
     // argmax = one-hot: T → 0 sharpens to one-hot (needs a non-uniform posterior:
     // weight class 0's first feature)
@@ -333,7 +390,16 @@ fn split_buckets_cover() {
     }
     // relative ordering (FNV mod 10 is deterministic; exact counts: A≈6/10,
     // B-dev≈2/10, B-test≈1/10, C≈1/10)
-    assert!(counts[SESSION_A as usize] > counts[SESSION_BDEV as usize], "A > B-dev");
-    assert!(counts[SESSION_BDEV as usize] > counts[SESSION_BTEST as usize], "B-dev > B-test");
-    assert!(counts[SESSION_BTEST as usize] >= 1 && counts[SESSION_C as usize] >= 1, "every split populated");
+    assert!(
+        counts[SESSION_A as usize] > counts[SESSION_BDEV as usize],
+        "A > B-dev"
+    );
+    assert!(
+        counts[SESSION_BDEV as usize] > counts[SESSION_BTEST as usize],
+        "B-dev > B-test"
+    );
+    assert!(
+        counts[SESSION_BTEST as usize] >= 1 && counts[SESSION_C as usize] >= 1,
+        "every split populated"
+    );
 }
