@@ -6,11 +6,7 @@ use cham_core::engine::{Action, State};
 use cham_core::obs::{Agent, Observables, Player};
 use cham_core::rng::child;
 
-pub const CFG: EngineConfig = EngineConfig {
-    start_stack: 10_000,
-    sb: 50,
-    bb: 100,
-};
+pub const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
 
 #[derive(Default)]
 pub struct DecisionLog {
@@ -31,13 +27,7 @@ pub fn action_kind(a: Action) -> usize {
 }
 
 /// Play `n` hands; hero acts at seat 0, villain at seat 1. Records hero decisions.
-pub fn play_hands(
-    hero: &mut dyn Agent,
-    villain: &mut dyn Agent,
-    n: u64,
-    seed: u64,
-    mut log: Option<&mut DecisionLog>,
-) {
+pub fn play_hands(hero: &mut dyn Agent, villain: &mut dyn Agent, n: u64, seed: u64, mut log: Option<&mut DecisionLog>) {
     for h in 0..n {
         let rng = &mut child(seed, &format!("h{h}"));
         let deck = Deck::shuffled(rng);
@@ -55,15 +45,13 @@ pub fn play_hands(
             let a = agent.act(&obs, rng);
             if hero_turn {
                 if let Some(l) = log.as_deref_mut() {
-                    let board: Vec<cham_core::card::Card> =
-                        obs.board[..obs.board_len as usize].to_vec();
+                    let board: Vec<cham_core::card::Card> = obs.board[..obs.board_len as usize].to_vec();
                     let ehs = cham_core::eval::strength_now(obs.hole, &board);
                     let ehb = (ehs * 10.0) as u8;
                     let tcb = (obs.to_call / 200) as u8;
                     let kind = action_kind(a);
                     let kind_u8 = kind as u8;
-                    l.entries
-                        .push((obs.street.as_u8(), tcb, ehb, obs.legal.len() as u8, kind_u8));
+                    l.entries.push((obs.street.as_u8(), tcb, ehb, obs.legal.len() as u8, kind_u8));
                     l.actions_by_kind[kind] += 1;
                     l.n += 1;
                 }
@@ -84,3 +72,5 @@ pub fn play_hands(
         villain.on_hand_end(&ph, s.payoffs()[1]);
     }
 }
+
+
