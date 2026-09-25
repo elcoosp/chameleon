@@ -1,0 +1,8 @@
+# The ONLY promotion pointer (SPECS/08 §6). Written exclusively by
+# `chameleon ab --promote`; everything else must treat it as read-only.
+agent_mode = "robust-only"
+artifact_dir = "artifacts/agents/robust-only"
+abstraction_hash = "0"
+promoted_at_unix = 0
+run_id = "bootstrap"
+notes = "initial baseline before any promotion; replaced on first --promote"
