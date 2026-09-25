@@ -22,11 +22,7 @@ impl AgentMode {
     pub fn validate(&self) -> Result<(), crate::AgentError> {
         match self.routing.as_str() {
             "mixture" | "argmax" | "robust-only" | "bayes" => {}
-            other => {
-                return Err(crate::AgentError::Loader(format!(
-                    "unknown routing: {other}"
-                )));
-            }
+            other => return Err(crate::AgentError::Loader(format!("unknown routing: {other}"))),
         }
         if self.search.enabled && self.search.g4_ledger_ref.is_empty() {
             return Err(crate::AgentError::Loader(
@@ -40,31 +36,19 @@ impl AgentMode {
     pub fn full_search_off() -> AgentMode {
         AgentMode {
             routing: "mixture".into(),
-            search: SearchCfg {
-                enabled: false,
-                solver: "Rnr".into(),
-                g4_ledger_ref: String::new(),
-            },
+            search: SearchCfg { enabled: false, solver: "Rnr".into(), g4_ledger_ref: String::new() },
         }
     }
     pub fn argmax() -> AgentMode {
         AgentMode {
             routing: "argmax".into(),
-            search: SearchCfg {
-                enabled: false,
-                solver: "Rnr".into(),
-                g4_ledger_ref: String::new(),
-            },
+            search: SearchCfg { enabled: false, solver: "Rnr".into(), g4_ledger_ref: String::new() },
         }
     }
     pub fn robust_only() -> AgentMode {
         AgentMode {
             routing: "robust-only".into(),
-            search: SearchCfg {
-                enabled: false,
-                solver: "Rnr".into(),
-                g4_ledger_ref: String::new(),
-            },
+            search: SearchCfg { enabled: false, solver: "Rnr".into(), g4_ledger_ref: String::new() },
         }
     }
 }
