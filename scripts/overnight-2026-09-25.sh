@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
-# Overnight driver 2026-09-25 — Plan B:
-#   1. Wait for the running turn EHS build to complete
-#   2. Build a tiny agent bundle (train robust + 4 experts, assemble)
-#   3. Run the first real ladder + probe — the ±0.0 unlock
-#   4. Full flop EHS build (GPU-free for ~2-3 h while you sleep)
-#   5. verify --gpu against both tables
-#   6. Print a summary
+# Overnight driver 2026-09-25.
+#
+# Sequence:
+#   0. wait for the turn EHS build (already done)
+#   1. tiny robust bp (10k iters)
+#   2. tiny 4 experts
+#   3. assemble artifacts/agent from tiny artifacts
+#   4. tiny ladder (the ±0.0 unlock)
+#   5. tiny probe
+#   6. FULL FLOP EHS in BACKGROUND (~3.5 h, GPU-bound, CPU-idle)
+#   6a-c. CPU A/B convergence curve (robust trained at 1k / 5k / 50k)
+#   7. verify --gpu on both tables
 #
 # Launch:
+#   mkdir -p artifacts/overnight-2026-09-25
 #   nohup nice -n 10 bash scripts/overnight-2026-09-25.sh \
 #     > artifacts/overnight-2026-09-25/nohup.log 2>&1 &
 # Monitor:
 #   tail -f artifacts/overnight-2026-09-25/driver.log
-# Stop:
+#   cat     artifacts/overnight-2026-09-25/summary.txt
+# Kill:
 #   kill $(cat artifacts/overnight-2026-09-25/driver.pid)
-#
-# NOT in this plan: full-buckets (sample_orbits: 0 enumerates 56 M orbits —
-# multi-day, not one night) and --full ladder (25k deals × 9 opponents).
+
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 OUT=artifacts/overnight-2026-09-25
@@ -28,10 +33,10 @@ SUMMARY="$OUT/summary.txt"
 echo "$$" > "$OUT/driver.pid"
 
 log()  { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
-mark() { printf "PHASE_%-16s wall_s=%-7s status=%s\n" "$1" "$2" "$3" | tee -a "$SUMMARY"; }
+mark() { printf "PHASE_%-24s wall_s=%-7s status=%s\n" "$1" "$2" "$3" | tee -a "$SUMMARY"; }
 t0_all=$(date +%s)
 
-# Portable timeout via a kill-after-N background watcher.
+# run_to <budget_s> <cmd...>  — foreground with timeout
 run_to() {
   local budget="$1"; shift
   "$@" > "$OUT/$CURRENT_PHASE.log" 2>&1 &
@@ -44,6 +49,55 @@ run_to() {
   return $rc
 }
 
+# phase <name> <budget_s> <cmd...>  — foreground
+phase() {
+  local name="$1" budget="$2"; shift 2
+  CURRENT_PHASE="$name"
+  log "=== phase $name (budget ${budget}s) — $* ==="
+  local t0; t0=$(date +%s)
+  run_to "$budget" "$@"
+  local rc=$?
+  local dt=$(( $(date +%s) - t0 ))
+  local st="ok"; [ "$rc" -ne 0 ] && st="rc=$rc"
+  mark "$name" "$dt" "$st"
+  log "phase $name done rc=$rc in ${dt}s"
+  return $rc
+}
+
+# phase_bg <name> <budget_s> <cmd...>  — background
+declare -A BG_PIDS
+phase_bg() {
+  local name="$1" budget="$2"; shift 2
+  log "=== phase_bg $name (budget ${budget}s) — $* ==="
+  (
+    local t0; t0=$(date +%s)
+    "$@" > "$OUT/$name.log" 2>&1 &
+    local pid=$!
+    ( sleep "$budget"; kill -TERM "$pid" 2>/dev/null; sleep 10; kill -KILL "$pid" 2>/dev/null ) &
+    local w=$!
+    wait "$pid"; local rc=$?
+    kill "$w" 2>/dev/null || true
+    wait "$w" 2>/dev/null || true
+    local dt=$(( $(date +%s) - t0 ))
+    local st="ok"; [ "$rc" -ne 0 ] && st="rc=$rc"
+    mark "$name" "$dt" "$st"
+    log "phase_bg $name done rc=$rc in ${dt}s"
+    echo "$rc" > "$OUT/$name.rc"
+  ) &
+  BG_PIDS[$name]=$!
+  log "phase_bg $name pid=${BG_PIDS[$name]}"
+}
+
+wait_bg() {
+  local name="$1"
+  if [ -z "${BG_PIDS[$name]:-}" ]; then
+    log "wait_bg $name: no pid"; return 1
+  fi
+  wait "${BG_PIDS[$name]}" 2>/dev/null || true
+  log "wait_bg $name: done"
+}
+
+# Memory + disk watchdog on the main cargo child of $$.
 mem_disk_watch() {
   while true; do
     sleep 30
@@ -52,7 +106,7 @@ mem_disk_watch() {
     if [ -n "${pid:-}" ]; then
       rss_kb=$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ' || echo 0)
       if [ "${rss_kb:-0}" -gt $((12 * 1024 * 1024)) ]; then
-        log "MEMORY GUARD: rss=${rss_kb}KB > 12GB — killing $pid"
+        log "MEM GUARD: rss=${rss_kb}KB > 12GB — killing $pid"
         kill -TERM "$pid" 2>/dev/null || true
         sleep 5
         kill -KILL "$pid" 2>/dev/null || true
@@ -69,37 +123,21 @@ mem_disk_watch &
 WATCH_PID=$!
 trap 'kill "$WATCH_PID" 2>/dev/null; exit 0' INT TERM
 
-phase() {
-  local name="$1" budget="$2"; shift 2
-  CURRENT_PHASE="$name"
-  log "=== phase $name: budget ${budget}s — $* ==="
-  local t0=$(date +%s)
-  run_to "$budget" "$@"
-  local rc=$?
-  local dt=$(( $(date +%s) - t0 ))
-  local st="ok"; [ "$rc" -ne 0 ] && st="rc=$rc"
-  mark "$name" "$dt" "$st"
-  log "phase $name done rc=$rc in ${dt}s"
-  return $rc
-}
+log "overnight driver starting (pid $$)"
 
 # ============================================================
-# Phase 0 — wait for the running turn EHS build
+# Phase 0 — wait for the turn EHS build
 # ============================================================
-log "overnight driver starting (pid $$)"
 PIDFILE=artifacts/gpu-tables/turn-build.pid
-TLOG=artifacts/gpu-tables/turn-build.log
 waited=0
 while [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; do
-  sleep 30
-  waited=$((waited + 30))
+  sleep 30; waited=$((waited + 30))
   if [ "$waited" -gt 3600 ]; then
-    log "turn build wait exceeded 1 h — continuing anyway"
+    log "turn wait exceeded 1h — continuing"
     break
   fi
 done
 mark "turn-ehs-wait" "$waited" "done"
-log "turn build done; turn.bin present: $(ls -la artifacts/gpu-tables/turn.bin 2>/dev/null | awk '{print $5}')"
 
 # ============================================================
 # Phase 1 — tiny robust blueprint
@@ -120,38 +158,37 @@ for opp in nit tag lag station; do
 done
 
 # ============================================================
-# Phase 3 — assemble artifacts/agent from tiny artifacts
+# Phase 3 — assemble artifacts/agent
 # ============================================================
 log "assembling artifacts/agent"
 rm -rf artifacts/agent
-mkdir -p artifacts/agent/experts/0 artifacts/agent/experts/1 artifacts/agent/experts/2 artifacts/agent/experts/3 artifacts/agent/robust
-# buckets + abstraction
+mkdir -p artifacts/agent/experts/0 artifacts/agent/experts/1 \
+         artifacts/agent/experts/2 artifacts/agent/experts/3 \
+         artifacts/agent/robust
 cp -a artifacts/buckets-tiny artifacts/agent/buckets 2>/dev/null || true
-cp -a config/abstraction-tiny.toml artifacts/agent/abstraction.toml 2>/dev/null \
-  || cp -a config/abstraction.toml artifacts/agent/abstraction.toml 2>/dev/null || true
-# robust expert (also fills missing experts so loader doesn't refuse)
-# train-bp writes {out}/{mode}-{seed}/policy/policy.bin
+cp -a config/abstraction-tiny.toml artifacts/agent/abstraction.toml 2>/dev/null || true
+
+# robust (also seeds experts so the loader passes even if exploit mode failed)
 if [ -f artifacts/blueprints-tiny/robust-7/policy/policy.bin ]; then
   cp -a artifacts/blueprints-tiny/robust-7/policy/policy.bin artifacts/agent/robust/policy.bin
   for i in 0 1 2 3; do
-    cp -a artifacts/blueprints-tiny/robust-7/policy/policy.bin "artifacts/agent/experts/$i/policy.bin"
+    cp -a artifacts/blueprints-tiny/robust-7/policy/policy.bin \
+         "artifacts/agent/experts/$i/policy.bin"
   done
 fi
-# per-opponent experts overwrite when present (paths may carry mode+seed)
+# per-opponent experts
 i=0
 for opp in nit tag lag station; do
   found=""
-  # Look for exploit-mode output for this opponent: {out}/{mode}-{seed}/policy/policy.bin
-  # train-bp's exploit modes use --opponent; the folder name is not opponent-specific
-  # today, so we glob all exploit-* dirs and pick by mtime, but only the newest
-  # for this opponent run. Fallback: leave robust-initialised policy.
-  for cand in artifacts/blueprints-tiny/exploit-7-*/policy/policy.bin               artifacts/blueprints-tiny/*${opp}*/policy/policy.bin ; do
+  for cand in artifacts/blueprints-tiny/exploit-7-*/policy/policy.bin \
+              artifacts/blueprints-tiny/*"$opp"*/policy/policy.bin; do
     [ -f "$cand" ] && found="$cand" && break
   done
   [ -n "$found" ] && cp -a "$found" "artifacts/agent/experts/$i/policy.bin" || true
   i=$((i + 1))
 done
-log "artifacts/agent layout:"; find artifacts/agent -maxdepth 3 -type f 2>/dev/null | tee -a "$LOG"
+log "artifacts/agent layout:"
+find artifacts/agent -maxdepth 3 -type f 2>/dev/null | tee -a "$LOG" || true
 
 # ============================================================
 # Phase 4 — tiny ladder (the unlock)
@@ -160,21 +197,44 @@ phase tiny-ladder 1800 \
   cargo run -q --release -p cham-cli -- ladder --fast --agent full
 
 # ============================================================
-# Phase 5 — tiny probe (LBR proxy)
+# Phase 5 — tiny probe
 # ============================================================
 phase tiny-probe 900 \
   cargo run -q --release -p cham-cli -- probe --agent full
 
 # ============================================================
-# Phase 6 — full flop EHS build (now the GPU is free)
+# Phase 6 — full flop EHS in BACKGROUND (~3.5 h, CPU-idle)
 # ============================================================
-phase full-flop 14400 \
+phase_bg full-flop 14400 \
   cargo run -q --release -p cham-gpu --features metal --bin gpu-build -- \
     --kind flop --limit 0 --out artifacts/gpu-tables --sample 40 --batch 512
 
 # ============================================================
-# Phase 7 — verify --gpu (reads turn + flop)
+# CPU A/B chain while flop occupies the GPU
 # ============================================================
+AB="$OUT/ab"
+mkdir -p "$AB"
+
+phase ab-conv-1k-train 2400 \
+  nice -n 15 cargo run -q --release -p cham-cli -- train-bp \
+    --mode robust --iters 1000 --depth 100 --seed 7 \
+    --out "$AB/bp-1k" --threads 4
+
+phase ab-conv-5k-train 2400 \
+  nice -n 15 cargo run -q --release -p cham-cli -- train-bp \
+    --mode robust --iters 5000 --depth 100 --seed 7 \
+    --out "$AB/bp-5k" --threads 4
+
+phase ab-conv-50k-train 3600 \
+  nice -n 15 cargo run -q --release -p cham-cli -- train-bp \
+    --mode robust --iters 50000 --depth 100 --seed 7 \
+    --out "$AB/bp-50k" --threads 4
+
+# ============================================================
+# Phase 7 — wait for flop, then verify --gpu
+# ============================================================
+wait_bg full-flop
+
 phase verify-gpu 600 \
   cargo run -q --release -p cham-cli -- verify --gpu
 
@@ -182,7 +242,8 @@ phase verify-gpu 600 \
 # Summary
 # ============================================================
 total=$(( $(date +%s) - t0_all ))
-log "overnight driver done; total wall ${total}s"
+log "driver done; total wall ${total}s"
+
 {
   echo
   echo "=== overnight summary ==="
@@ -196,6 +257,7 @@ log "overnight driver done; total wall ${total}s"
   echo
   echo "--- flop manifest ---"
   python3 -c "import json; m=json.load(open('artifacts/gpu-tables/flop.json')); print(json.dumps({k:m[k] for k in ('kind','boards','blake3','boards_per_s','throughput_evals_per_s','complete')}, indent=2))" 2>/dev/null || echo "(missing)"
-} >> "$OUT/summary.txt"
+} >> "$SUMMARY"
+
 kill "$WATCH_PID" 2>/dev/null || true
 exit 0
