@@ -4,3 +4,6 @@
 /artifacts/reports
 Cargo.lock.bak
 *.snap.new
+
+# test-run churn: PID-stamped run dirs (e.g. agent-test-16569-0/)
+crates/*/artifacts/runs/*-test-*/
