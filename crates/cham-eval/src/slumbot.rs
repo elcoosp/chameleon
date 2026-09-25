@@ -37,20 +37,14 @@ pub struct SlumbotClient {
 
 impl SlumbotClient {
     pub fn new(base_url: String) -> SlumbotClient {
-        SlumbotClient {
-            base_url,
-            min_spacing_ms: 1000,
-            last_request: None,
-        }
+        SlumbotClient { base_url, min_spacing_ms: 1000, last_request: None }
     }
 
     fn throttle(&mut self) {
         if let Some(t) = self.last_request {
             let elapsed = t.elapsed().as_millis() as u64;
             if elapsed < self.min_spacing_ms {
-                std::thread::sleep(std::time::Duration::from_millis(
-                    self.min_spacing_ms - elapsed,
-                ));
+                std::thread::sleep(std::time::Duration::from_millis(self.min_spacing_ms - elapsed));
             }
         }
         self.last_request = Some(std::time::Instant::now());
@@ -80,9 +74,7 @@ impl SlumbotClient {
                 }
             }
         }
-        Err(EvalError::Slumbot(format!(
-            "POST {path} failed after backoff"
-        )))
+        Err(EvalError::Slumbot(format!("POST {path} failed after backoff")))
     }
 }
 
@@ -94,10 +86,7 @@ impl SlumbotApi for SlumbotClient {
         self.post("/api/new_hand", &format!("{{\"token\": \"{token}\"}}"))
     }
     fn act(&mut self, token: &str, action: &str) -> Result<String, EvalError> {
-        self.post(
-            "/api/act",
-            &format!("{{\"token\": \"{token}\", \"action\": \"{action}\"}}"),
-        )
+        self.post("/api/act", &format!("{{\"token\": \"{token}\", \"action\": \"{action}\"}}"))
     }
 }
 
@@ -116,14 +105,12 @@ impl SlumbotApi for MockSlumbot {
         Ok(r#"{"token": "mock-token-1"}"#.into())
     }
     fn new_hand(&mut self, token: &str) -> Result<String, EvalError> {
-        self.requests
-            .push(("POST /api/new_hand".into(), token.into()));
+        self.requests.push(("POST /api/new_hand".into(), token.into()));
         self.hands += 1;
         Ok(r#"{"actions": [], "hole_cards": "AsKd", "winnings": 0, "debug_hash": 0, "in_progress": true}"#.into())
     }
     fn act(&mut self, token: &str, action: &str) -> Result<String, EvalError> {
-        self.requests
-            .push(("POST /api/act".into(), format!("{token} {action}")));
+        self.requests.push(("POST /api/act".into(), format!("{token} {action}")));
         if action == "f" && self.hands % 3 == 0 {
             return Ok(r#"{"actions": ["f"], "winnings": -50, "in_progress": false}"#.into());
         }
@@ -153,13 +140,8 @@ pub fn run_session(
         .nth(3)
         .unwrap_or("mock-token-1")
         .to_string();
-    let mut session = SlumbotSession {
-        token,
-        hands_played: 0,
-        errored_hands: 0,
-        winnings_bb: 0.0,
-        last_response: String::new(),
-    };
+    let mut session =
+        SlumbotSession { token, hands_played: 0, errored_hands: 0, winnings_bb: 0.0, last_response: String::new() };
     for i in 0..seatings {
         let resp = api.new_hand(&session.token)?;
         session.last_response = resp.clone();
