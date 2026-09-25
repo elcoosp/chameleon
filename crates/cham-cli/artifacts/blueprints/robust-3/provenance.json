@@ -5,10 +5,10 @@
   "iters": 50,
   "train_seed": 3,
   "thread_mode": "Deterministic",
-  "threads": 8,
+  "threads": 1,
   "abstraction_hash": 0,
   "infosets": 209,
-  "wall_s": 0.044921208,
+  "wall_s": 0.059984459,
   "parent": null,
   "seat_histogram": [
     25,
