@@ -85,3 +85,21 @@ Baseline bench capture: see bench-before-gpu.txt (run separately, long).
   relaxable). All other crates keep forbid; cham-gpu remains deny + scoped allow.
 - Deviation from docs/GPU-PLAN.md Part II ("stays #![forbid(unsafe_code)]") is
   therefore minimal — one crate opted into deny, one module has one unsafe fn.
+
+## G0.3 EXP-020 probe results (the GO/NO-GO gate)
+
+```
+gpu-probe: mode=verdict hands=1000000 boards=10000
+CPU_ENUM_EVALS_PER_SEC = 5.527e7  (1000000 evals in 0.018s, 4 threads)
+GPU_EVAL_EVALS_PER_SEC = 1.323e7  (1000000 evals in 0.076s; incl. MSL compile + buffer copy)
+GPU_ENUM_EVALS_PER_SEC = 2.289e8  (10000000 evals in 0.044s; 10000 boards)
+=== EXP-020 verdict ===
+CPU_ENUM               = 5.527e7
+GPU_EVAL               = 1.323e7
+GPU_ENUM               = 2.289e8
+best_gpu / cpu         = 4.14× (need ≥ 10×)
+bit_exact (from G0.2)  = TRUE (1M/1M)
+verdict                = NO-GO
+```
+
+Pre-registered rule: GO iff bit-exact AND max(GPU_EVAL, GPU_ENUM) ≥ 10 × CPU_ENUM.
