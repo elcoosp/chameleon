@@ -23,6 +23,9 @@ pub mod device;
 pub mod kernels;
 pub mod noop;
 
+#[cfg(feature = "wgpu")]
+pub mod wgpu_backend;
+
 #[cfg(all(target_os = "macos", feature = "metal"))]
 #[allow(unsafe_code)] // the D-001 / memmap2-scoped FFI shim
 mod mtl;

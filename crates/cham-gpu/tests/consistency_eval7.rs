@@ -75,9 +75,41 @@ fn consistency_eval7_one_million_hands() {
             N_HANDS, N_HANDS
         );
     }
+    #[cfg(feature = "wgpu")]
+    {
+        match cham_gpu::wgpu_backend::WgpuContext::new(&cham_core::eval::eval_tables()) {
+            Ok(ctx) => {
+                eprintln!("consistency_eval7: wgpu backend = {}", ctx.name());
+                let packed: Vec<u64> = corpus.iter().map(cham_gpu::kernels::pack_hand).collect();
+                let mut gpu_out1 = vec![0u16; N_HANDS];
+                ctx.dispatch_eval7(&packed, &mut gpu_out1)
+                    .expect("wgpu run 1");
+                let mut gpu_out2 = vec![0u16; N_HANDS];
+                ctx.dispatch_eval7(&packed, &mut gpu_out2)
+                    .expect("wgpu run 2");
+                assert_eq!(gpu_out1, gpu_out2, "wgpu run-to-run determinism");
+                let mut mism = 0usize;
+                for i in 0..N_HANDS {
+                    if cpu_out[i] != gpu_out1[i] {
+                        mism += 1;
+                    }
+                }
+                assert_eq!(mism, 0, "wgpu vs CPU mismatches: {}/{}", mism, N_HANDS);
+                eprintln!(
+                    "consistency_eval7: wgpu PASS — {}/{} bit-equal",
+                    N_HANDS, N_HANDS
+                );
+            }
+            Err(e) => {
+                eprintln!("consistency_eval7: wgpu SKIP — {e}");
+            }
+        }
+    }
     #[cfg(not(all(target_os = "macos", feature = "metal")))]
     {
-        eprintln!("consistency_eval7: SKIP — metal unavailable");
+        if !cfg!(feature = "wgpu") {
+            eprintln!("consistency_eval7: SKIP — metal unavailable, wgpu feature off");
+        }
     }
 }
 

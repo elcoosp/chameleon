@@ -43,8 +43,8 @@ metal = "0.31"
 # keep wgpu's own defaults (they pick the right backends per target) and
 # add only `wgsl` for explicitness (it is a default too). If binary size
 # ever matters we can trim later; correctness first.
-wgpu = { version = "22", features = ["wgsl"] }
-pollster = "0.4"
+wgpu = { version = "30", features = ["wgsl"] }
+pollster = "1"
 # dev-only
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1"
