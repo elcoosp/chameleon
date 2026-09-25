@@ -254,8 +254,9 @@ fn main() -> anyhow::Result<()> {
         "encoding": "u32_numerator_2wins_plus_ties",
         "seed": serde_json::Value::Null,
         "wall_s": wall_s,
-        "evals": (n_boards as u64) * DENOM_TURN,
-        "throughput_evals_per_s": ((n_boards as u64) * DENOM_TURN) as f64 / wall_s,
+        "evals": (n_boards as u64) * (HOLES as u64) * DENOM_TURN,
+        "boards_per_s": (n_boards as f64) / wall_s,
+        "throughput_evals_per_s": ((n_boards as u64) * (HOLES as u64) * DENOM_TURN) as f64 / wall_s,
         "sample_check": {
             "n": a.sample,
             "pass": sample_passed,
@@ -271,11 +272,18 @@ fn main() -> anyhow::Result<()> {
         bytes,
         &hash[..16]
     );
+    let evals = (n_boards as u64) * (HOLES as u64) * DENOM_TURN;
     println!(
-        "gpu-build: {} boards in {:.1}s → {:.2e} evals/s",
+        "gpu-build: {} boards in {:.1}s → {:.2e} evals/s ({:.1} boards/s)",
         n_boards,
         wall_s,
-        ((n_boards as u64) * DENOM_TURN) as f64 / wall_s
+        evals as f64 / wall_s,
+        (n_boards as f64) / wall_s,
+    );
+    let full_s = (BOARDS_TURN as f64) / ((n_boards as f64) / wall_s);
+    println!(
+        "gpu-build: projected full build at this rate: {:.1} h",
+        full_s / 3600.0
     );
     if a.sample > 0 && !sample_passed {
         anyhow::bail!("sample re-verification against CPU reference FAILED");
