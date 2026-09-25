@@ -13,7 +13,9 @@ pub struct PriorStrats {
 
 impl PriorStrats {
     pub fn empty() -> PriorStrats {
-        PriorStrats { strat: std::collections::BTreeMap::new() }
+        PriorStrats {
+            strat: std::collections::BTreeMap::new(),
+        }
     }
     pub fn set(&mut self, path: &str, probs: Vec<f64>) {
         self.strat.insert(path.to_string(), probs);
@@ -44,7 +46,10 @@ impl PriorStrats {
 /// Class collapse from weighted combos: sort by strength, bucket into `k` classes
 /// with normalized weights (deterministic; card removal applied upstream — the
 /// caller passes dead-card-adjusted combo weights).
-pub fn collapse_to_classes(mut weighted: Vec<(f64 /*weight*/, f64 /*strength*/)>, k: usize) -> Vec<crate::subgame::Class> {
+pub fn collapse_to_classes(
+    mut weighted: Vec<(f64 /*weight*/, f64 /*strength*/)>,
+    k: usize,
+) -> Vec<crate::subgame::Class> {
     weighted.retain(|(w, _)| *w > 0.0); // dead-card removal upstream zeroes combos
     weighted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
     let total: f64 = weighted.iter().map(|(w, _)| *w).sum();
@@ -63,7 +68,10 @@ pub fn collapse_to_classes(mut weighted: Vec<(f64 /*weight*/, f64 /*strength*/)>
             s_sum += r.1 * r.0;
         }
         if w_sum > 0.0 {
-            classes.push(crate::subgame::Class { weight: w_sum / total, strength: s_sum / w_sum });
+            classes.push(crate::subgame::Class {
+                weight: w_sum / total,
+                strength: s_sum / w_sum,
+            });
         }
         start = end;
     }

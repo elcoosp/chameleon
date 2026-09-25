@@ -1,17 +1,22 @@
 //! Contractual test set for cham-search (SPECS/06 §6).
 
-use cham_search::budget::SearchBudget;
-use cham_search::oracle::solve_matrix;
-use cham_search::prior::{collapse_to_classes, PriorStrats};
-use cham_search::solve::solve;
-use cham_search::subgame::{Class, Subgame};
-use cham_search::trigger::{should_search, SearchConfig, SolverChoice};
 use cham_core::engine::Street;
 use cham_core::obs::{Observables, Player};
 use cham_core::rng::rng_from_seed;
+use cham_search::budget::SearchBudget;
+use cham_search::oracle::solve_matrix;
+use cham_search::prior::{PriorStrats, collapse_to_classes};
+use cham_search::solve::solve;
+use cham_search::subgame::{Class, Subgame};
+use cham_search::trigger::{SearchConfig, SolverChoice, should_search};
 
 fn classes(n: usize) -> Vec<Class> {
-    collapse_to_classes((0..n).map(|i| (1.0 / n as f64, i as f64 / (n - 1).max(1) as f64)).collect(), n.min(4))
+    collapse_to_classes(
+        (0..n)
+            .map(|i| (1.0 / n as f64, i as f64 / (n - 1).max(1) as f64))
+            .collect(),
+        n.min(4),
+    )
 }
 
 fn spot() -> (Subgame, PriorStrats) {
@@ -62,7 +67,10 @@ fn trigger_config() {
     on.min_pot_bb = 1.0;
     assert!(should_search(&obs, &on), "river + pot above floor");
     on.min_pot_bb = 50.0;
-    assert!(!should_search(&obs, &on), "pot below the floor blocks the trigger");
+    assert!(
+        !should_search(&obs, &on),
+        "pot below the floor blocks the trigger"
+    );
     // Iterations vs WallClock semantics
     let iters = SearchBudget::Iterations { iters: 400 };
     assert!(iters.is_deterministic());
@@ -93,7 +101,10 @@ fn prior_confidence_flatten() {
     assert_eq!(hi, vec![0.9, 0.1]);
     // zero confidence: uniform (floored)
     let lo = p.flatten("bet0.5", 0.0).expect("flatten");
-    assert!((lo[0] - 0.5).abs() < 1e-9, "low-confidence path floored toward uniform");
+    assert!(
+        (lo[0] - 0.5).abs() < 1e-9,
+        "low-confidence path floored toward uniform"
+    );
     // intermediate: blend
     let mid = p.flatten("bet0.5", 0.05).expect("flatten");
     assert!(mid[0] > 0.5 && mid[0] < 0.9, "blended: {mid:?}");
@@ -152,7 +163,10 @@ fn rnr_p_interpolation() {
         }
         let _ = &tree;
         assert!(hero_bet_mass.is_finite());
-        assert!(hero_bet_mass >= last - 1e-9, "hero aggression non-decreasing in p: {p}: {hero_bet_mass} vs {last}");
+        assert!(
+            hero_bet_mass >= last - 1e-9,
+            "hero aggression non-decreasing in p: {p}: {hero_bet_mass} vs {last}"
+        );
         last = hero_bet_mass;
     }
 }
@@ -178,7 +192,11 @@ fn reach_gadget_safety() {
         "gadget EV bounded: {ev_gadget:.3} vs FMBR {ev_fmbr:.3}"
     );
     // and the gadget arm's own hero gap is bounded (no runaway)
-    assert!(gadget.lbr_gap.0.abs() < 10.0, "gadget hero gap bounded: {}", gadget.lbr_gap.0);
+    assert!(
+        gadget.lbr_gap.0.abs() < 10.0,
+        "gadget hero gap bounded: {}",
+        gadget.lbr_gap.0
+    );
 }
 
 #[test]
@@ -228,7 +246,10 @@ fn solver_matches_independent_oracles() {
             bet_mass_strong += p;
         }
     }
-    assert!(bet_mass_strong > 0.9, "FMBR bets strong hands vs a pure caller: {bet_mass_strong}");
+    assert!(
+        bet_mass_strong > 0.9,
+        "FMBR bets strong hands vs a pure caller: {bet_mass_strong}"
+    );
 }
 
 #[test]
@@ -236,7 +257,10 @@ fn solver_determinism_fixed_iters() {
     let (sg, prior) = spot();
     let a = solve(&sg, &prior, &SolverChoice::Rnr { p: 0.9 }, 100).expect("a");
     let b = solve(&sg, &prior, &SolverChoice::Rnr { p: 0.9 }, 100).expect("b");
-    assert_eq!(a.our_strategy, b.our_strategy, "bit-identical under fixed iters");
+    assert_eq!(
+        a.our_strategy, b.our_strategy,
+        "bit-identical under fixed iters"
+    );
     assert_eq!(a.lbr_gap, b.lbr_gap);
 }
 
@@ -245,10 +269,170 @@ fn budget_wallclock_only_live() {
     // Structural: Iterations mode contains no time reads in the solve path —
     // budget.rs is the only file allowed to touch Instant.
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let solve_src = std::fs::read_to_string(std::path::Path::new(manifest).join("src/solve.rs")).expect("src");
-    assert!(!solve_src.contains("Instant"), "solve path must not read the clock");
-    let budget_src = std::fs::read_to_string(std::path::Path::new(manifest).join("src/budget.rs")).expect("src");
+    let solve_src =
+        std::fs::read_to_string(std::path::Path::new(manifest).join("src/solve.rs")).expect("src");
+    assert!(
+        !solve_src.contains("Instant"),
+        "solve path must not read the clock"
+    );
+    let budget_src =
+        std::fs::read_to_string(std::path::Path::new(manifest).join("src/budget.rs")).expect("src");
     assert!(budget_src.contains("Instant"), "budget owns the clock");
+}
+
+#[test]
+fn solve_cached_equals_fresh() {
+    // B5: a cached subgame solves bit-identically to a fresh build (pure-function
+    // memo: same content hash → same built subgame → same solver output), and
+    // the second build is a cache hit.
+    use cham_search::cache::{cache_clear_for_tests, cache_stats, cached_build};
+    cache_clear_for_tests();
+    let hero = classes(9);
+    let villain = classes(9);
+    let a = cached_build(
+        hero.clone(),
+        villain.clone(),
+        12.0,
+        92.0,
+        &[0.5, 1.25],
+        0xA6,
+    )
+    .expect("a");
+    let (hits0, misses0) = cache_stats();
+    assert_eq!(misses0, 1, "first build misses");
+    let b = cached_build(
+        hero.clone(),
+        villain.clone(),
+        12.0,
+        92.0,
+        &[0.5, 1.25],
+        0xA6,
+    )
+    .expect("b");
+    let (hits1, _) = cache_stats();
+    assert!(hits1 > hits0, "second build hits");
+    assert!(
+        std::sync::Arc::ptr_eq(&a, &b),
+        "hit returns the same built subgame"
+    );
+    let fresh = Subgame::build(hero, villain, 12.0, 92.0, &[0.5, 1.25]).expect("fresh");
+    let (_, prior) = spot();
+    let rc = solve(&a, &prior, &SolverChoice::Rnr { p: 0.9 }, 100).expect("cached");
+    let rf = solve(&fresh, &prior, &SolverChoice::Rnr { p: 0.9 }, 100).expect("fresh");
+    assert_eq!(
+        rc.our_strategy, rf.our_strategy,
+        "bit-identical our strategy"
+    );
+    assert_eq!(
+        rc.their_strategy, rf.their_strategy,
+        "bit-identical their strategy"
+    );
+    assert_eq!(rc.lbr_gap, rf.lbr_gap);
+}
+
+#[test]
+fn warmstart_oracle_validation() {
+    // B6 validation harness (200 river spots; the plan's 1000-spot gate scales
+    // linearly — same code path, larger `spots`).
+    //
+    // MEASURED OUTCOME (recorded per the plan's escape hatch): cross-spot
+    // transfer at 400 iters yields mean |ΔEV| ≈ 14.8 mb (worst ≈ 88 mb) —
+    // ABOVE the plan's 0.5 mb bar — so the flag stays DEFAULT OFF (opt-in
+    // only). The RNR fixed-iteration average re-mixes under any init
+    // perturbation; that is a solver property, not a warm-start bug.
+    //
+    // What the harness LOCKS IN (all green, deterministic spot set):
+    // 1. flag-off path is bit-identical (determinism — same as `solve`);
+    // 2. no spot flips the root argmax action (mixing shifts, decisions don't);
+    // 3. hero exploitability (`lbr_gap.0`) does not degrade vs flag-off.
+    use cham_search::solve::evaluate;
+    use cham_search::solve::{
+        set_warm_start, solve_with_warmkey, warm_reset_for_tests, warm_stats,
+    };
+    assert!(!cham_search::solve::warm_start_enabled(), "default OFF");
+    warm_reset_for_tests();
+    set_warm_start(true);
+    let mut sum_abs = 0.0f64;
+    let mut worst = 0.0f64;
+    let mut flips = 0u32;
+    let mut gap_off = 0.0f64;
+    let mut gap_on = 0.0f64;
+    let spots = 200u32;
+    for i in 0..spots {
+        let n = 5 + (i % 5) as usize;
+        let hero = collapse_to_classes(
+            (0..n)
+                .map(|k| {
+                    (
+                        1.0 / n as f64,
+                        (k as f64 + (i % 3) as f64 * 0.01) / (n - 1).max(1) as f64,
+                    )
+                })
+                .collect(),
+            3,
+        );
+        let villain = collapse_to_classes(
+            (0..n)
+                .map(|k| (1.0 / n as f64, 1.0 - k as f64 / (n - 1).max(1) as f64))
+                .collect(),
+            3,
+        );
+        let pot = 8.0 + (i % 7) as f64;
+        let stack = 60.0 + (i % 5) as f64 * 8.0;
+        let sg = Subgame::build(hero, villain, pot, stack, &[0.5, 1.25]).expect("sg");
+        let prior = PriorStrats::empty();
+        // flag-off reference (warm table bypassed for the reference arm)
+        set_warm_start(false);
+        let r_off = solve(&sg, &prior, &SolverChoice::Rnr { p: 0.9 }, 400).expect("off");
+        set_warm_start(true);
+        // shared warm keys across spots: the table fills as the sequence runs
+        // (deterministic: same spots → same sequence → same warm starts)
+        let key = Some((0xB0 + (i % 4) as u64, (pot / stack * 8.0) as u8));
+        let r_on =
+            solve_with_warmkey(&sg, &prior, &SolverChoice::Rnr { p: 0.9 }, 400, key).expect("on");
+        let ev_off = evaluate(&sg, &r_off.our_strategy, &r_off.their_strategy);
+        let ev_on = evaluate(&sg, &r_on.our_strategy, &r_on.their_strategy);
+        let dev_bb = (ev_on - ev_off).abs();
+        sum_abs += dev_bb;
+        worst = worst.max(dev_bb);
+        gap_off += r_off.lbr_gap.0.abs();
+        gap_on += r_on.lbr_gap.0.abs();
+        let argmax = |s: &std::collections::BTreeMap<String, Vec<f64>>| {
+            s.get("")
+                .map(|v| {
+                    v.iter()
+                        .enumerate()
+                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                        .map(|(i, _)| i)
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0)
+        };
+        if argmax(&r_on.our_strategy) != argmax(&r_off.our_strategy) {
+            flips += 1;
+        }
+    }
+    let (hits, _) = warm_stats();
+    assert!(hits > 0, "validation must exercise warm hits");
+    // recorded measurement (informational — the reason the flag stays opt-in)
+    let mean_mb = sum_abs / spots as f64 * 1000.0;
+    eprintln!(
+        "warmstart validation: mean |ΔEV| {mean_mb:.2} mb, worst {:.1} mb over {spots} spots",
+        worst * 1000.0
+    );
+    // locked-in safety contract
+    assert_eq!(flips, 0, "no spot may flip the root argmax action");
+    assert!(
+        gap_on / spots as f64 <= gap_off / spots as f64 + 0.5,
+        "warm-start must not degrade exploitability: on {:.3} vs off {:.3}",
+        gap_on / spots as f64,
+        gap_off / spots as f64,
+    );
+    set_warm_start(false);
+    assert!(
+        !cham_search::solve::warm_start_enabled(),
+        "harness leaves default OFF"
+    );
 }
 
 #[test]
@@ -264,9 +448,15 @@ fn illegal_action_never() {
     while let Some((p, node)) = stack.pop() {
         match node {
             cham_search::subgame::Node::Terminal { .. } => {}
-            cham_search::subgame::Node::Decision { actions, children, .. } => {
+            cham_search::subgame::Node::Decision {
+                actions, children, ..
+            } => {
                 for (a, c) in actions.iter().zip(children.iter()) {
-                    let np = if p.is_empty() { a.clone() } else { format!("{p}/{a}") };
+                    let np = if p.is_empty() {
+                        a.clone()
+                    } else {
+                        format!("{p}/{a}")
+                    };
                     paths.insert(np.clone());
                     stack.push((np, c));
                 }
@@ -274,9 +464,15 @@ fn illegal_action_never() {
         }
     }
     for (path, probs) in r.our_strategy.iter().chain(r.their_strategy.iter()) {
-        assert!(paths.contains(path), "strategy path {path} must exist on the tree");
+        assert!(
+            paths.contains(path),
+            "strategy path {path} must exist on the tree"
+        );
         let s: f64 = probs.iter().sum();
-        assert!((s - 1.0).abs() < 1e-6 || probs.is_empty(), "distribution at {path}");
+        assert!(
+            (s - 1.0).abs() < 1e-6 || probs.is_empty(),
+            "distribution at {path}"
+        );
         assert!(probs.iter().all(|&p| p >= -1e-9), "no negative probs");
     }
     let _ = rng_from_seed(1);

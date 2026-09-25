@@ -125,6 +125,9 @@ enum Command {
         agent: String,
         #[arg(long, default_value = "100")]
         depth: i64,
+        /// B6: solver warm-start (default OFF; flag-off path is bit-identical)
+        #[arg(long)]
+        search_warmstart: bool,
     },
     /// Textual decision traces (no animation — cut)
     Trace {
@@ -200,7 +203,11 @@ fn main() -> anyhow::Result<()> {
             yes_i_am_live,
             resume,
         } => cmd::slumbot::run(seatings, real, yes_i_am_live, resume.as_deref()),
-        Command::Play { agent, depth } => cmd::play::run(&agent, depth),
+        Command::Play {
+            agent,
+            depth,
+            search_warmstart,
+        } => cmd::play::run(&agent, depth, search_warmstart),
         Command::Trace { run, top, by } => cmd::trace::run(&run, top, &by),
         Command::Dashboard { out, last } => cmd::dashboard::run(&out, last),
     };

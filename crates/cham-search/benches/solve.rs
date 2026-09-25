@@ -2,38 +2,37 @@
 //! ≤ 250 ms wall in WallClock mode (Iterations mode is unbounded by definition).
 
 use cham_search::budget::SearchBudget;
+use cham_search::cache::cached_build;
 use cham_search::oracle;
-use cham_search::prior::{collapse_to_classes, PriorStrats};
+use cham_search::prior::{PriorStrats, collapse_to_classes};
 use cham_search::solve::solve;
-use cham_search::trigger::SolverChoice;
-use cham_search::subgame::Subgame;
 use cham_search::trigger::SearchConfig;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use cham_search::trigger::SolverChoice;
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-fn standard_spot() -> (Subgame, PriorStrats) {
-    // committed reference spot: 12 bb pot, 92 bb behind, 3 classes each,
-    // prior = uniform check/bet/call policy
-    let hero = collapse_to_classes(
-        (0..9).map(|i| (1.0 / 9.0, i as f64 / 8.0)).collect(),
-        3,
-    );
-    let villain = collapse_to_classes(
-        (0..9).map(|i| (1.0 / 9.0, i as f64 / 8.0)).collect(),
-        3,
-    );
-    let sg = Subgame::build(hero, villain, 12.0, 92.0, &[0.5, 1.25]).expect("sg");
+/// B5 L1 on the bench path: every iteration rebuilds through the content-keyed
+/// cache (first iteration misses, the rest hit), so the reported mean shows
+/// the steady-state solve cost with build work memoized away.
+fn bench_solve(c: &mut Criterion) {
+    let hero = collapse_to_classes((0..9).map(|i| (1.0 / 9.0, i as f64 / 8.0)).collect(), 3);
+    let villain = collapse_to_classes((0..9).map(|i| (1.0 / 9.0, i as f64 / 8.0)).collect(), 3);
     let mut prior = PriorStrats::empty();
     prior.set("check", vec![1.0]);
     prior.set("fold", vec![1.0, 0.0, 0.0]);
     prior.set("call", vec![0.0, 1.0, 0.0]);
-    (sg, prior)
-}
-
-fn bench_solve(c: &mut Criterion) {
-    let (sg, prior) = standard_spot();
     c.bench_function("solve_rnr_400", |b| {
         b.iter(|| {
-            let r = solve(black_box(&sg), &prior, &SolverChoice::Rnr { p: 0.9 }, 400).expect("solve");
+            let sg = cached_build(
+                black_box(hero.clone()),
+                black_box(villain.clone()),
+                12.0,
+                92.0,
+                &[0.5, 1.25],
+                0xBE4C,
+            )
+            .expect("sg");
+            let r =
+                solve(black_box(&sg), &prior, &SolverChoice::Rnr { p: 0.9 }, 400).expect("solve");
             r.our_strategy.len()
         })
     });
