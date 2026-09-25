@@ -129,3 +129,25 @@ G1 builders but the MSL must stay WGSL-portable).
 - EXP-020 status: unresolved-amended (not re-opened, not closed).
 - Verdict: pending an amended measurement on a quiet session or in CI,
   expected in the same pass as G5.0.
+
+## G5.0 design + macOS CI bench slot
+
+Two follow-ups to Path B:
+
+1. `.github/workflows/gpu.yml` gained a manual macOS bench job
+   (`workflow_dispatch` with `run_gpu_bench=true`). This is the
+   stable-bench slot Amendment 001 calls for: a quiet Apple Silicon
+   runner where G_enum >= 3x and G_warm >= 2x can be certified. Not
+   enabled on push/PR because macOS minutes cost 10x Linux.
+
+2. `docs/GPU-G5.0-WGPU-PORT-DESIGN.md` — the concrete design for the
+   wgpu port. Key finding while drafting it: WGSL has no scalar u8/u16
+   in storage buffers, so the table layout must be u32-native; and the
+   seven_map's u64 keys should be *reindexed to u32* at pack time
+   (they only ever take ~60k distinct values) rather than ported as
+   two-limb u64 arithmetic. That shrinks the buffer and eliminates the
+   one place a mechanical port could go wrong. Full task list in the
+   design doc.
+
+The WGSL kernel itself is deliberately not written in this session —
+it is a focused piece of work that deserves its own commit.

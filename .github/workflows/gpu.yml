@@ -14,6 +14,12 @@ name: gpu
 #     or an explicitly quiet local session — never on this job.
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_gpu_bench:
+        description: "Also run the GPU bench on macos-14 (expensive: 10x Linux minutes)"
+        type: boolean
+        default: false
   push:
     branches: [main, "gpu/**"]
     paths:
@@ -92,3 +98,39 @@ jobs:
       #   run: |
       #     sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       #     cargo nextest run -p cham-gpu --features wgpu --no-fail-fast --nocapture
+
+  gpu-bench-macos:
+    # Manual only — macOS runners cost 10x Linux minutes. This job is the
+    # stable-bench slot the amendment calls for: a quiet, un-contended
+    # Apple Silicon runner on which the amended gates (G_enum >= 3x,
+    # G_warm >= 2x) can be certified. See docs/GPU-PLAN-AMENDMENTS.md
+    # Amendment 001.
+    name: GPU bench (macos-14, Apple Silicon, manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.run_gpu_bench
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: gpu-bench-macos
+
+      - name: show device
+        run: system_profiler SPDisplaysDataType | head -20
+
+      - name: gpu-probe verdict
+        run: |
+          cargo run -q --release -p cham-gpu --features metal --bin gpu-probe -- \
+            --mode verdict --hands 1000000 --boards 10000 --reps 20 \
+            | tee /tmp/gpu-verdict.log
+
+      - name: upload verdict log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-verdict-${{ github.run_id }}
+          path: /tmp/gpu-verdict.log
+          retention-days: 90
