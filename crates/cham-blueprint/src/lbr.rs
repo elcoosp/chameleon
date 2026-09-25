@@ -8,10 +8,10 @@
 use serde::Serialize;
 
 use cham_core::card::Deck;
-use cham_core::engine::State;
 use cham_core::engine::config::EngineConfig;
+use cham_core::engine::State;
 use cham_core::obs::{Observables, Player};
-use cham_core::rng::{Rng, child};
+use cham_core::rng::{child, Rng};
 use cham_engine::encoder::ActionSeq;
 
 use crate::BlueprintError;
@@ -125,11 +125,7 @@ where
     }
     if best.is_infinite() {
         // no slot applied (shouldn't happen): pass through with first legal
-        let fallback = obs
-            .legal
-            .first()
-            .map(|l| l.action)
-            .unwrap_or(cham_core::engine::Action::Check);
+        let fallback = obs.legal.first().map(|l| l.action).unwrap_or(cham_core::engine::Action::Check);
         enc.record(&obs, Player::from_usize(p), fallback, seq);
         state.apply(fallback).expect("legal fallback");
         return br_walk(state, br_seat, policy, enc, seq, rng);
