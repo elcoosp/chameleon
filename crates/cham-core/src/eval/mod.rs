@@ -531,6 +531,47 @@ fn flush_top5(m: u16, t: &Tables) -> u16 {
 /// independent, so the CPU pipelines N scalar evals (shared table lookups
 /// autovectorize under `target-cpu=native`).
 #[inline]
+/// Experimental: multiset-rank non-flush path (perf-backlog B-1).
+///
+/// Identical output to `evaluate7` (bit-exact by construction; both index
+/// the same dense rank table). Replaces the prime-product + hash-probe with
+/// a `counts[13]` scan + combinadic multiset rank + direct array index.
+///
+/// Bench-only; the hot path still calls `evaluate7`. Keep iff
+/// `eval_evaluate7_dense` beats `eval_evaluate7` on the criterion bench.
+pub fn evaluate7_dense(c: &[Card; 7]) -> u16 {
+    let t = tables();
+    let mut suit_mask = [0u16; 4];
+    let mut suit_count = [0u8; 4];
+    let mut counts = [0u8; 13];
+    for i in 0..7 {
+        let idx = c[i].0;
+        let rank = (idx >> 2) as usize;
+        let suit = (idx & 3) as usize;
+        suit_mask[suit] |= 1u16 << rank;
+        suit_count[suit] += 1;
+        counts[rank] += 1;
+    }
+    let flush_suit = if suit_count[0] >= 5 {
+        0
+    } else if suit_count[1] >= 5 {
+        1
+    } else if suit_count[2] >= 5 {
+        2
+    } else if suit_count[3] >= 5 {
+        3
+    } else {
+        return t.seven_multiset_ranks[multiset_rank(&counts) as usize] as u16;
+    };
+    let m = suit_mask[flush_suit];
+    let st = t.straight[m as usize];
+    if st != 0xff {
+        return t.flush_map.get(pack(CAT_STRAIGHT_FLUSH, &[st]) as u64);
+    }
+    flush_top5(m, t)
+}
+
+#[inline]
 pub fn evaluate7_batch<const N: usize>(hands: &[[Card; 7]; N], out: &mut [u16; N]) {
     debug_assert_eq!(hands.len(), out.len());
     for i in 0..N {
