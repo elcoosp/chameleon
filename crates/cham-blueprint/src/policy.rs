@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use cham_engine::encoder::ActionSeq;
 
-use crate::BlueprintError;
 use crate::table::RegretTable;
+use crate::BlueprintError;
 
 pub const ARTIFACT_MAGIC: u32 = 0x5042_4843; // "CHBP"
 pub const ARTIFACT_VERSION: u32 = 1;
@@ -125,36 +125,23 @@ impl BlueprintPolicy {
     }
 
     /// Load an artifact from a directory containing `policy.bin`.
-    pub fn load(
-        dir: &Path,
-        expected_abstraction_hash: u64,
-    ) -> Result<BlueprintPolicy, BlueprintError> {
+    pub fn load(dir: &Path, expected_abstraction_hash: u64) -> Result<BlueprintPolicy, BlueprintError> {
         let path = dir.join("policy.bin");
         let bytes = std::fs::read(&path).map_err(|e| BlueprintError::Artifact {
             path: path.clone(),
             reason: format!("read: {e}"),
         })?;
-        let artifact_hash =
-            u64::from_le_bytes(blake3::hash(&bytes).as_bytes()[..8].try_into().expect("8"));
+        let artifact_hash = u64::from_le_bytes(blake3::hash(&bytes).as_bytes()[..8].try_into().expect("8"));
         if bytes.len() < HEADER_LEN {
-            return Err(BlueprintError::Artifact {
-                path,
-                reason: "too short".into(),
-            });
+            return Err(BlueprintError::Artifact { path, reason: "too short".into() });
         }
         let magic = u32::from_le_bytes(bytes[0..4].try_into().expect("4"));
         if magic != ARTIFACT_MAGIC {
-            return Err(BlueprintError::Artifact {
-                path,
-                reason: format!("bad magic {magic:#x}"),
-            });
+            return Err(BlueprintError::Artifact { path, reason: format!("bad magic {magic:#x}") });
         }
         let version = u32::from_le_bytes(bytes[4..8].try_into().expect("4"));
         if version != ARTIFACT_VERSION {
-            return Err(BlueprintError::Artifact {
-                path,
-                reason: format!("bad version {version}"),
-            });
+            return Err(BlueprintError::Artifact { path, reason: format!("bad version {version}") });
         }
         let abstraction_hash = u64::from_le_bytes(bytes[8..16].try_into().expect("8"));
         if expected_abstraction_hash != 0 && abstraction_hash != expected_abstraction_hash {
@@ -178,10 +165,7 @@ impl BlueprintPolicy {
         let rows_off = offsets_off + (n + 1) * 4;
         let need = rows_off + (bytes.len() - rows_off);
         if bytes.len() < need {
-            return Err(BlueprintError::Artifact {
-                path,
-                reason: "truncated".into(),
-            });
+            return Err(BlueprintError::Artifact { path, reason: "truncated".into() });
         }
         Ok(BlueprintPolicy {
             bytes,
@@ -259,8 +243,7 @@ impl BlueprintPolicy {
         let key = enc.key(obs, seq);
         let idx = self.find(key.0)?;
         let start = self.rows_off + self.offset_at(idx);
-        let visits =
-            u16::from_le_bytes(self.bytes[start + 1..start + 3].try_into().expect("2")) as f64;
+        let visits = u16::from_le_bytes(self.bytes[start + 1..start + 3].try_into().expect("2")) as f64;
         Some(visits / (visits + 64.0))
     }
 
