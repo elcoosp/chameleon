@@ -37,11 +37,7 @@ pub fn run(agent: &str, depth: i64) -> i32 {
     };
     let mode = AgentMode {
         routing: routing.to_string(),
-        search: SearchCfg {
-            enabled: false,
-            solver: "Rnr".into(),
-            g4_ledger_ref: String::new(),
-        },
+        search: SearchCfg { enabled: false, solver: "Rnr".into(), g4_ledger_ref: String::new() },
     };
     // router: use the trained model when present; otherwise a deterministic
     // zero-initialized model (live-play convenience, recorded in the load card)
@@ -53,19 +49,9 @@ pub fn run(agent: &str, depth: i64) -> i32 {
                 return crate::cmd::EXIT_FAIL;
             }
         },
-        Err(_) => {
-            cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5)
-        }
+        Err(_) => cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5),
     };
-    let mut bot = match ChameleonAgent::new(
-        mode,
-        loaded.encoder,
-        router,
-        loaded.experts,
-        loaded.robust,
-        loaded.bayes,
-        None,
-    ) {
+    let mut bot = match ChameleonAgent::new(mode, loaded.encoder, router, loaded.experts, loaded.robust, loaded.bayes, None) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("play: agent: {e}");
@@ -152,10 +138,7 @@ enum Prompt {
 
 /// Read one legal action from the terminal; illegal input re-prompts
 /// (contractual UX, SPECS/09 `play_prompt_roundtrip`).
-fn prompt_action(
-    obs: &Observables<'_>,
-    lines: &mut std::io::Lines<std::io::StdinLock<'_>>,
-) -> Prompt {
+fn prompt_action(obs: &Observables<'_>, lines: &mut std::io::Lines<std::io::StdinLock<'_>>) -> Prompt {
     loop {
         let legal_s: Vec<String> = obs.legal.iter().map(|la| la.action.to_str()).collect();
         print!(
@@ -188,9 +171,6 @@ fn prompt_action(
         if obs.legal.iter().any(|la| la.action == a) {
             return Prompt::Action(a);
         }
-        println!(
-            "  ? '{input}' not legal here — legal: [{}]",
-            legal_s.join(" ")
-        );
+        println!("  ? '{input}' not legal here — legal: [{}]", legal_s.join(" "));
     }
 }
