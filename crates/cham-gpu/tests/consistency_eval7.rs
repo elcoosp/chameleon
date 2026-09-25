@@ -6,7 +6,9 @@
 //! GPU must be optional everywhere else.
 
 use cham_core::card::Card;
-use cham_core::eval::{EvalTables, eval_tables, evaluate7};
+use cham_core::eval::evaluate7;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use cham_core::eval::{EvalTables, eval_tables};
 use cham_core::rng::{next_u32, rng_from_seed};
 
 /// Pinned seed for the 1M-hand corpus (docs/GPU-PLAN.md G0.2 step 3).
