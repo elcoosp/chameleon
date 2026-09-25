@@ -84,6 +84,23 @@ fn play_seating(
         } else {
             opp.act(&obs, rng)
         };
+        // Public-history hook (I9 leak discipline, SPECS/01 §5): the match
+        // driver is responsible for feeding EVERY action to both agents,
+        // viewed from each agent's own seat, BEFORE state.apply. The
+        // ChameleonAgent impl skips its own actions (already recorded in
+        // act) and records the opponent's into its canonical ActionSeq.
+        // Without this call the runtime seq only contains the hero's own
+        // actions, so every infoset key diverges from the trainer's and
+        // `BlueprintPolicy::strategy` returns None on ~65% of decisions.
+        {
+            let hero_obs = Observables::view(state, Player::from_usize(hero_seat));
+            hero.on_public_action(&hero_obs, player, a);
+        }
+        {
+            let opp_seat = 1 - hero_seat;
+            let opp_obs = Observables::view(state, Player::from_usize(opp_seat));
+            opp.on_public_action(&opp_obs, player, a);
+        }
         log.push((street, player, a));
         state
             .apply(a)
