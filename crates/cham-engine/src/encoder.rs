@@ -18,10 +18,10 @@ use cham_core::card::Hand2;
 use cham_core::engine::Street;
 use cham_core::obs::{Observables, Player};
 
-use crate::config::{abstraction_hash, fnv1a, spr_band_index, AbstractionConfig};
-use crate::ladder::{record_action, ActionLadder};
-use crate::tables::{load_meta, orbit_bucket, preflop_bucket, MmapTable, RiverBucketer, RiverMeta};
 use crate::EngineError;
+use crate::config::{AbstractionConfig, abstraction_hash, fnv1a, spr_band_index};
+use crate::ladder::{ActionLadder, record_action};
+use crate::tables::{MmapTable, RiverBucketer, RiverMeta, load_meta, orbit_bucket, preflop_bucket};
 
 /// Action classes recorded in the key sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,7 +68,15 @@ pub struct ActionSeq {
 
 impl Default for ActionSeq {
     fn default() -> Self {
-        ActionSeq { entries: [SeqEntry { street: 0, actor: 0, class: ActionClass::Fold, size_bucket: 0 }; 32], lens: [0; 4] }
+        ActionSeq {
+            entries: [SeqEntry {
+                street: 0,
+                actor: 0,
+                class: ActionClass::Fold,
+                size_bucket: 0,
+            }; 32],
+            lens: [0; 4],
+        }
     }
 }
 
@@ -78,7 +86,12 @@ impl ActionSeq {
         let n = &mut self.lens[s];
         if (*n as usize) < 8 {
             let idx = s * 8 + *n as usize;
-            self.entries[idx] = SeqEntry { street: street.as_u8(), actor: e.actor, class: e.class, size_bucket: e.size_bucket };
+            self.entries[idx] = SeqEntry {
+                street: street.as_u8(),
+                actor: e.actor,
+                class: e.class,
+                size_bucket: e.size_bucket,
+            };
             *n += 1;
         }
         // beyond the window the entry is dropped deterministically (window 8)
@@ -123,11 +136,19 @@ pub struct Encoder {
     /// input-determined; the cap only bounds memory (spec: cross-visit caching
     /// unnecessary at P1 speeds, but cheap and safe here).
     eq_cache: FxHashMap<u64, u16>,
+    /// flop/turn fallback-bucket memo (PERF-PLAN T4): `strength_now` enumerates
+    /// ~1326 villain combos per call, but training revisits the same
+    /// (hole, board) thousands of times. The fallback is pure, so memoizing
+    /// is behavior-identical (bit-exact keys) and removes the dominant
+    /// per-visit cost on table-less encoders.
+    fallback_cache: FxHashMap<u64, u16>,
     /// ExploitBayes belief bin (0 = non-Bayes default; SPECS/04 §5). Part of the key.
     belief_bin: u8,
 }
 
 const EQ_CACHE_CAP: usize = 400_000;
+/// Flop/turn fallback-bucket memo cap (bounded; purity-preserving clear).
+const FALLBACK_CACHE_CAP: usize = 131_072;
 
 impl Encoder {
     /// Alias kept for the CLI: same as from_config with a directory of artifacts.
@@ -142,10 +163,15 @@ impl Encoder {
         cfg.validate()?;
         let meta = load_meta(models_dir)?;
         let river = RiverBucketer::new(&meta, &cfg);
-        let flop = p(models_dir, "flop.bin").map(|p| MmapTable::open(&p)).transpose()?;
-        let turn = p(models_dir, "turn.bin").map(|p| MmapTable::open(&p)).transpose()?;
+        let flop = p(models_dir, "flop.bin")
+            .map(|p| MmapTable::open(&p))
+            .transpose()?;
+        let turn = p(models_dir, "turn.bin")
+            .map(|p| MmapTable::open(&p))
+            .transpose()?;
         let hash = {
-            let toml_bytes = serde_json::to_vec(&cfg).map_err(|e| EngineError::Config(format!("serialize: {e}")))?;
+            let toml_bytes = serde_json::to_vec(&cfg)
+                .map_err(|e| EngineError::Config(format!("serialize: {e}")))?;
             let mut arts: Vec<Vec<u8>> = Vec::new();
             for f in ["flop.bin", "turn.bin", "meta.json"] {
                 let fp = models_dir.join(f);
@@ -165,6 +191,7 @@ impl Encoder {
             hash,
             cfg,
             eq_cache: FxHashMap::default(),
+            fallback_cache: FxHashMap::default(),
             belief_bin: 0,
         })
     }
@@ -187,6 +214,7 @@ impl Encoder {
             hash: 0,
             cfg,
             eq_cache: FxHashMap::default(),
+            fallback_cache: FxHashMap::default(),
             belief_bin: 0,
         })
     }
@@ -216,35 +244,46 @@ impl Encoder {
     /// Our bucket: preflop = 169-class id; flop/turn = orbit table (fallback =
     /// strength quantile, D-006); river = exact-equity quantile × texture.
     pub fn bucket(&mut self, obs: &Observables<'_>) -> u16 {
-        let board: Vec<cham_core::card::Card> = obs.board[..obs.board_len as usize].to_vec();
+        let board = &obs.board[..obs.board_len as usize];
         match obs.street {
             Street::Preflop => preflop_bucket(obs.hole),
             Street::Flop | Street::Turn => {
-                let table = match obs.street {
-                    Street::Flop => &self.flop,
-                    _ => &self.turn,
+                let has_table = match obs.street {
+                    Street::Flop => self.flop.is_some(),
+                    _ => self.turn.is_some(),
                 };
-                match table {
-                    Some(t) => {
-                        let b = orbit_bucket(t, obs.hole, &board);
-                        if b == crate::tables::MISS_SENTINEL {
-                            self.fallback_bucket(obs, &board)
-                        } else {
-                            b
-                        }
+                if has_table {
+                    let table = match obs.street {
+                        Street::Flop => self.flop.as_ref().expect("checked"),
+                        _ => self.turn.as_ref().expect("checked"),
+                    };
+                    let b = orbit_bucket(table, obs.hole, board);
+                    if b != crate::tables::MISS_SENTINEL {
+                        return b;
                     }
-                    None => self.fallback_bucket(obs, &board),
                 }
+                // Table-less (or miss) fallback: memoized pure function of
+                // (hole, board) — bit-exact vs recomputation.
+                let key = board_pack(obs.hole, board);
+                if let Some(&b) = self.fallback_cache.get(&key) {
+                    return b;
+                }
+                let b = self.fallback_bucket(obs, board);
+                if self.fallback_cache.len() >= FALLBACK_CACHE_CAP {
+                    self.fallback_cache.clear();
+                }
+                self.fallback_cache.insert(key, b);
+                b
             }
             Street::River => {
-                let key = seq_pack(obs.hole, &board);
+                let key = seq_pack(obs.hole, board);
                 if let Some(&b) = self.eq_cache.get(&key) {
                     return b;
                 }
                 let mut board5 = [cham_core::card::Card(0); 5];
-                board5[..board.len()].copy_from_slice(&board);
+                board5[..board.len()].copy_from_slice(board);
                 let eq = crate::tables::river_equity(obs.hole, &board5);
-                let b = self.river.bucket(eq, &board);
+                let b = self.river.bucket(eq, board);
                 if self.eq_cache.len() >= EQ_CACHE_CAP {
                     self.eq_cache.clear();
                 }
@@ -265,7 +304,11 @@ impl Encoder {
     }
 
     /// Ladder slots for this view (row width W candidates).
-    pub fn slots(&self, obs: &Observables<'_>, seq: &ActionSeq) -> arrayvec::ArrayVec<crate::ladder::AbstractAction, 12> {
+    pub fn slots(
+        &self,
+        obs: &Observables<'_>,
+        seq: &ActionSeq,
+    ) -> arrayvec::ArrayVec<crate::ladder::AbstractAction, 12> {
         self.ladder.slots(obs, seq)
     }
 
@@ -292,6 +335,19 @@ impl Encoder {
     /// FNV-1a mixed; high bit OR-ed so the key is never 0.
     pub fn key(&mut self, obs: &Observables<'_>, seq: &ActionSeq) -> InfoSetKey {
         let slots = self.ladder.slots(obs, seq);
+        self.key_for(obs, seq, &slots)
+    }
+
+    /// Key from precomputed ladder slots (PERF-PLAN T4): hot callers
+    /// (traversal) compute slots once and reuse them for the mask, the width
+    /// and the action mapping instead of re-deriving the ladder 3× per visit.
+    /// Byte-identical to [`Encoder::key`].
+    pub fn key_for(
+        &mut self,
+        obs: &Observables<'_>,
+        seq: &ActionSeq,
+        slots: &arrayvec::ArrayVec<crate::ladder::AbstractAction, 12>,
+    ) -> InfoSetKey {
         let mut mask: u16 = 0;
         for (i, s) in slots.iter().enumerate() {
             if cham_core::obs::is_legal(obs, s.action) {
@@ -299,24 +355,38 @@ impl Encoder {
             }
         }
         let bucket = self.bucket(obs);
-        let mut bytes: Vec<u8> = Vec::with_capacity(16 + 48);
-        bytes.push(obs.street.as_u8());
-        bytes.push(obs.player.as_usize() as u8);
-        bytes.push(self.spr_band(obs));
-        bytes.extend_from_slice(&bucket.to_le_bytes());
-        bytes.push(self.belief_bin); // ExploitBayes bin (0 when unused)
-        bytes.extend_from_slice(&mask.to_le_bytes());
-        for street in 0..4u8 {
-            let n = seq.lens[street as usize];
-            bytes.push(n);
-            for i in 0..n as usize {
-                let e = &seq.entries[street as usize * 8 + i];
-                bytes.push(e.actor);
-                bytes.push(e.class.as_u8());
-                bytes.push(e.size_bucket);
+        // Fixed-size stack buffer (max 8 + 4×(1 + 8×3) = 108 bytes): the same
+        // byte stream as before, with no per-visit allocation. FNV-1a over
+        // the fixed array with plain indexing (no bounds checks in the loop).
+        let mut bytes = [0u8; 128];
+        let mut n = 0usize;
+        bytes[n] = obs.street.as_u8();
+        n += 1;
+        bytes[n] = obs.player.as_usize() as u8;
+        n += 1;
+        bytes[n] = self.spr_band(obs);
+        n += 1;
+        bytes[n] = (bucket & 0xff) as u8;
+        bytes[n + 1] = (bucket >> 8) as u8;
+        n += 2;
+        bytes[n] = self.belief_bin; // ExploitBayes bin (0 when unused)
+        n += 1;
+        bytes[n] = (mask & 0xff) as u8;
+        bytes[n + 1] = (mask >> 8) as u8;
+        n += 2;
+        for street in 0..4usize {
+            let len = seq.lens[street] as usize;
+            bytes[n] = seq.lens[street];
+            n += 1;
+            for i in 0..len {
+                let e = &seq.entries[street * 8 + i];
+                bytes[n] = e.actor;
+                bytes[n + 1] = e.class.as_u8();
+                bytes[n + 2] = e.size_bucket;
+                n += 3;
             }
         }
-        InfoSetKey(fnv1a(&bytes) | (1 << 63))
+        InfoSetKey(fnv1a(&bytes[..n]) | (1 << 63))
     }
 
     /// Record an action into the seq (deterministic; depth-free sizing).
@@ -333,11 +403,7 @@ impl Encoder {
 
 fn p(dir: &Path, name: &str) -> Option<std::path::PathBuf> {
     let f = dir.join(name);
-    if f.exists() {
-        Some(f)
-    } else {
-        None
-    }
+    if f.exists() { Some(f) } else { None }
 }
 
 /// Pack (hole, board) for the equity cache key.
@@ -347,6 +413,14 @@ fn seq_pack(hole: Hand2, board: &[cham_core::card::Card]) -> u64 {
         v |= (c.idx() as u64) << (16 + 8 * i);
     }
     v
+}
+
+/// Pack (hole, board) for the flop/turn fallback-bucket memo. The board
+/// length rides in the top byte: without it a turn board whose 4th card is
+/// `Card(0)` packs identically to its 3-card flop prefix (zero shift payload),
+/// aliasing flop-band and turn-band buckets. Caught by key-stream diff.
+fn board_pack(hole: Hand2, board: &[cham_core::card::Card]) -> u64 {
+    seq_pack(hole, board) | ((board.len() as u64) << 56)
 }
 
 /// Equal-mass quantile edges in [0,1] (runtime default when no meta is present).
