@@ -75,3 +75,27 @@ Total budget ≈ 9 h. Leaves ~1 h buffer.
 | `full-robust: abort` | Full bp did not fit in 2 h | Reduce iters, or use fewer buckets |
 | `RSS > 12 GB at <phase>` | Memory guard tripped | Document the phase; re-run with fewer threads |
 | Missing `PHASE_*` lines | Driver crashed | `tail` the driver log; the last phase is the culprit |
+
+
+---
+
+## UPDATE (post-implementation): driver phases as committed
+
+The original plan's `full-buckets` phase was dropped: `sample_orbits: 0`
+enumerates ~56 M canonical orbits (flop 1.29 M + turn 55 M), an
+M2 multi-day build — it would have consumed the whole window and
+aborted with nothing. The revised driver (`scripts/overnight-2026-09-25.sh`)
+runs:
+
+| # | Phase | Budget | Purpose |
+|---|-------|--------|---------|
+| 0 | turn-ehs-wait | 1 h | wait for the running turn EHS build |
+| 1 | tiny-robust | 30 min | robust blueprint at 10k iters, tiny abstraction |
+| 2 | tiny-expert-{nit,tag,lag,station} | 4 × 15 min | 4 experts at 10k iters |
+| 3 | assemble agent | 1 min | layout artifacts/agent from tiny artifacts |
+| 4 | tiny-ladder | 30 min | first real ladder (the ±0.0 unlock) |
+| 5 | tiny-probe | 15 min | LBR proxy on the live agent |
+| 6 | full-flop | 3 h | full flop EHS build (GPU is now free) |
+| 7 | verify-gpu | 10 min | P7 resample on turn + flop |
+
+Total budget ≈ 5 h 15 min. Leaves >4 h buffer.
