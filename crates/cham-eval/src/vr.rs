@@ -2,7 +2,7 @@
 //! known-opponent baseline, both validated by measured variance factors.
 
 use cham_core::card::{Card, Hand2};
-use cham_core::eval::{Range, evaluate7};
+use cham_core::eval::{evaluate7, Range};
 
 /// All-in EV adjustment: replace all-in runout outcomes by showdown-equity EV.
 /// Given the terminal state facts (holes, board, payoff), returns the EV-adjusted
