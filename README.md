@@ -1,8 +1,8 @@
-# CHAMELEON — v2
+# CHAMELEON
 
 **Play the opponent, not the game.** A routed mixture of archetype-specialist blueprints for HUNL, trained and benchmarked on an M1 (16 GB, pure Rust).
 
-Spec set v2: hardened after a hard external review that found ten fatal/thesis-level issues in v1's poker core (invalid MCCFR estimator, MC noise inside infoset keys, board-less river keys, circular router features, self-defeating mixture math, circular evaluation, self-referential solver validation, invented Slumbot dialect, inconsistent statistics). All resolved — see [`REVIEW-RESOLUTIONS.md`](REVIEW-RESOLUTIONS.md) for the point-by-point map.
+Spec set v2: hardened after a hard external review that found ten fatal/thesis-level issues in v1's poker core (invalid MCCFR estimator, MC noise inside infoset keys, board-less river keys, circular router features, self-defeating mixture math, circular evaluation, self-referential solver validation, invented Slumbot dialect, inconsistent statistics). All resolved — see [`REVIEW-RESOLUTIONS.md`](docs/REVIEW-RESOLUTIONS.md) for the point-by-point map.
 
 ## What it is
 
@@ -15,12 +15,12 @@ Spec set v2: hardened after a hard external review that found ten fatal/thesis-l
 
 | File | Read when |
 |---|---|
-| [`PLAN.md`](PLAN.md) | Vision, v2 architecture, risks, legacy-pkr annex |
-| [`REVIEW-RESOLUTIONS.md`](REVIEW-RESOLUTIONS.md) | What the review demanded and where each fix landed |
-| [`SPECS/00-conventions.md`](SPECS/00-conventions.md) | **Always, first** |
-| [`SPECS/01`–`09`, `12`](SPECS/) | Building that crate (order: core → engine → opponents → blueprint → router → search → agent → eval → cli; rec anytime) |
-| [`SPECS/10-experiment-protocol.md`](SPECS/10-experiment-protocol.md) | Any benchmark/A-B interpretation |
-| [`SPECS/11-milestones.md`](SPECS/11-milestones.md) | What to build next; **M-1 proofs gate everything** |
+| [`PLAN.md`](docs/PLAN.md) | Vision, v1 architecture, risks, legacy-pkr annex |
+| [`REVIEW-RESOLUTIONS.md`](docs/REVIEW-RESOLUTIONS.md) | What the review demanded and where each fix landed |
+| [`SPECS/00-conventions.md`](docs/SPECS/00-conventions.md) | **Always, first** |
+| [`SPECS/01`–`09`, `12`](docs/SPECS/) | Building that crate (order: core → engine → opponents → blueprint → router → search → agent → eval → cli; rec anytime) |
+| [`SPECS/10-experiment-protocol.md`](docs/SPECS/10-experiment-protocol.md) | Any benchmark/A-B interpretation |
+| [`SPECS/11-milestones.md`](docs/SPECS/11-milestones.md) | What to build next; **M-1 proofs gate everything** |
 
 ## Build order (agent-facing)
 
@@ -30,13 +30,32 @@ Spec set v2: hardened after a hard external review that found ten fatal/thesis-l
 
 **Implemented.** The full workspace (11 crates, Rust edition 2024) builds warning-free
 and is clippy-clean (`cargo clippy --workspace --all-targets -- -D warnings`). The test
-suite (141 tests) is green, including the M-1 proofs gate:
+suite (147 tests) is green, including the M-1 proofs gate:
 
 - **P-1** ES-MCCFR on Kuhn converges to the Nash value (−0.0556 vs −1/18).
 - **P-2** one-sided exploit training hits the exact best-response value vs a fixed caller.
 - **P-3** the reach-weighted mixture beats the best single specialist and reaches ≥ 90 %
   of the exact Bayes-optimal EV on the hidden-type toy.
 - **P-4** the FMBR/LP river machinery matches closed-form matrix-game solutions to 1e-6.
+
+Performance (PERF-PLAN T1–T5, Apple M1, `target-cpu=native`): `eval_evaluate7`
+single-pass + `evaluate7_batch` API · `State::apply_in_place` + hotspot-split
+engine benches · `ThreadMode::Snapbatch` with thread-local delta buffers behind a
+`RegretSink` (`Deterministic` bit-exact) · memoized fallback buckets + allocation-free
+`Encoder::key_for` (single ladder derivation per visit — `mccfr_iter_200bb_tiny`
+25.4 ms → 2.4 ms on the table-less path; `train-bp --mode robust --seed 7`
+bit-identical infosets at ~1.4× wall-clock) · `train-bp --threads` (default:
+available parallelism; 4 workers usually beats 8 on the M1).
+
+Gates & guardrails (T6–T7): `verify --perf` now ENFORCES the P1–P6 gates from
+criterion estimates (gate/threshold/measured/PASS|FAIL table, exit 1 on breach;
+"run `just bench` first" when estimates are missing) instead of printing
+thresholds. `ladder`/`probe`/`ab` refuse with exit 2 when a trained agent
+(`full`, `argmax`, `robust-only`, …) is requested but `artifacts/agent` files
+are missing, and fallback rates above 20% print a prominent WARNING that is
+written into the ledger entry — silent-fallback mirror rows can no longer
+masquerade as strength numbers. Absolute gate numbers must be re-baselined on
+a quiet M1 (`just bench` under load oversubscribes and inflates every bench).
 
 End-to-end through the binary (`target/release/chameleon`):
 `verify --proofs --count-infosets` → GREEN · `train-buckets` (blake3-hashed artifacts) ·

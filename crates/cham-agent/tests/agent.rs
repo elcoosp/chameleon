@@ -17,7 +17,11 @@ use cham_engine::encoder::Encoder;
 use cham_router::model::SoftmaxModel;
 use cham_router::runtime::RouterRuntime;
 
-const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const CFG: EngineConfig = EngineConfig {
+    start_stack: 10_000,
+    sb: 50,
+    bb: 100,
+};
 
 fn card(s: &str) -> Card {
     Card::parse(s).expect("card")
@@ -69,14 +73,26 @@ fn make_agent(mode: AgentMode) -> ChameleonAgent {
     let cfg = AbstractionConfig::tiny();
     let enc = Encoder::cfg_only(cfg).expect("enc");
     let router = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
-    let dir = std::path::Path::new("artifacts/runs/agent-test");
+    // Unique scratch dir per call: parallel test processes share
+    // `artifacts/runs/`, and `build_artifact` writes policy.bin directly
+    // (no tmp+rename) while `trained_policy` loads it back — a shared dir
+    // admits torn reads under load (intermittent `bad magic` load failures).
+    static AGENT_DIR_CTR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = AGENT_DIR_CTR.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = format!("artifacts/runs/agent-test-{}-{n}", std::process::id());
+    let dir = std::path::Path::new(&dir);
     std::fs::create_dir_all(dir).expect("dir");
     let policy = trained_policy(dir, 300, 0xA6E);
     ChameleonAgent::new(
         mode,
         enc,
         router,
-        vec![policy.clone(), policy.clone(), policy.clone(), policy.clone()],
+        vec![
+            policy.clone(),
+            policy.clone(),
+            policy.clone(),
+            policy.clone(),
+        ],
         policy,
         None,
         None,
@@ -97,7 +113,11 @@ fn tracker_ewm_math() {
     // EWM: s ← 0.5·λ + 0·(1−λ); λ = ln(0.5)/60 → s = 0.5·0.9885 ≈ 0.494
     let lam = (0.5f64).ln() / 60.0;
     let expected = 0.5 * lam; // lam as multiplier: e^{ln .5/60} ≈ 0.98851
-    assert!((t.ewm[0] - expected).abs() < 1e-6, "vpip ewm {} vs {expected}", t.ewm[0]);
+    assert!(
+        (t.ewm[0] - expected).abs() < 1e-6,
+        "vpip ewm {} vs {expected}",
+        t.ewm[0]
+    );
 }
 
 fn ph_fold() -> cham_core::engine::history::PublicHistory {
@@ -127,8 +147,16 @@ fn tracker_opportunity_counts() {
 fn ph_open_call() -> cham_core::engine::history::PublicHistory {
     cham_core::engine::history::PublicHistory {
         actions: vec![
-            (cham_core::engine::Street::Preflop, cham_core::obs::Player::Sb, Action::Raise { to: 250 }),
-            (cham_core::engine::Street::Preflop, cham_core::obs::Player::Bb, Action::Call),
+            (
+                cham_core::engine::Street::Preflop,
+                cham_core::obs::Player::Sb,
+                Action::Raise { to: 250 },
+            ),
+            (
+                cham_core::engine::Street::Preflop,
+                cham_core::obs::Player::Bb,
+                Action::Call,
+            ),
         ],
         board: [card("2c"); 5],
         showdown_holes: [None, None],
@@ -151,9 +179,17 @@ fn tracker_leak_proof() {
     }
     let text = serde_json::to_string(&t).expect("serialize");
     let v: serde_json::Value = serde_json::from_str(&text).expect("json");
-    let keys: Vec<&str> = v.as_object().expect("obj").keys().map(|k| k.as_str()).collect();
+    let keys: Vec<&str> = v
+        .as_object()
+        .expect("obj")
+        .keys()
+        .map(|k| k.as_str())
+        .collect();
     for forbidden in ["holes", "board", "showdown_holes", "cards", "seed"] {
-        assert!(!keys.iter().any(|k| k.contains(forbidden)), "tracker leaks {forbidden}");
+        assert!(
+            !keys.iter().any(|k| k.contains(forbidden)),
+            "tracker leaks {forbidden}"
+        );
     }
     assert!(!t.showdown_seen(cham_core::card::Hand2::new(card("As"), card("Ks"))));
 }
@@ -178,7 +214,13 @@ fn weights_frozen_within_hand() {
     let mut agent = make_agent(AgentMode::full_search_off());
     // play one hand with ≥ 2 AGENT decisions; weights must be identical across them
     let prefix = [
-        card("Ah"), card("2c"), card("Ad"), card("3s"), card("9h"), card("4d"), card("Js"),
+        card("Ah"),
+        card("2c"),
+        card("Ad"),
+        card("3s"),
+        card("9h"),
+        card("4d"),
+        card("Js"),
     ];
     // flop, BB (villain) to act first; the agent (SB) gets ≥ 2 decisions
     let mut s = State::new(CFG, Deck::with_prefix(&prefix)).expect("s");
@@ -280,7 +322,12 @@ fn fallback_paths() {
         AgentMode::full_search_off(),
         enc,
         router,
-        vec![policy.clone(), policy.clone(), policy.clone(), policy.clone()],
+        vec![
+            policy.clone(),
+            policy.clone(),
+            policy.clone(),
+            policy.clone(),
+        ],
         policy,
         None,
         None,
@@ -290,8 +337,18 @@ fn fallback_paths() {
     let s = fresh_hand();
     let obs = Observables::view(&s, Player::Sb);
     let a = agent.act(&obs, &mut rng);
-    assert!(obs.legal.iter().any(|l| l.action == a), "uniform fallback is legal");
-    assert!(agent.last_trace.as_ref().map(|t| t.fallback_used).unwrap_or(false), "fallback recorded");
+    assert!(
+        obs.legal.iter().any(|l| l.action == a),
+        "uniform fallback is legal"
+    );
+    assert!(
+        agent
+            .last_trace
+            .as_ref()
+            .map(|t| t.fallback_used)
+            .unwrap_or(false),
+        "fallback recorded"
+    );
 }
 
 #[test]
@@ -319,7 +376,10 @@ fn pipeline_mode_matrix() {
             g4_ledger_ref: String::new(),
         },
     };
-    assert!(bad.validate().is_err(), "search_mode_lockout: no G4 ref → refuse");
+    assert!(
+        bad.validate().is_err(),
+        "search_mode_lockout: no G4 ref → refuse"
+    );
     // with a ref it validates
     let ok = AgentMode {
         routing: "mixture".into(),
@@ -373,15 +433,17 @@ fn mirror_match_smoke() {
             }
             s.apply(action).expect("legal");
         }
-        let ph = cham_core::engine::history::PublicHistory::from(&cham_core::engine::history::HandHistory {
-            seed: h,
-            actions: vec![],
-            cfg: CFG,
-            holes: [s.hole(0), s.hole(1)],
-            board: *s.board(),
-            board_len: s.board_len(),
-            result_sb: s.payoffs()[0],
-        });
+        let ph = cham_core::engine::history::PublicHistory::from(
+            &cham_core::engine::history::HandHistory {
+                seed: h,
+                actions: vec![],
+                cfg: CFG,
+                holes: [s.hole(0), s.hole(1)],
+                board: *s.board(),
+                board_len: s.board_len(),
+                result_sb: s.payoffs()[0],
+            },
+        );
         a.on_hand_end(&ph, s.payoffs()[0]);
         b.on_hand_end(&ph, s.payoffs()[1]);
     }
@@ -390,7 +452,13 @@ fn mirror_match_smoke() {
 
 fn fresh_hand() -> State {
     let prefix = [
-        card("Ah"), card("2c"), card("Ad"), card("3s"), card("9h"), card("4d"), card("Js"),
+        card("Ah"),
+        card("2c"),
+        card("Ad"),
+        card("3s"),
+        card("9h"),
+        card("4d"),
+        card("Js"),
     ];
     let mut s = State::new(CFG, Deck::with_prefix(&prefix)).expect("s");
     s.apply(Action::Call).expect("ok");
@@ -410,8 +478,10 @@ fn reach_weighted_mixture_e2e() {
     let _ = agent.act(&obs, rng);
     // the trace exists and the weights are the router's output (frozen)
     let t = agent.last_trace.expect("trace");
-    assert!((t.weights_frozen.iter().sum::<f64>() - 1.0).abs() < 1e-6 || t.weights_frozen[4] > 0.0,
-        "weights normalized");
+    assert!(
+        (t.weights_frozen.iter().sum::<f64>() - 1.0).abs() < 1e-6 || t.weights_frozen[4] > 0.0,
+        "weights normalized"
+    );
 }
 
 #[test]
