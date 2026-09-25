@@ -19,8 +19,11 @@ pub mod vr;
 
 pub use ab::{AbRunner, AbSpec, AbVerdict};
 pub use ledger::Ledger;
-pub use matcheng::{MatchRunner, MatchSpec, MatchResult, PoolResult};
-pub use stats::{bootstrap_ci, holm, mean, paired_ci, required_seatings, session_cluster_ci, se, sprrt, welch_t, SprtState};
+pub use matcheng::{MatchResult, MatchRunner, MatchSpec, PoolResult};
+pub use stats::{
+    SprtState, bootstrap_ci, holm, mean, paired_ci, required_seatings, se, session_cluster_ci,
+    sprrt, welch_t,
+};
 pub use vr::{apply_allin_ev, variance_factor};
 
 use thiserror::Error;

@@ -17,14 +17,16 @@ pub fn run(rows_path: &str, out: &str) -> i32 {
     // exercise the training math; the PRODUCTION entry point enforces the real
     // number here.
     {
-        use cham_router::dataset::{split_of_session, SESSION_A};
+        use cham_router::dataset::{SESSION_A, split_of_session};
         for c in 0..4u8 {
             let n = rows
                 .iter()
                 .filter(|r| r.label == c && split_of_session(r.session_id) == SESSION_A)
                 .count();
             if n < 2_000 {
-                eprintln!("train: class {c} has {n} rows in split A — spec requires ≥ 2000 (collect more sessions)");
+                eprintln!(
+                    "train: class {c} has {n} rows in split A — spec requires ≥ 2000 (collect more sessions)"
+                );
                 return crate::cmd::EXIT_FAIL;
             }
         }

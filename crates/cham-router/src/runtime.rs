@@ -3,8 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::SoftmaxModel;
 use crate::RouterError;
+use crate::model::SoftmaxModel;
 
 pub const N_EXPERTS: usize = 5; // 4 specialists + robust
 
@@ -23,7 +23,13 @@ pub struct RouterRuntime {
 }
 
 impl RouterRuntime {
-    pub fn new(model: SoftmaxModel, temp: f64, alpha_hand: f64, shield_beta: f64, shield_z: f64) -> RouterRuntime {
+    pub fn new(
+        model: SoftmaxModel,
+        temp: f64,
+        alpha_hand: f64,
+        shield_beta: f64,
+        shield_z: f64,
+    ) -> RouterRuntime {
         RouterRuntime {
             model,
             temp,

@@ -1,10 +1,10 @@
 //! P6 gate (SPECS/00 §6): full-pipeline match throughput ≥ 60k seatings/min
 //! aggregate on 4 threads (recalibrated at M1).
 
-use cham_eval::matcheng::{MatchRunner, MatchSpec};
 use cham_core::obs::Agent;
+use cham_eval::matcheng::{MatchRunner, MatchSpec};
 use cham_opponents::factory::OpponentSpecDto;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 fn bench_match(c: &mut Criterion) {
     let spec = MatchSpec {

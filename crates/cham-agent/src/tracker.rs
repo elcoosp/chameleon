@@ -55,7 +55,10 @@ pub const EWM_LIMP: usize = 12;
 
 impl Tracker {
     pub fn new() -> Tracker {
-        Tracker { ewm: [0.5; 13], ..Tracker::default() }
+        Tracker {
+            ewm: [0.5; 13],
+            ..Tracker::default()
+        }
     }
 
     fn lam() -> f64 {
@@ -184,14 +187,28 @@ impl Tracker {
         }
 
         // --- EWM updates (raw, [0,1]) ---
-        self.ewm_update(EWM_VPIP, if is_opp_vpip(&ph.actions, opp) { 1.0 } else { 0.0 });
+        self.ewm_update(
+            EWM_VPIP,
+            if is_opp_vpip(&ph.actions, opp) {
+                1.0
+            } else {
+                0.0
+            },
+        );
         self.ewm_update(EWM_PFR, if pfr { 1.0 } else { 0.0 });
         self.ewm_update(EWM_THREE_BET, if opp_3bet { 1.0 } else { 0.0 });
         if self.opp_faces_open > 0 && opp_3bet {
             self.ewm_update(EWM_FOLD_TO_3BET, 0.0);
         }
         if facing_3bet {
-            self.ewm_update(EWM_CALL_3BET, if opp_called_3bet(&ph.actions, opp) { 1.0 } else { 0.0 });
+            self.ewm_update(
+                EWM_CALL_3BET,
+                if opp_called_3bet(&ph.actions, opp) {
+                    1.0
+                } else {
+                    0.0
+                },
+            );
         }
         self.ewm_update(EWM_CBET_FLOP, if opp_cbet { 1.0 } else { 0.0 });
         if opp_bet_faced && street >= 1 {
@@ -208,8 +225,18 @@ impl Tracker {
         }
         self.ewm_update(EWM_WTSD, if opp_showdown { 1.0 } else { 0.0 });
         let opp_won = ph.nets[1 - hero_seat] > 0;
-        self.ewm_update(EWM_SHOWDOWN_WON, if opp_showdown && opp_won { 1.0 } else { 0.0 });
-        self.ewm_update(EWM_AGGRESSION, if opp_3bet || opp_cbet || opp_barreled_turn { 1.0 } else { 0.0 });
+        self.ewm_update(
+            EWM_SHOWDOWN_WON,
+            if opp_showdown && opp_won { 1.0 } else { 0.0 },
+        );
+        self.ewm_update(
+            EWM_AGGRESSION,
+            if opp_3bet || opp_cbet || opp_barreled_turn {
+                1.0
+            } else {
+                0.0
+            },
+        );
         self.ewm_update(EWM_LIMP, if limped { 1.0 } else { 0.0 });
         let _ = opp_put_in;
     }
@@ -227,7 +254,12 @@ impl Tracker {
             return 0.0;
         }
         let mean = self.net_window.iter().sum::<i64>() as f64 / n as f64;
-        let var = self.net_window.iter().map(|&x| (x as f64 - mean).powi(2)).sum::<f64>() / n as f64;
+        let var = self
+            .net_window
+            .iter()
+            .map(|&x| (x as f64 - mean).powi(2))
+            .sum::<f64>()
+            / n as f64;
         let sd = var.sqrt().max(1e-9);
         let z = mean / (sd / (n as f64).sqrt());
         z.clamp(-3.0, 3.0)
@@ -260,18 +292,47 @@ fn facing_bet_postflop(raises: i32, street: u8) -> bool {
     street >= 1 && raises == 0
 }
 
-fn is_opp_vpip(actions: &[(cham_core::engine::Street, cham_core::obs::Player, cham_core::engine::Action)], opp: usize) -> bool {
+fn is_opp_vpip(
+    actions: &[(
+        cham_core::engine::Street,
+        cham_core::obs::Player,
+        cham_core::engine::Action,
+    )],
+    opp: usize,
+) -> bool {
     actions
         .iter()
         .filter(|(s, _, _)| s.as_u8() == 0)
-        .any(|(_, p, a)| p.as_usize() == opp && matches!(a, cham_core::engine::Action::Call | cham_core::engine::Action::Bet { .. } | cham_core::engine::Action::Raise { .. }))
+        .any(|(_, p, a)| {
+            p.as_usize() == opp
+                && matches!(
+                    a,
+                    cham_core::engine::Action::Call
+                        | cham_core::engine::Action::Bet { .. }
+                        | cham_core::engine::Action::Raise { .. }
+                )
+        })
 }
 
-fn is_opp_call_path(actions: &[(cham_core::engine::Street, cham_core::obs::Player, cham_core::engine::Action)], opp: usize) -> bool {
+fn is_opp_call_path(
+    actions: &[(
+        cham_core::engine::Street,
+        cham_core::obs::Player,
+        cham_core::engine::Action,
+    )],
+    opp: usize,
+) -> bool {
     is_opp_vpip(actions, opp)
 }
 
-fn opp_called_3bet(actions: &[(cham_core::engine::Street, cham_core::obs::Player, cham_core::engine::Action)], opp: usize) -> bool {
+fn opp_called_3bet(
+    actions: &[(
+        cham_core::engine::Street,
+        cham_core::obs::Player,
+        cham_core::engine::Action,
+    )],
+    opp: usize,
+) -> bool {
     actions
         .iter()
         .filter(|(s, _, _)| s.as_u8() == 0)

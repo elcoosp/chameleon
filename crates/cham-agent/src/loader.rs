@@ -25,7 +25,7 @@ pub struct AgentLoadRecord {
 /// A loaded, integrity-checked agent bundle.
 pub struct LoadedAgent {
     pub encoder: Encoder,
-    pub experts: Vec<BlueprintPolicy>,    // 4 specialists
+    pub experts: Vec<BlueprintPolicy>, // 4 specialists
     pub robust: BlueprintPolicy,
     pub bayes: Option<BlueprintPolicy>,
     pub record: AgentLoadRecord,
@@ -34,15 +34,13 @@ pub struct LoadedAgent {
 /// Load an agent bundle from a directory:
 /// `abstraction.toml` (+ buckets), `experts/{0..3}/policy.bin`, `robust/policy.bin`,
 /// optional `bayes/policy.bin`.
-pub fn load_agent(
-    dir: &Path,
-    routing: &str,
-    depth_bb: i64,
-) -> Result<LoadedAgent, AgentError> {
+pub fn load_agent(dir: &Path, routing: &str, depth_bb: i64) -> Result<LoadedAgent, AgentError> {
     let toml_path = dir.join("abstraction.toml");
     let toml_text = std::fs::read_to_string(&toml_path)?;
-    let cfg: AbstractionConfig = toml::from_str(&toml_text).map_err(|e| AgentError::Loader(format!("toml: {e}")))?;
-    cfg.validate().map_err(|e| AgentError::Loader(format!("{e}")))?;
+    let cfg: AbstractionConfig =
+        toml::from_str(&toml_text).map_err(|e| AgentError::Loader(format!("toml: {e}")))?;
+    cfg.validate()
+        .map_err(|e| AgentError::Loader(format!("{e}")))?;
     let encoder = Encoder::from_config(cfg, &dir.join("buckets"))
         .map_err(|e| AgentError::Loader(format!("encoder: {e}")))?;
     let ab_hash = encoder.abstraction_hash();
@@ -56,7 +54,8 @@ pub fn load_agent(
         if bp.provenance().depth_bb != depth_bb {
             return Err(AgentError::Loader(format!(
                 "expert {} depth {} ≠ requested {depth_bb} (mixed-depth set)",
-                i, bp.provenance().depth_bb
+                i,
+                bp.provenance().depth_bb
             )));
         }
         hashes.insert(format!("expert{i}"), format!("{:x}", bp.artifact_hash()));
@@ -85,8 +84,17 @@ pub fn load_agent(
         mode: routing.to_string(),
         artifact_hashes: hashes,
         depth_bb,
-        experts: experts.iter().map(|e| format!("{:x}", e.artifact_hash())).collect(),
+        experts: experts
+            .iter()
+            .map(|e| format!("{:x}", e.artifact_hash()))
+            .collect(),
         abstraction_hash: format!("{ab_hash:x}"),
     };
-    Ok(LoadedAgent { encoder, experts, robust, bayes, record })
+    Ok(LoadedAgent {
+        encoder,
+        experts,
+        robust,
+        bayes,
+        record,
+    })
 }

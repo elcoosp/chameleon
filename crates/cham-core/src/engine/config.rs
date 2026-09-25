@@ -24,7 +24,11 @@ impl Default for EngineConfig {
 impl EngineConfig {
     /// Standard development depth: 100 bb (SPECS/00 §4).
     pub fn depth(depth_bb: i64) -> EngineConfig {
-        EngineConfig { start_stack: depth_bb * 100, sb: 50, bb: 100 }
+        EngineConfig {
+            start_stack: depth_bb * 100,
+            sb: 50,
+            bb: 100,
+        }
     }
     pub fn depth_bb(&self) -> i64 {
         self.start_stack / self.bb
@@ -32,7 +36,9 @@ impl EngineConfig {
     /// Eager validation (SPECS/00 §5): `sb*2 == bb`, `20bb ≤ start_stack ≤ 1000bb`.
     pub fn validate(&self) -> Result<(), CoreError> {
         if self.sb <= 0 || self.bb <= 0 || self.start_stack <= 0 {
-            return Err(CoreError::InvalidConfig("blinds and stack must be positive".into()));
+            return Err(CoreError::InvalidConfig(
+                "blinds and stack must be positive".into(),
+            ));
         }
         if self.sb * 2 != self.bb {
             return Err(CoreError::InvalidConfig(format!(

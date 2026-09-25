@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use cham_rec::Recorder;
 
-use crate::matcheng::{MatchRunner, MatchSpec};
-use cham_opponents::factory::OpponentSpecDto;
-use crate::stats::{holm, paired_ci, sprrt, SprtState};
 use crate::EvalError;
+use crate::matcheng::{MatchRunner, MatchSpec};
+use crate::stats::{SprtState, holm, paired_ci, sprrt};
+use cham_opponents::factory::OpponentSpecDto;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SprtParams {
@@ -83,7 +83,11 @@ impl AbRunner {
             let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0] ^ 0xAB);
             let ci = paired_ci(&diffs, spec.conf, rng);
             let delta = crate::stats::mean(&diffs);
-            per_opp.push(PerOppDelta { opponent: opp.id(), delta_mb: delta, ci });
+            per_opp.push(PerOppDelta {
+                opponent: opp.id(),
+                delta_mb: delta,
+                ci,
+            });
             all_diffs.extend(diffs);
         }
         let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0]);
@@ -91,12 +95,21 @@ impl AbRunner {
         let delta = crate::stats::mean(&all_diffs);
         // SPRT (screening arms)
         let sprt = match &spec.sprt {
-            Some(p) => Some(sprrt(&all_diffs, p.delta0_mb, p.delta1_mb, p.alpha, p.beta)?),
+            Some(p) => Some(sprrt(
+                &all_diffs,
+                p.delta0_mb,
+                p.delta1_mb,
+                p.alpha,
+                p.beta,
+            )?),
             None => None,
         };
         // verdict rule: paired CI lower > margin
         let promote = ci.0 > spec.margin_mb
-            && sprt.as_ref().map(|s| !matches!(s, SprtState::AcceptH0)).unwrap_or(true);
+            && sprt
+                .as_ref()
+                .map(|s| !matches!(s, SprtState::AcceptH0))
+                .unwrap_or(true);
         if let Some(r) = rec {
             use cham_rec::schema::RecordKind;
             r.record(

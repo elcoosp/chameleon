@@ -2,15 +2,15 @@
 
 use arrayvec::ArrayVec;
 
+use cham_core::CoreError;
 use cham_core::card::{Card, Deck, Hand2};
 use cham_core::engine::config::EngineConfig;
 use cham_core::engine::fuzz;
 use cham_core::engine::history::PublicHistory;
 use cham_core::engine::{Action, State, Street};
-use cham_core::eval::{best5, equity_exact, evaluate5, evaluate7, Range};
+use cham_core::eval::{Range, best5, equity_exact, evaluate5, evaluate7};
 use cham_core::obs::{Agent, AgentError, LegalAction, Observables, Player};
-use cham_core::rng::{child, next_u32, rng_from_seed, Rng};
-use cham_core::CoreError;
+use cham_core::rng::{Rng, child, next_u32, rng_from_seed};
 
 fn legal(state: &State) -> ArrayVec<LegalAction, 12> {
     let mut v = ArrayVec::new();
@@ -29,7 +29,11 @@ fn card_parse_roundtrip() {
     }
     assert!(Card::parse("Az").is_err());
     assert!(Card::parse("Asx").is_err());
-    assert_eq!(Card::parse("as").expect("lowercase"), Card(48), "As = idx 48");
+    assert_eq!(
+        Card::parse("as").expect("lowercase"),
+        Card(48),
+        "As = idx 48"
+    );
 }
 
 #[test]
@@ -46,8 +50,16 @@ fn hand2_canonical_169() {
             canon_ids[cn.class_id() as usize] = true;
         }
     }
-    assert_eq!(classes.iter().filter(|b| **b).count(), 169, "169 preflop classes");
-    assert_eq!(canon_ids.iter().filter(|b| **b).count(), 169, "canonical forms cover 169 classes");
+    assert_eq!(
+        classes.iter().filter(|b| **b).count(),
+        169,
+        "169 preflop classes"
+    );
+    assert_eq!(
+        canon_ids.iter().filter(|b| **b).count(),
+        169,
+        "canonical forms cover 169 classes"
+    );
 }
 
 #[test]
@@ -123,11 +135,22 @@ fn seeded_hand(i: u64) -> [Card; 7] {
 fn eval_golden_50() {
     for i in 0..50u64 {
         let hand = seeded_hand(i);
-        assert_eq!(evaluate7(&hand), naive7(&hand), "hand {i}: {:?}", hand.map(|c| c.to_str()));
+        assert_eq!(
+            evaluate7(&hand),
+            naive7(&hand),
+            "hand {i}: {:?}",
+            hand.map(|c| c.to_str())
+        );
     }
     let card = |s: &str| Card::parse(s).expect("card");
     let royal: [Card; 7] = [
-        card("As"), card("Ks"), card("Qs"), card("Js"), card("Ts"), card("2h"), card("3d"),
+        card("As"),
+        card("Ks"),
+        card("Qs"),
+        card("Js"),
+        card("Ts"),
+        card("2h"),
+        card("3d"),
     ];
     assert_eq!(evaluate7(&royal), 7462, "royal flush tops the 7462 scale");
     assert_eq!(evaluate7(&royal), naive7(&royal));
@@ -136,18 +159,41 @@ fn eval_golden_50() {
 #[test]
 fn eval_flush_wheel_edges() {
     let card = |s: &str| Card::parse(s).expect("card");
-    let mk = |spec: [&str; 7]| [card(spec[0]), card(spec[1]), card(spec[2]), card(spec[3]), card(spec[4]), card(spec[5]), card(spec[6])];
+    let mk = |spec: [&str; 7]| {
+        [
+            card(spec[0]),
+            card(spec[1]),
+            card(spec[2]),
+            card(spec[3]),
+            card(spec[4]),
+            card(spec[5]),
+            card(spec[6]),
+        ]
+    };
     let sf_wheel = mk(["ah", "2h", "3h", "4h", "5h", "2d", "3d"]);
     let a_flush = mk(["ah", "kh", "jh", "9h", "7h", "2d", "3d"]);
-    assert!(evaluate7(&sf_wheel) > evaluate7(&a_flush), "wheel SF beats A-high flush");
+    assert!(
+        evaluate7(&sf_wheel) > evaluate7(&a_flush),
+        "wheel SF beats A-high flush"
+    );
     let sf6 = mk(["2h", "3h", "4h", "5h", "6h", "2d", "3d"]);
-    assert!(evaluate7(&sf6) > evaluate7(&sf_wheel), "6-high SF beats wheel SF");
+    assert!(
+        evaluate7(&sf6) > evaluate7(&sf_wheel),
+        "6-high SF beats wheel SF"
+    );
     let wheel = mk(["ah", "2d", "3c", "4s", "5h", "2c", "3d"]);
     let six_hi = mk(["2h", "3d", "4c", "5s", "6h", "2c", "3d"]);
-    assert!(evaluate7(&six_hi) > evaluate7(&wheel), "6-high straight beats wheel");
+    assert!(
+        evaluate7(&six_hi) > evaluate7(&wheel),
+        "6-high straight beats wheel"
+    );
     let (five, v) = best5(&sf_wheel);
     assert_eq!(v, evaluate7(&sf_wheel));
-    assert_eq!(five.iter().filter(|c| c.suit() == 1).count(), 5, "best5 returns the flush");
+    assert_eq!(
+        five.iter().filter(|c| c.suit() == 1).count(),
+        5,
+        "best5 returns the flush"
+    );
 }
 
 #[test]
@@ -165,7 +211,11 @@ fn eval_bitmask_vs_naive() {
 
 // ---------- engine semantics ----------
 
-const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const CFG: EngineConfig = EngineConfig {
+    start_stack: 10_000,
+    sb: 50,
+    bb: 100,
+};
 
 fn fresh(seed: u64) -> State {
     let rng = &mut rng_from_seed(seed);
@@ -200,7 +250,10 @@ fn legal_order_pinned() {
     let l = legal(&s);
     assert_eq!(l[0].action, Action::Check);
     if let Action::Bet { to } = l[1].action {
-        assert_eq!(to, 200, "preflop BB option min = raise over own blind to 2bb");
+        assert_eq!(
+            to, 200,
+            "preflop BB option min = raise over own blind to 2bb"
+        );
     } else {
         panic!("expected Bet slot");
     }
@@ -217,7 +270,11 @@ fn legal_order_pinned() {
 
 #[test]
 fn short_allin_no_reopen() {
-    let cfg20 = EngineConfig { start_stack: 2_000, sb: 50, bb: 100 };
+    let cfg20 = EngineConfig {
+        start_stack: 2_000,
+        sb: 50,
+        bb: 100,
+    };
     let rng = &mut rng_from_seed(12);
     let mut t = State::new(cfg20, Deck::shuffled(rng)).expect("t");
     t.apply(Action::Call).expect("complete");
@@ -229,7 +286,8 @@ fn short_allin_no_reopen() {
     // SB (1700 behind) faces an all-in raise: [Fold, Call] only — no reopen
     let l = legal(&t);
     assert!(
-        l.iter().all(|x| matches!(x.action, Action::Fold | Action::Call)),
+        l.iter()
+            .all(|x| matches!(x.action, Action::Fold | Action::Call)),
         "no raise slots vs all-in: {l:?}"
     );
     let call = l.iter().find(|x| x.action == Action::Call).expect("call");
@@ -247,14 +305,18 @@ fn min_raise_progression() {
     } else {
         panic!("raise slot expected");
     }
-    s.apply(Action::Raise { to: 500 }).expect("full raise: 300 over the 200 level");
+    s.apply(Action::Raise { to: 500 })
+        .expect("full raise: 300 over the 200 level");
     let l = legal(&s);
     if let Action::Raise { to } = l[2].action {
         assert_eq!(to, 800, "min next = 500 + 300");
     } else {
         panic!("raise slot expected");
     }
-    assert!(s.apply(Action::Raise { to: 600 }).is_err(), "below min-raise and not all-in");
+    assert!(
+        s.apply(Action::Raise { to: 600 }).is_err(),
+        "below min-raise and not all-in"
+    );
 }
 
 #[test]
@@ -262,7 +324,17 @@ fn split_odd_chip() {
     // Engineered chop: board broadway, both hands play the board.
     let card = |s: &str| Card::parse(s).expect("card");
     // prefix deal order: p0[0], p1[0], p0[1], p1[1], then board
-    let prefix = [card("2h"), card("4c"), card("3d"), card("5s"), card("Th"), card("Jd"), card("Qc"), card("Kh"), card("Ad")];
+    let prefix = [
+        card("2h"),
+        card("4c"),
+        card("3d"),
+        card("5s"),
+        card("Th"),
+        card("Jd"),
+        card("Qc"),
+        card("Kh"),
+        card("Ad"),
+    ];
     let mut s = State::new(CFG, Deck::with_prefix(&prefix)).expect("s");
     s.apply(Action::Call).expect("preflop complete");
     s.apply(Action::Check).expect("preflop check");
@@ -336,16 +408,27 @@ fn public_history_leak_proof() {
         let ph = PublicHistory::from(&hh);
         let text = serde_json::to_string(&ph).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&text).expect("json");
-        let keys: Vec<&str> = v.as_object().expect("obj").keys().map(|k| k.as_str()).collect();
+        let keys: Vec<&str> = v
+            .as_object()
+            .expect("obj")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
         assert_eq!(
             keys,
             vec!["actions", "board", "nets", "showdown_holes"],
             "public surface is exactly these fields (no seed, no holes)"
         );
         if hh.board_len == 5 {
-            assert!(ph.showdown_holes.iter().all(|x| x.is_some()), "showdown reveals both");
+            assert!(
+                ph.showdown_holes.iter().all(|x| x.is_some()),
+                "showdown reveals both"
+            );
         } else {
-            assert!(ph.showdown_holes.iter().all(|x| x.is_none()), "folded stays hidden");
+            assert!(
+                ph.showdown_holes.iter().all(|x| x.is_none()),
+                "folded stays hidden"
+            );
         }
         assert_eq!(ph.nets[0] + ph.nets[1], 0, "nets zero-sum");
     }
@@ -374,7 +457,8 @@ fn action_probs_exclusive() {
 fn fuzz_1m_release() {
     // I2–I7 over 1M random-action hands (release profile; opt-level 3).
     for seed in 0..1_000_000u64 {
-        let _ = fuzz::play_random(CFG, seed, &mut rng_from_seed(seed)).expect("fuzz hand must play cleanly");
+        let _ = fuzz::play_random(CFG, seed, &mut rng_from_seed(seed))
+            .expect("fuzz hand must play cleanly");
     }
 }
 
@@ -400,7 +484,10 @@ fn rng_derivation_replays_hands() {
 #[test]
 fn illegal_action_errors() {
     let mut s = fresh(9);
-    assert!(matches!(s.apply(Action::Check), Err(CoreError::IllegalAction { .. })));
+    assert!(matches!(
+        s.apply(Action::Check),
+        Err(CoreError::IllegalAction { .. })
+    ));
     s.apply(Action::Call).expect("ok");
     assert!(s.apply(Action::Call).is_err());
 }
@@ -414,7 +501,10 @@ fn equity_exact_river_sums() {
         .collect();
     let (w, t) = equity_exact(hero, &Range::all(), &board);
     // every villain combo is win, lose or tie: w + t + lose = 1
-    assert!(w + t <= 1.0 + 1e-9 && w + t >= 0.30, "AK on a low board vs uniform: w={w} t={t}");
+    assert!(
+        w + t <= 1.0 + 1e-9 && w + t >= 0.30,
+        "AK on a low board vs uniform: w={w} t={t}"
+    );
     assert!(w > 0.30, "AK picks up real equity vs uniform: {w}");
     // dead-card removal is consistent
     let mut r = Range::all();

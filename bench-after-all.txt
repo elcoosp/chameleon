@@ -1,0 +1,202 @@
+   Compiling cham-core v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-core)
+   Compiling cham-rec v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-rec)
+   Compiling cham-proofs v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-proofs)
+   Compiling cham-engine v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-engine)
+   Compiling cham-opponents v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-opponents)
+   Compiling cham-eval v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-eval)
+   Compiling cham-search v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-search)
+   Compiling cham-blueprint v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-blueprint)
+   Compiling cham-router v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-router)
+   Compiling cham-agent v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-agent)
+   Compiling cham-cli v0.1.0 (/Users/adm/Documents/Repos/chameleon/crates/cham-cli)
+    Finished `bench` profile [optimized] target(s) in 2m 53s
+     Running unittests src/lib.rs (target/release/deps/cham_agent-bbd622050b81527f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/cham_blueprint-ff4ba3c73bf27f7e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/mccfr.rs (target/release/deps/mccfr-3344f2d3d49930f3)
+Benchmarking mccfr_iter_200bb_tiny
+Benchmarking mccfr_iter_200bb_tiny: Warming up for 3.0000 s
+Benchmarking mccfr_iter_200bb_tiny: Collecting 100 samples in estimated 5.7206 s (500 iterations)
+Benchmarking mccfr_iter_200bb_tiny: Analyzing
+mccfr_iter_200bb_tiny   time:   [10.789 ms 11.816 ms 12.894 ms]
+                        change: [+359.24% +408.04% +455.62%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+     Running unittests src/main.rs (target/release/deps/chameleon-0991ecb033d39230)
+
+running 2 tests
+test cmd::guard::tests::fallback_warning_threshold ... ignored
+test cmd::guard::tests::trained_agent_set_matches_play_routing ... ignored
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/cham_core-73dd1784778317cf)
+
+running 1 test
+test rng::tests::rng_child_determinism ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/engine.rs (target/release/deps/engine-f428e3fbc9797703)
+Benchmarking engine_apply
+Benchmarking engine_apply: Warming up for 3.0000 s
+Benchmarking engine_apply: Collecting 100 samples in estimated 5.1450 s (1500 iterations)
+Benchmarking engine_apply: Analyzing
+engine_apply            time:   [4.7147 ms 5.3023 ms 5.9099 ms]
+                        change: [+601.89% +679.21% +766.58%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 4 outliers among 100 measurements (4.00%)
+  4 (4.00%) high mild
+
+Benchmarking engine_legal_only
+Benchmarking engine_legal_only: Warming up for 3.0000 s
+Benchmarking engine_legal_only: Collecting 100 samples in estimated 5.2455 s (1700 iterations)
+Benchmarking engine_legal_only: Analyzing
+engine_legal_only       time:   [2.1827 ms 2.4446 ms 2.7229 ms]
+                        change: [+364.73% +421.16% +481.44%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 4 outliers among 100 measurements (4.00%)
+  4 (4.00%) high mild
+
+Benchmarking engine_apply_only
+Benchmarking engine_apply_only: Warming up for 3.0000 s
+Benchmarking engine_apply_only: Collecting 100 samples in estimated 5.4824 s (300 iterations)
+Benchmarking engine_apply_only: Analyzing
+engine_apply_only       time:   [10.220 ms 11.647 ms 13.118 ms]
+                        change: [+430.51% +500.63% +565.42%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+     Running benches/eval.rs (target/release/deps/eval-d4646e29567541af)
+Benchmarking eval_evaluate7
+Benchmarking eval_evaluate7: Warming up for 3.0000 s
+Benchmarking eval_evaluate7: Collecting 100 samples in estimated 5.2055 s (86k iterations)
+Benchmarking eval_evaluate7: Analyzing
+eval_evaluate7          time:   [53.079 µs 56.953 µs 60.978 µs]
+                        change: [-43.359% -34.704% -24.328%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+
+Benchmarking eval_evaluate7_batch8
+Benchmarking eval_evaluate7_batch8: Warming up for 3.0000 s
+Benchmarking eval_evaluate7_batch8: Collecting 100 samples in estimated 6.2089 s (15k iterations)
+Benchmarking eval_evaluate7_batch8: Analyzing
+eval_evaluate7_batch8   time:   [311.75 µs 327.91 µs 345.42 µs]
+                        change: [-53.918% -48.140% -41.413%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+
+     Running unittests src/lib.rs (target/release/deps/cham_engine-482845d279b1dc3e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/encode.rs (target/release/deps/encode-256277fefd8c9567)
+Benchmarking encode_flop
+Benchmarking encode_flop: Warming up for 3.0000 s
+Benchmarking encode_flop: Collecting 100 samples in estimated 5.0547 s (419k iterations)
+Benchmarking encode_flop: Analyzing
+encode_flop             time:   [10.636 µs 11.366 µs 12.170 µs]
+                        change: [-38.716% -30.487% -20.731%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 6 outliers among 100 measurements (6.00%)
+  5 (5.00%) high mild
+  1 (1.00%) high severe
+
+Benchmarking encode_river
+Benchmarking encode_river: Warming up for 3.0000 s
+Benchmarking encode_river: Collecting 100 samples in estimated 5.0019 s (4.3M iterations)
+Benchmarking encode_river: Analyzing
+encode_river            time:   [1.3733 µs 1.4648 µs 1.5529 µs]
+                        change: [-33.268% -25.437% -16.644%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 100 measurements (2.00%)
+  2 (2.00%) high mild
+
+Benchmarking encode_key_only
+Benchmarking encode_key_only: Warming up for 3.0000 s
+Benchmarking encode_key_only: Collecting 100 samples in estimated 5.3358 s (40k iterations)
+Benchmarking encode_key_only: Analyzing
+encode_key_only         time:   [189.13 µs 229.28 µs 269.25 µs]
+                        change: [+13.024% +37.813% +67.510%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 6 outliers among 100 measurements (6.00%)
+  4 (4.00%) high mild
+  2 (2.00%) high severe
+
+     Running unittests src/lib.rs (target/release/deps/cham_eval-4345394c2e157115)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/match_throughput.rs (target/release/deps/match_throughput-8da04b411a8f0624)
+Benchmarking match_20_deals
+Benchmarking match_20_deals: Warming up for 3.0000 s
+Benchmarking match_20_deals: Collecting 100 samples in estimated 5.2227 s (25k iterations)
+Benchmarking match_20_deals: Analyzing
+match_20_deals          time:   [71.850 µs 78.603 µs 86.016 µs]
+                        change: [+176.94% +211.54% +253.32%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+
+     Running unittests src/lib.rs (target/release/deps/cham_opponents-c11ea9e5e23ddccc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/cham_proofs-565ba42117788bea)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/cham_rec-bbfaa327416ac735)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/cham_router-d6b7b2eae42d8a77)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/cham_search-a9de5a0e3484e020)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/solve.rs (target/release/deps/solve-447f461c9c034b19)
+Benchmarking solve_rnr_400
+Benchmarking solve_rnr_400: Warming up for 3.0000 s
+Benchmarking solve_rnr_400: Collecting 100 samples in estimated 6.1224 s (200 iterations)
+Benchmarking solve_rnr_400: Analyzing
+solve_rnr_400           time:   [41.208 ms 45.646 ms 50.259 ms]
+                        change: [+511.49% +570.69% +642.40%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+

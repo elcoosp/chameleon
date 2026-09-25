@@ -14,11 +14,11 @@ use cham_core::card::{Card, Hand2};
 use cham_core::eval::Range;
 use cham_core::rng::{child, next_f64};
 
+use crate::canon::TABLE_MAGIC;
+use crate::canon::TABLE_VERSION;
 use crate::canon::{canonical_key, encode_table, enumerate_orbits};
 use crate::config::AbstractionConfig;
 use crate::tables::KmeansMeta;
-use crate::canon::TABLE_MAGIC;
-use crate::canon::TABLE_VERSION;
 use crate::tables::MISS_SENTINEL;
 
 /// Builder knobs.
@@ -34,7 +34,6 @@ pub struct BuildParams {
     pub quantile_sample: u32,
     pub lloyd_iters: u32,
 }
-
 
 impl BuildParams {
     /// M1-tiny (fast, sampled; ships fallback misses).
@@ -98,7 +97,10 @@ pub fn build_street(
     let (keys, coverage): (Vec<u64>, &'static str) = if params.sample_orbits == 0 {
         (enumerate_orbits(board_len), "full")
     } else {
-        (sample_orbits(board_len, params.sample_orbits, 0xB0), "sampled")
+        (
+            sample_orbits(board_len, params.sample_orbits, 0xB0),
+            "sampled",
+        )
     };
 
     // ---- 2. global equal-mass equity quantiles (for the CDF bins) ----
@@ -166,7 +168,11 @@ pub fn build_street(
 }
 
 /// Write meta.json with river edges and hash it into blake3.
-fn write_meta(out_dir: &Path, edges: &[f64], flop: Option<StreetMeta>) -> Result<(), crate::EngineError> {
+fn write_meta(
+    out_dir: &Path,
+    edges: &[f64],
+    flop: Option<StreetMeta>,
+) -> Result<(), crate::EngineError> {
     let meta = MetaOut {
         version: 2,
         river_eq_edges: edges.to_vec(),
@@ -306,7 +312,10 @@ fn features_for(
                 let range = Range::all();
                 let (w, t) = cham_core::eval::equity_exact(hand, &range, &b5);
                 let eq = w + t / 2.0;
-                let bin = edges.partition_point(|&e| e <= eq).saturating_sub(1).min(CDF_BINS - 1);
+                let bin = edges
+                    .partition_point(|&e| e <= eq)
+                    .saturating_sub(1)
+                    .min(CDF_BINS - 1);
                 hist[bin] += 1;
             }
             let total = params.feature_runs as f32;
@@ -358,12 +367,7 @@ fn nearest_centroid(f: &[f32; CDF_BINS], cs: &[[f32; CDF_BINS]]) -> usize {
 }
 
 /// Seeded k-means++ over L1 distance (EMD proxy for 1-D CDFs), deterministic.
-pub fn kmeans_l1(
-    data: &[[f32; CDF_BINS]],
-    k: usize,
-    seed: u64,
-    max_iters: u32,
-) -> Km {
+pub fn kmeans_l1(data: &[[f32; CDF_BINS]], k: usize, seed: u64, max_iters: u32) -> Km {
     assert!(k > 0 && !data.is_empty());
     let mut rng = child(seed, "kmeans");
     let mut seeds = Vec::new();
@@ -455,12 +459,20 @@ pub fn kmeans_l1(
         }
         prev_centroids = centroids.clone();
     }
-    Km { centroids, seeds, inertia: inertia_curve }
+    Km {
+        centroids,
+        seeds,
+        inertia: inertia_curve,
+    }
 }
 
 /// Commit the RIVER quantile edges into an existing meta.json (called once after
 /// both street builds; edges computed from the same pilot as `build_street`).
-pub fn finalize_meta(cfg: &AbstractionConfig, out_dir: &Path, params: BuildParams) -> Result<(), crate::EngineError> {
+pub fn finalize_meta(
+    cfg: &AbstractionConfig,
+    out_dir: &Path,
+    params: BuildParams,
+) -> Result<(), crate::EngineError> {
     let _ = cfg;
     let edges = equity_quantile_edges(params.quantile_sample, 0xC1);
     let path = out_dir.join("meta.json");
@@ -468,7 +480,14 @@ pub fn finalize_meta(cfg: &AbstractionConfig, out_dir: &Path, params: BuildParam
         serde_json::from_str(&std::fs::read_to_string(&path)?)
             .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?
     } else {
-        MetaOut { version: 2, river_eq_edges: edges.clone(), flop: None, turn: None, default_bucket: MISS_SENTINEL, blake3: String::new() }
+        MetaOut {
+            version: 2,
+            river_eq_edges: edges.clone(),
+            flop: None,
+            turn: None,
+            default_bucket: MISS_SENTINEL,
+            blake3: String::new(),
+        }
     };
     meta.river_eq_edges = edges;
     write_meta_struct(out_dir, &meta)?;

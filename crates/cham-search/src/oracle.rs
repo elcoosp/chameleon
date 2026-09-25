@@ -91,7 +91,8 @@ fn solve_support(a: &[Vec<f64>], rs: &[usize], cs: &[usize]) -> Option<(f64, Vec
     // row player: uniform over the support that best-responds
     // compute v (col's equalized value) and find row's best mix: uniform over rows
     // whose payoff against q equals v
-    let value_at = |i: usize| -> f64 { cs.iter().enumerate().map(|(j, &cj)| q[j] * a[i][cj]).sum() };
+    let value_at =
+        |i: usize| -> f64 { cs.iter().enumerate().map(|(j, &cj)| q[j] * a[i][cj]).sum() };
     let v = value_at(rs[0]);
     let mut best_rows: Vec<usize> = Vec::new();
     for i in 0..a.len() {

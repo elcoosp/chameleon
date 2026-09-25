@@ -7,7 +7,7 @@
 use arrayvec::ArrayVec;
 
 use cham_core::engine::Action;
-use cham_core::obs::{Observables};
+use cham_core::obs::Observables;
 
 /// Tilt direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -46,7 +46,11 @@ pub struct PerturbedNashAgent {
 
 impl PerturbedNashAgent {
     pub fn new(tilt: Tilt, delta: f64) -> PerturbedNashAgent {
-        PerturbedNashAgent { tilt, delta: delta.clamp(0.0, 0.9), source: None }
+        PerturbedNashAgent {
+            tilt,
+            delta: delta.clamp(0.0, 0.9),
+            source: None,
+        }
     }
 
     /// Inject the blueprint-backed strategy (cham-eval does this at load time).
@@ -72,7 +76,11 @@ impl PerturbedNashAgent {
                 Tilt::OverRaise => matches!(a, Action::Bet { .. } | Action::Raise { .. }),
             }
         };
-        let target_mass: f64 = base.iter().filter(|(a, _)| classify(a)).map(|(_, p)| *p).sum();
+        let target_mass: f64 = base
+            .iter()
+            .filter(|(a, _)| classify(a))
+            .map(|(_, p)| *p)
+            .sum();
         let taken = (self.delta).min(1.0 - target_mass);
         let new_mass = target_mass + taken;
         for (a, p) in &base {
@@ -111,7 +119,10 @@ impl cham_core::obs::Agent for PerturbedNashAgent {
         let dist = self.tilted(obs);
         sample(&dist, rng)
     }
-    fn action_probs(&self, obs: &Observables<'_>) -> Result<ArrayVec<(Action, f64), 12>, cham_core::obs::AgentError> {
+    fn action_probs(
+        &self,
+        obs: &Observables<'_>,
+    ) -> Result<ArrayVec<(Action, f64), 12>, cham_core::obs::AgentError> {
         Ok(self.tilted(obs))
     }
 }

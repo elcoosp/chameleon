@@ -17,10 +17,13 @@ pub mod model;
 pub mod runtime;
 pub mod train;
 
-pub use dataset::{read_dataset, write_dataset, RbinRow, DatasetMeta, SESSION_A, SESSION_BDEV, SESSION_BTEST, SESSION_C};
-pub use features::{FeatureInputs, FeatureContract};
+pub use dataset::{
+    DatasetMeta, RbinRow, SESSION_A, SESSION_BDEV, SESSION_BTEST, SESSION_C, read_dataset,
+    write_dataset,
+};
+pub use features::{FeatureContract, FeatureInputs};
 pub use model::SoftmaxModel;
-pub use runtime::{RouterRuntime, N_EXPERTS};
+pub use runtime::{N_EXPERTS, RouterRuntime};
 pub use train::train_model;
 
 use thiserror::Error;

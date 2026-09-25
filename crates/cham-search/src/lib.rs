@@ -23,9 +23,9 @@ pub mod trigger;
 pub use budget::{SearchBudget, WallClockGuard};
 pub use prior::PriorStrats;
 pub use solve::SolveResult;
-pub use trigger::SolverChoice;
 pub use subgame::Subgame;
-pub use trigger::{should_search, SearchConfig};
+pub use trigger::SolverChoice;
+pub use trigger::{SearchConfig, should_search};
 
 use thiserror::Error;
 

@@ -9,7 +9,7 @@ use cham_engine::encoder::{ActionSeq, Encoder};
 use cham_opponents::archetype::ArchetypeAgent;
 use cham_opponents::params::ArchetypeId;
 use cham_opponents::percentile::PercentileChart;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 fn bench_mccfr_iter(c: &mut Criterion) {
     let chart = PercentileChart::global();
@@ -24,7 +24,8 @@ fn bench_mccfr_iter(c: &mut Criterion) {
             for t in 0..20u64 {
                 let rng = &mut rng_from_seed(0xBEEF ^ t);
                 let mut state =
-                    cham_core::engine::State::new(engine, cham_core::card::Deck::shuffled(rng)).expect("s");
+                    cham_core::engine::State::new(engine, cham_core::card::Deck::shuffled(rng))
+                        .expect("s");
                 let mut seq = ActionSeq::default();
                 let mut walker = cham_blueprint::traversal::Traversal {
                     table: black_box(&mut table),

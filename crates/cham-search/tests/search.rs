@@ -1,17 +1,22 @@
 //! Contractual test set for cham-search (SPECS/06 §6).
 
-use cham_search::budget::SearchBudget;
-use cham_search::oracle::solve_matrix;
-use cham_search::prior::{collapse_to_classes, PriorStrats};
-use cham_search::solve::solve;
-use cham_search::subgame::{Class, Subgame};
-use cham_search::trigger::{should_search, SearchConfig, SolverChoice};
 use cham_core::engine::Street;
 use cham_core::obs::{Observables, Player};
 use cham_core::rng::rng_from_seed;
+use cham_search::budget::SearchBudget;
+use cham_search::oracle::solve_matrix;
+use cham_search::prior::{PriorStrats, collapse_to_classes};
+use cham_search::solve::solve;
+use cham_search::subgame::{Class, Subgame};
+use cham_search::trigger::{SearchConfig, SolverChoice, should_search};
 
 fn classes(n: usize) -> Vec<Class> {
-    collapse_to_classes((0..n).map(|i| (1.0 / n as f64, i as f64 / (n - 1).max(1) as f64)).collect(), n.min(4))
+    collapse_to_classes(
+        (0..n)
+            .map(|i| (1.0 / n as f64, i as f64 / (n - 1).max(1) as f64))
+            .collect(),
+        n.min(4),
+    )
 }
 
 fn spot() -> (Subgame, PriorStrats) {
@@ -62,7 +67,10 @@ fn trigger_config() {
     on.min_pot_bb = 1.0;
     assert!(should_search(&obs, &on), "river + pot above floor");
     on.min_pot_bb = 50.0;
-    assert!(!should_search(&obs, &on), "pot below the floor blocks the trigger");
+    assert!(
+        !should_search(&obs, &on),
+        "pot below the floor blocks the trigger"
+    );
     // Iterations vs WallClock semantics
     let iters = SearchBudget::Iterations { iters: 400 };
     assert!(iters.is_deterministic());
@@ -93,7 +101,10 @@ fn prior_confidence_flatten() {
     assert_eq!(hi, vec![0.9, 0.1]);
     // zero confidence: uniform (floored)
     let lo = p.flatten("bet0.5", 0.0).expect("flatten");
-    assert!((lo[0] - 0.5).abs() < 1e-9, "low-confidence path floored toward uniform");
+    assert!(
+        (lo[0] - 0.5).abs() < 1e-9,
+        "low-confidence path floored toward uniform"
+    );
     // intermediate: blend
     let mid = p.flatten("bet0.5", 0.05).expect("flatten");
     assert!(mid[0] > 0.5 && mid[0] < 0.9, "blended: {mid:?}");
@@ -152,7 +163,10 @@ fn rnr_p_interpolation() {
         }
         let _ = &tree;
         assert!(hero_bet_mass.is_finite());
-        assert!(hero_bet_mass >= last - 1e-9, "hero aggression non-decreasing in p: {p}: {hero_bet_mass} vs {last}");
+        assert!(
+            hero_bet_mass >= last - 1e-9,
+            "hero aggression non-decreasing in p: {p}: {hero_bet_mass} vs {last}"
+        );
         last = hero_bet_mass;
     }
 }
@@ -178,7 +192,11 @@ fn reach_gadget_safety() {
         "gadget EV bounded: {ev_gadget:.3} vs FMBR {ev_fmbr:.3}"
     );
     // and the gadget arm's own hero gap is bounded (no runaway)
-    assert!(gadget.lbr_gap.0.abs() < 10.0, "gadget hero gap bounded: {}", gadget.lbr_gap.0);
+    assert!(
+        gadget.lbr_gap.0.abs() < 10.0,
+        "gadget hero gap bounded: {}",
+        gadget.lbr_gap.0
+    );
 }
 
 #[test]
@@ -228,7 +246,10 @@ fn solver_matches_independent_oracles() {
             bet_mass_strong += p;
         }
     }
-    assert!(bet_mass_strong > 0.9, "FMBR bets strong hands vs a pure caller: {bet_mass_strong}");
+    assert!(
+        bet_mass_strong > 0.9,
+        "FMBR bets strong hands vs a pure caller: {bet_mass_strong}"
+    );
 }
 
 #[test]
@@ -236,7 +257,10 @@ fn solver_determinism_fixed_iters() {
     let (sg, prior) = spot();
     let a = solve(&sg, &prior, &SolverChoice::Rnr { p: 0.9 }, 100).expect("a");
     let b = solve(&sg, &prior, &SolverChoice::Rnr { p: 0.9 }, 100).expect("b");
-    assert_eq!(a.our_strategy, b.our_strategy, "bit-identical under fixed iters");
+    assert_eq!(
+        a.our_strategy, b.our_strategy,
+        "bit-identical under fixed iters"
+    );
     assert_eq!(a.lbr_gap, b.lbr_gap);
 }
 
@@ -245,9 +269,14 @@ fn budget_wallclock_only_live() {
     // Structural: Iterations mode contains no time reads in the solve path —
     // budget.rs is the only file allowed to touch Instant.
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let solve_src = std::fs::read_to_string(std::path::Path::new(manifest).join("src/solve.rs")).expect("src");
-    assert!(!solve_src.contains("Instant"), "solve path must not read the clock");
-    let budget_src = std::fs::read_to_string(std::path::Path::new(manifest).join("src/budget.rs")).expect("src");
+    let solve_src =
+        std::fs::read_to_string(std::path::Path::new(manifest).join("src/solve.rs")).expect("src");
+    assert!(
+        !solve_src.contains("Instant"),
+        "solve path must not read the clock"
+    );
+    let budget_src =
+        std::fs::read_to_string(std::path::Path::new(manifest).join("src/budget.rs")).expect("src");
     assert!(budget_src.contains("Instant"), "budget owns the clock");
 }
 
@@ -264,9 +293,15 @@ fn illegal_action_never() {
     while let Some((p, node)) = stack.pop() {
         match node {
             cham_search::subgame::Node::Terminal { .. } => {}
-            cham_search::subgame::Node::Decision { actions, children, .. } => {
+            cham_search::subgame::Node::Decision {
+                actions, children, ..
+            } => {
                 for (a, c) in actions.iter().zip(children.iter()) {
-                    let np = if p.is_empty() { a.clone() } else { format!("{p}/{a}") };
+                    let np = if p.is_empty() {
+                        a.clone()
+                    } else {
+                        format!("{p}/{a}")
+                    };
                     paths.insert(np.clone());
                     stack.push((np, c));
                 }
@@ -274,9 +309,15 @@ fn illegal_action_never() {
         }
     }
     for (path, probs) in r.our_strategy.iter().chain(r.their_strategy.iter()) {
-        assert!(paths.contains(path), "strategy path {path} must exist on the tree");
+        assert!(
+            paths.contains(path),
+            "strategy path {path} must exist on the tree"
+        );
         let s: f64 = probs.iter().sum();
-        assert!((s - 1.0).abs() < 1e-6 || probs.is_empty(), "distribution at {path}");
+        assert!(
+            (s - 1.0).abs() < 1e-6 || probs.is_empty(),
+            "distribution at {path}"
+        );
         assert!(probs.iter().all(|&p| p >= -1e-9), "no negative probs");
     }
     let _ = rng_from_seed(1);

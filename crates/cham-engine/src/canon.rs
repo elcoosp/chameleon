@@ -92,15 +92,24 @@ impl<'a> TableView<'a> {
     pub fn parse(bytes: &'a [u8]) -> Result<TableView<'a>, crate::EngineError> {
         let path = std::path::PathBuf::from("<table>");
         if bytes.len() < HEADER_LEN {
-            return Err(crate::EngineError::Artifact { path, reason: "too short".into() });
+            return Err(crate::EngineError::Artifact {
+                path,
+                reason: "too short".into(),
+            });
         }
         let magic = u32::from_le_bytes(bytes[0..4].try_into().expect("4"));
         if magic != TABLE_MAGIC {
-            return Err(crate::EngineError::Artifact { path, reason: format!("bad magic {magic:#x}") });
+            return Err(crate::EngineError::Artifact {
+                path,
+                reason: format!("bad magic {magic:#x}"),
+            });
         }
         let version = u32::from_le_bytes(bytes[4..8].try_into().expect("4"));
         if version != TABLE_VERSION {
-            return Err(crate::EngineError::Artifact { path, reason: format!("bad version {version}") });
+            return Err(crate::EngineError::Artifact {
+                path,
+                reason: format!("bad version {version}"),
+            });
         }
         let n = u64::from_le_bytes(bytes[8..16].try_into().expect("8"));
         let default_bucket = u16::from_le_bytes(bytes[16..18].try_into().expect("2"));
@@ -111,7 +120,11 @@ impl<'a> TableView<'a> {
                 reason: format!("truncated: need {need}, have {}", bytes.len()),
             });
         }
-        Ok(TableView { n, default_bucket, bytes })
+        Ok(TableView {
+            n,
+            default_bucket,
+            bytes,
+        })
     }
 
     #[inline]

@@ -99,16 +99,24 @@ impl AbstractionConfig {
     /// Eager validation (SPECS/00 §5): no defaults on gameplay-affecting fields.
     pub fn validate(&self) -> Result<(), crate::EngineError> {
         if self.buckets.preflop != "exact169" {
-            return Err(crate::EngineError::Config("buckets.preflop must be exact169".into()));
+            return Err(crate::EngineError::Config(
+                "buckets.preflop must be exact169".into(),
+            ));
         }
         if self.buckets.flop_k == 0 || self.buckets.turn_k == 0 {
-            return Err(crate::EngineError::Config("flop_k/turn_k must be > 0".into()));
+            return Err(crate::EngineError::Config(
+                "flop_k/turn_k must be > 0".into(),
+            ));
         }
         if self.buckets.river_eq_bins == 0 || !self.buckets.river_eq_bins.is_power_of_two() {
-            return Err(crate::EngineError::Config("river_eq_bins must be a power of two".into()));
+            return Err(crate::EngineError::Config(
+                "river_eq_bins must be a power of two".into(),
+            ));
         }
         if self.buckets.river_texture_classes == 0 || self.buckets.river_texture_classes > 8 {
-            return Err(crate::EngineError::Config("river_texture_classes ∈ [1, 8]".into()));
+            return Err(crate::EngineError::Config(
+                "river_texture_classes ∈ [1, 8]".into(),
+            ));
         }
         for f in [
             &self.ladder.preflop_open_bb,
@@ -118,10 +126,13 @@ impl AbstractionConfig {
             &self.ladder.river_bet_fracs,
         ] {
             if f.is_empty() || f.iter().any(|x| !x.is_finite() || *x <= 0.0) {
-                return Err(crate::EngineError::Config("ladder fracs must be positive".into()));
+                return Err(crate::EngineError::Config(
+                    "ladder fracs must be positive".into(),
+                ));
             }
         }
-        self.validate_bands().map_err(|e| crate::EngineError::Config(format!("spr bands: {e}")))?;
+        self.validate_bands()
+            .map_err(|e| crate::EngineError::Config(format!("spr bands: {e}")))?;
         Ok(())
     }
 
@@ -185,8 +196,8 @@ pub fn abstraction_hash(toml_bytes: &[u8], artifact_bytes: &[&[u8]]) -> u64 {
 
 /// Load a config from TOML text and validate.
 pub fn parse_config(toml_text: &str) -> Result<AbstractionConfig, crate::EngineError> {
-    let cfg: AbstractionConfig = toml::from_str(toml_text)
-        .map_err(|e| crate::EngineError::Config(format!("toml: {e}")))?;
+    let cfg: AbstractionConfig =
+        toml::from_str(toml_text).map_err(|e| crate::EngineError::Config(format!("toml: {e}")))?;
     cfg.validate()?;
     Ok(cfg)
 }

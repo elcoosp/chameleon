@@ -11,13 +11,13 @@
 use serde::{Deserialize, Serialize};
 
 use cham_core::card::Deck;
-use cham_core::engine::config::EngineConfig;
 use cham_core::engine::State;
+use cham_core::engine::config::EngineConfig;
 use cham_core::obs::{Agent, Observables, Player};
-use cham_core::rng::{child, Rng};
-use cham_opponents::factory::build;
-use cham_opponents::factory::OpponentSpecDto;
+use cham_core::rng::{Rng, child};
 use cham_opponents::OpponentSpec;
+use cham_opponents::factory::OpponentSpecDto;
+use cham_opponents::factory::build;
 use cham_rec::Recorder;
 
 use crate::EvalError;
@@ -69,7 +69,9 @@ fn play_seating(
         } else {
             opp.act(&obs, rng)
         };
-        state.apply(a).map_err(|e| EvalError::Match(format!("illegal action: {e}")))?;
+        state
+            .apply(a)
+            .map_err(|e| EvalError::Match(format!("illegal action: {e}")))?;
     }
     Ok(state.payoffs()[hero_seat])
 }
@@ -104,10 +106,12 @@ impl MatchRunner {
             let mut hero_a = hero_factory();
             let mut hero_b = hero_factory();
             // seating A: hero at seat 0 (SB)
-            let mut state_a = State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
+            let mut state_a =
+                State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
             let net_a = play_seating(&mut state_a, 0, hero_a.as_mut(), opp.as_mut(), opp_rng_a)?;
             // seating B: SAME deck, hero at seat 1 (BB) — seats swapped
-            let mut state_b = State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
+            let mut state_b =
+                State::new(engine_cfg, deck).map_err(|e| EvalError::Match(format!("{e}")))?;
             let net_b = play_seating(&mut state_b, 1, hero_b.as_mut(), opp.as_mut(), opp_rng_b)?;
             // THE formula (v2 fix): sum cancels seat advantage
             profits.push((net_a + net_b) as f64 / 2.0 / 100.0); // bb
