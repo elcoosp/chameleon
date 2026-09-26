@@ -61,3 +61,6 @@ artifacts/exp-*-run.log
 
 # EXP-017 bucket-quality audit input (regenerable)
 artifacts/audit.json
+
+# EXP-017 EMD exact-profile bucket build (regenerable)
+artifacts/buckets-exact/
