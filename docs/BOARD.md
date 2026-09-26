@@ -36,6 +36,13 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
 - **[SKIP]** G1.4 river EHS (no consumer, no v3 anchor).
 - **[SKIP]** G2.1 / G2.2 (no pure-acceleration consumer; AIVAT stage unimplemented).
 
+### V2 Phase 1 — Hygiene pack (partially landed)
+- **[DONE]** 1.1 Lanctot Alg-3 strat_sum audit — no reach factor leaked.
+- **[DONE]** 1.4 unsafe-scope doc — policy.rs, SPECS/00 §3.5 + §11 corrected.
+- **[DONE]** 1.5 license notes — no postflop-solver content in tree; standing rule recorded.
+- **[TODO]** 1.2 mutants gate (cargo-mutants present; recipe exists in justfile).
+- **[TODO]** 1.3 ExploitBayes memory probe.
+
 ### Eval / training pipeline
 - **[DONE]** `matcheng` `on_public_action` wiring — 65% → 0% fallback.
 - **[DONE]** `train-bp` hash parity (reads same TOML the loader does).

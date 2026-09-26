@@ -1,8 +1,15 @@
 //! Quantized, strategy-only inference artifacts (SPECS/04 §6).
 //!
 //! - u8-quantized per-action probabilities (2 decimals), visits u32→u16 saturating
-//! - owned-bytes load (decision D-008: `#![forbid(unsafe_code)]` rules out mmap;
-//!   artifacts are ≤ ~100 MB for five experts, well inside the 1.5 GB budget)
+//! - owned-bytes load. **Unsafe-scope note (SPECS/00 §3.5):** the workspace's
+//!   `#![forbid(unsafe_code)]` covers *this crate's own code*. `memmap2` (a
+//!   whitelisted dependency) does contain unsafe at the mmap syscall boundary —
+//!   that's the crate's business, not ours. Decision D-008 chose *not* to mmap
+//!   these artifacts anyway: `BlueprintPolicy::load` reads the whole file into an
+//!   owned `Vec<u8>` because inference bundles are ≤ ~100 MB for five experts
+//!   (five orders of magnitude inside the 1.5 GB budget), and the simplicity of
+//!   "the artifact is a byte slice we own" is worth more than the
+//!   marginal memory savings.
 //! - NO regrets ship in inference artifacts
 //! - confidence = visits / (visits + 64) — visit-based (review B5; the v1
 //!   regret-ratio formula saturated exactly when least converged and is DELETED)

@@ -90,7 +90,16 @@ Forbidden: `nalgebra`, `ndarray`, `linfa`, `tch`, `burn`, `candle` (v1 stretch o
 5. **Two threading modes, explicitly named — do not mix them:**
    - `Deterministic` (single-threaded): bit-identical results under a fixed seed. All determinism/resume/proof tests run in this mode. This is the mode of the "sacred" byte-identical test.
    - `Hogwild` (multi-threaded training): regret/strat rows stored as `AtomicU32` (relaxed-order CAS-add of bit patterns); results depend on interleaving and are **not** bit-reproducible — this is fine for training, which converges regardless of update order. Every training artifact records `thread_mode` and `threads`; only `Deterministic` runs may be resumed bit-identically.
-   - The workspace remains `#![forbid(unsafe_code)]`; Hogwild uses safe atomics, never aliased `&mut`.
+   - **Unsafe scope (precise):** every crate in *this workspace* is
+     `#![forbid(unsafe_code)]` in its own code. Dependencies may contain
+     unsafe at their boundary — `memmap2` at the mmap syscall, the
+     `metal`/`wgpu` family at the Apple/GPU FFI. Those are the deps'
+     business, not ours. Mitigations: `memmap2` mappings are read-only
+     and hash-verified before use; the GPU FFI is scoped to a single
+     module per crate (`crates/cham-gpu/src/mtl.rs`) and gated behind an
+     off-by-default feature. See the Appendix for the whitelist
+     amendments that sanctioned the second case. Hogwild uses safe
+     atomics, never aliased `&mut`.
 6. **Time is not logic:** wall-clock may gate quantity of work **in live play only** (`SearchBudget::WallClock`). Evaluation always uses `SearchBudget::Iterations` — byte-identical eval is sacred (SPECS/06 §5).
 7. **The determinism test:** full play pipeline twice, same seed, byte-identical traces, single-threaded.
 
@@ -164,7 +173,7 @@ DoD — <crate>
 ## 11. Forbidden patterns (grep-listed in `just verify`)
 
 - `thread_rng`, `SmallRng`, `StdRng`; `Instant::now()` outside `cham-search::budget` and `cham-rec` timestamps
-- `unsafe` anywhere; `unwrap`/`expect` in `crates/*/src` (tests + `cham-cli/src/main.rs` excepted)
+- `unsafe` in workspace-crate source. Scope: our own code, not dependencies (see §3.5). The two scoped exceptions — memmap2 read-only maps, the `cham-gpu/mtl` FFI shim behind an off-by-default feature — are listed in the Appendix. `unwrap`/`expect` in `crates/*/src` are forbidden (tests + `cham-cli/src/main.rs` excepted).
 - `Vec` allocation inside per-decision hot paths (engine `apply`/`legal_actions`, encoder `key`, traversal, solver inner loops) — `ArrayVec`/fixed arrays/borrowed views only; enforced by review + `cargo-mutants` triage, and the P2/P3 gates
 - HashMap iteration for decisions/outputs; `#[serde(default)]` on gameplay knobs; `mod utils` / `misc.rs`
 - `AllIn` action variants (canonicalization, §4)
