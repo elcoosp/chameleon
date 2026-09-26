@@ -25,6 +25,13 @@ pub struct LedgerEntry {
     pub sprt: Option<String>,
     pub promote: bool,
     pub seatings: u64,
+    /// Content identity of the bound artifact bundle (v3 §2.2: resolves the
+    /// [VERIFY] — previously NO hash field existed, so a ladder number was
+    /// retroactively unauditable). `blake3:<hex>` over the trained bundle
+    /// files, or `baseline:<mode>` for pure-baseline arms that need no
+    /// artifacts. Old entries without the field still parse (`default`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
 }
