@@ -1,0 +1,12 @@
+# PREREG-EXP-001 — pre-registration gate for EXP-001 (v3 §2.2, brainstorm C2).
+# Declare the pass condition BEFORE the run; check it after with:
+#   chameleon lint-ledger --prereg experiments/PREREG-EXP-001.toml
+# Exit 0 = gate satisfied, exit 2 = gate NOT satisfied (refusal, not crash).
+[gate]
+run_prefix = "ab-full-robust-only"
+kind = "ab"
+min_seatings = 200000
+require_promote = true
+# artifact_hash = "blake3:<hex>"  # pin once the bundle under test is frozen;
+# leaving it unset checks seatings+promote only (still fails closed on
+# missing-run, but the number stays artifact-unaudited — set it before G3.x).
