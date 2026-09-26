@@ -39,9 +39,13 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
 ### V2 Phase 1 — Hygiene pack (partially landed)
 - **[DONE]** 1.1 Lanctot Alg-3 strat_sum audit — no reach factor leaked.
 - **[DONE]** 1.4 unsafe-scope doc — policy.rs, SPECS/00 §3.5 + §11 corrected.
+- **[DONE]** 1.2 mutants gate — 66 tested, 40 missed. Triage in
+  `docs/reports/mutants-traversal-20260926.md`. Top gap: SnapBatchSink
+  write path has zero direct tests.
 - **[DONE]** 1.5 license notes — no postflop-solver content in tree; standing rule recorded.
-- **[TODO]** 1.2 mutants gate (cargo-mutants present; recipe exists in justfile).
 - **[TODO]** 1.3 ExploitBayes memory probe.
+- **[TODO]** 1.2.1 close the two highest-value mutant gaps (Snapbatch parity,
+  DirectSink weight/visit assertions).
 
 ### Eval / training pipeline
 - **[DONE]** `matcheng` `on_public_action` wiring — 65% → 0% fallback.
