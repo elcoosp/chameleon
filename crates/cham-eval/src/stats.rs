@@ -155,10 +155,7 @@ pub fn sprrt(
 /// EXP-018: empirical payoff matrix over the agent zoo from ledger A/B rows.
 /// `triples` are (a_mode, b_mode, delta_mb) with delta signed a-minus-b.
 /// Missing cells fill 0.0 (reported by the caller, never assumed).
-pub fn build_payoff_matrix(
-    modes: &[&str],
-    triples: &[(String, String, f64)],
-) -> Vec<Vec<f64>> {
+pub fn build_payoff_matrix(modes: &[&str], triples: &[(String, String, f64)]) -> Vec<Vec<f64>> {
     let n = modes.len();
     let mut sum = vec![vec![0.0; n]; n];
     let mut count = vec![vec![0u32; n]; n];

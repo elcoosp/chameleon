@@ -37,10 +37,8 @@ pub fn run(modes_csv: &str, ledger_path: &str) -> i32 {
                 .and_then(|m| m.as_str())
                 .map(String::from)
         };
-        let (Some(a), Some(b)) = (
-            v.get("a").and_then(mode_of),
-            v.get("b").and_then(mode_of),
-        ) else {
+        let (Some(a), Some(b)) = (v.get("a").and_then(mode_of), v.get("b").and_then(mode_of))
+        else {
             continue;
         };
         if let (Some(i), Some(j)) = (
@@ -67,12 +65,12 @@ pub fn run(modes_csv: &str, ledger_path: &str) -> i32 {
                 .collect()
         })
         .collect();
-    let covered = count
-        .iter()
-        .flatten()
-        .filter(|&&c| c > 0)
-        .count();
-    println!("meta-solve: {} modes, {covered} covered cells of {}", modes.join(","), n * n);
+    let covered = count.iter().flatten().filter(|&&c| c > 0).count();
+    println!(
+        "meta-solve: {} modes, {covered} covered cells of {}",
+        modes.join(","),
+        n * n
+    );
     match cham_search::oracle::solve_matrix(&m) {
         Some((v, row, _col)) => {
             let mix: Vec<String> = modes
@@ -80,11 +78,16 @@ pub fn run(modes_csv: &str, ledger_path: &str) -> i32 {
                 .zip(row.iter())
                 .map(|(m, w)| format!("{m}: {w:.2}"))
                 .collect();
-            println!("meta-solve Nash value {v:+.1} mb/seating; mixture [{mix}]", mix = mix.join(", "));
+            println!(
+                "meta-solve Nash value {v:+.1} mb/seating; mixture [{mix}]",
+                mix = mix.join(", ")
+            );
             crate::cmd::EXIT_OK
         }
         None => {
-            eprintln!("meta-solve: solve_matrix refused (>5x5 or degenerate) — restrict to ≤5 modes");
+            eprintln!(
+                "meta-solve: solve_matrix refused (>5x5 or degenerate) — restrict to ≤5 modes"
+            );
             crate::cmd::EXIT_FAIL
         }
     }

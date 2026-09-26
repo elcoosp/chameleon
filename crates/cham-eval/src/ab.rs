@@ -241,12 +241,8 @@ impl AbRunner {
                                     None,
                                     range,
                                 )?;
-                                da_all.extend(
-                                    ra.per_deal_profits.clone().unwrap_or_default(),
-                                );
-                                db_all.extend(
-                                    rb.per_deal_profits.clone().unwrap_or_default(),
-                                );
+                                da_all.extend(ra.per_deal_profits.clone().unwrap_or_default());
+                                db_all.extend(rb.per_deal_profits.clone().unwrap_or_default());
                                 vr_sum += (ra.vr_factor + rb.vr_factor) / 2.0;
                                 n_chunks += 1;
                                 done += take;
@@ -257,8 +253,7 @@ impl AbRunner {
                                 .zip(db_all.iter())
                                 .map(|(x, y)| x - y)
                                 .collect();
-                            let rng =
-                                &mut cham_core::rng::rng_from_seed(spec.seeds[0] ^ 0xAB);
+                            let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0] ^ 0xAB);
                             let ci = paired_ci(&diffs, spec.conf, rng);
                             let delta = crate::stats::mean(&diffs);
                             let vr = if n_chunks > 0 {

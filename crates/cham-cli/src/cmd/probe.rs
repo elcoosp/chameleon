@@ -174,7 +174,15 @@ fn run_diag(agent: &str, bundle: &str) -> i32 {
     );
     println!(
         "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
-        "opponent", "decis", "fb_used", "e0_miss", "e1_miss", "e2_miss", "e3_miss", "r_miss", "reach0"
+        "opponent",
+        "decis",
+        "fb_used",
+        "e0_miss",
+        "e1_miss",
+        "e2_miss",
+        "e3_miss",
+        "r_miss",
+        "reach0"
     );
     let mut total = DiagStats::default();
     for (i, opp_id) in opps.iter().enumerate() {
@@ -237,10 +245,8 @@ fn run_diag_inner(bot: &mut ChameleonAgent, opp_id: &str, deals: u64, base_seed:
             return DiagStats::default();
         }
     };
-    let mut opp = cham_opponents::factory::build(
-        &opp_spec,
-        cham_opponents::PercentileChart::global(),
-    );
+    let mut opp =
+        cham_opponents::factory::build(&opp_spec, cham_opponents::PercentileChart::global());
     for d in 0..deals {
         let mut deal_rng = child(base_seed, &format!("deal{d}"));
         let deck = Deck::shuffled(&mut deal_rng);

@@ -132,9 +132,7 @@ impl cham_core::obs::Agent for FrozenAgent {
         let a = Self::sample(&dist, rng);
         // own action: record (mirrors ChameleonAgent::act)
         let player = obs.player;
-        self.encoder
-            .borrow()
-            .record(obs, player, a, &mut self.seq);
+        self.encoder.borrow().record(obs, player, a, &mut self.seq);
         a
     }
 

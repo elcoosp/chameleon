@@ -89,9 +89,7 @@ pub fn run(prereg: &str, ledger_dir: &str) -> i32 {
     if let Some(want) = &pre.gate.artifact_hash {
         match &entry.artifact_hash {
             Some(got) if got.contains(want) => {}
-            Some(got) => failures.push(format!(
-                "artifact_hash mismatch: want '{want}' in '{got}'"
-            )),
+            Some(got) => failures.push(format!("artifact_hash mismatch: want '{want}' in '{got}'")),
             None => failures.push(format!(
                 "artifact_hash required ('{want}') but entry has none — unauditable"
             )),

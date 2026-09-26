@@ -20,12 +20,7 @@ pub fn run(input: &str) -> i32 {
         .and_then(|h| h.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|h| {
-                    Some((
-                        h.get("bucket")?.as_u64()? as u32,
-                        h.get("ev")?.as_f64()?,
-                    ))
-                })
+                .filter_map(|h| Some((h.get("bucket")?.as_u64()? as u32, h.get("ev")?.as_f64()?)))
                 .collect()
         })
         .unwrap_or_default();

@@ -63,13 +63,9 @@ pub fn build_chameleon_with_router(
             let base = cham_router::runtime::RouterRuntime::from_model_bytes(&bytes)
                 .map_err(|e| format!("router model: {e}"))?;
             match overrides {
-                Some((temp, n0, beta, z)) => cham_router::runtime::RouterRuntime::new(
-                    base.model.clone(),
-                    temp,
-                    n0,
-                    beta,
-                    z,
-                ),
+                Some((temp, n0, beta, z)) => {
+                    cham_router::runtime::RouterRuntime::new(base.model.clone(), temp, n0, beta, z)
+                }
                 None => base,
             }
         }

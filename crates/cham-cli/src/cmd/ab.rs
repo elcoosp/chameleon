@@ -75,9 +75,7 @@ pub fn run(
             eprintln!("ab: arm '{b}': {e}");
             return crate::cmd::EXIT_BUDGET;
         }
-        match cham_eval::AbRunner::run_shared(
-            &spec, &pool, &factory_a, &factory_b, 100, None,
-        ) {
+        match cham_eval::AbRunner::run_shared(&spec, &pool, &factory_a, &factory_b, 100, None) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("ab: {e}");
@@ -105,12 +103,7 @@ pub fn run(
     };
     println!(
         "ab {a} vs {b}: delta {:+.1} mb/seating CI {:?} sprt={:?} vr_factor={:.2} cache_hit_rate={:.2} rule={}",
-        verdict.delta_mb,
-        verdict.ci,
-        verdict.sprt,
-        verdict.vr_factor,
-        chit_rate,
-        verdict.rule
+        verdict.delta_mb, verdict.ci, verdict.sprt, verdict.vr_factor, chit_rate, verdict.rule
     );
     for po in &verdict.per_opp {
         println!(

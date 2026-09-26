@@ -21,8 +21,7 @@ pub fn snapshot(policy_dir: &str, out_dir: &str) -> i32 {
     };
     let rows: std::collections::BTreeMap<u64, Vec<f64>> =
         policy.export_rows().into_iter().collect();
-    let bytes =
-        std::fs::read(load_dir.join("policy.bin")).unwrap_or_default();
+    let bytes = std::fs::read(load_dir.join("policy.bin")).unwrap_or_default();
     let hash = format!("shadow:{}", blake3::hash(&bytes).to_hex());
     let safe: String = hash.replace(':', "_");
     let dir = Path::new(out_dir).join(&safe);
@@ -36,8 +35,8 @@ pub fn snapshot(policy_dir: &str, out_dir: &str) -> i32 {
         "ts": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
     });
     // Persist rows as JSON (small snapshots; postcard migration optional).
-    let encoded = serde_json::to_vec(&rows.values().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
+    let encoded =
+        serde_json::to_vec(&rows.values().cloned().collect::<Vec<_>>()).unwrap_or_default();
     if std::fs::write(dir.join("rows.bin"), &encoded).is_err() {
         eprintln!("shadow snapshot: write rows failed");
         return crate::cmd::EXIT_FAIL;
@@ -62,7 +61,10 @@ pub fn snapshot(policy_dir: &str, out_dir: &str) -> i32 {
             let _ = std::fs::remove_dir_all(oldest.path());
         }
     }
-    println!("shadow snapshot: {hash} ({} rows) → {out_dir}/{safe}", rows.len());
+    println!(
+        "shadow snapshot: {hash} ({} rows) → {out_dir}/{safe}",
+        rows.len()
+    );
     crate::cmd::EXIT_OK
 }
 
@@ -98,7 +100,9 @@ pub fn gauntlet(agent: &str, shadow_dir: &str, deals: u64) -> i32 {
         // Thin A/B: challenger vs frozen shadow id. Frozen-path shadows are
         // resolved by self-exploit-style ids; here we report per-shadow via
         // the existing `ab` runner against the live pool as a proxy line.
-        println!("  vs {name}: (snapshot gauntlet — wire to AbRunner::run_shared with OpponentSpec::Frozen once ledger promotion flow lands)");
+        println!(
+            "  vs {name}: (snapshot gauntlet — wire to AbRunner::run_shared with OpponentSpec::Frozen once ledger promotion flow lands)"
+        );
         // Gate check placeholder: full `ab` wiring lands with the first real
         // promotion post-fixes; until then this is a report, not a gate.
         let _ = (agent, deals);

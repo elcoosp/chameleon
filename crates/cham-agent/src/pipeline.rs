@@ -266,8 +266,7 @@ impl ChameleonAgent {
             }
             reach_mass_zero = mass <= 1e-12;
             // Any tier available at all (ignoring reach)? Determines mix_zero.
-            let any_tier = (0..4).any(|k| expert_sigma[k].is_some())
-                || robust_sigma.is_some();
+            let any_tier = (0..4).any(|k| expert_sigma[k].is_some()) || robust_sigma.is_some();
             mix_zero = !any_tier;
             if mix_zero {
                 mix = vec![1.0 / n as f64; n]; // only NOW a true fallback

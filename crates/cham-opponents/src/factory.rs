@@ -62,7 +62,9 @@ pub enum OpponentSpec {
     /// injection shape as `Perturbed`'s strategy source — the artifact never
     /// enters this crate). Family `SELF`: never a router training/tuning
     /// source, never a promotion gate — diagnostic self-measurement only.
-    Frozen { label: String },
+    Frozen {
+        label: String,
+    },
 }
 
 impl OpponentSpec {

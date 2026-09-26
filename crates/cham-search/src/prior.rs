@@ -99,7 +99,12 @@ pub fn leaf_variants(base: &[f64], actions: &[Action]) -> Option<LeafSet> {
 /// Shift `LEAF_TILT` of the from-set's mass onto `target`. `aggressive_from`
 /// selects which side donates: Bet/Raise donors for the call-heavy variant,
 /// everything-but-target for the fold-heavy variant. Exact renormalization.
-fn tilt(base: &[f64], actions: &[Action], target: Option<usize>, aggressive_from: bool) -> Vec<f64> {
+fn tilt(
+    base: &[f64],
+    actions: &[Action],
+    target: Option<usize>,
+    aggressive_from: bool,
+) -> Vec<f64> {
     let mut out = base.to_vec();
     let Some(t) = target else {
         return out; // no target slot (shouldn't happen — Check/Call always legal)
@@ -249,10 +254,17 @@ mod leaf_tests {
     #[test]
     fn no_bet_facing_falls_back_to_check() {
         let base = vec![0.5, 0.3, 0.2]; // Check, Bet, Jam-as-Bet
-        let acts = vec![Action::Check, Action::Bet { to: 200 }, Action::Bet { to: 1000 }];
+        let acts = vec![
+            Action::Check,
+            Action::Bet { to: 200 },
+            Action::Bet { to: 1000 },
+        ];
         let set = leaf_variants(&base, &acts).expect("shapes match");
         assert!(set.call_heavy[0] > base[0], "passive target is Check");
-        assert!(set.fold_heavy[0] > base[0], "weak target falls back to Check");
+        assert!(
+            set.fold_heavy[0] > base[0],
+            "weak target falls back to Check"
+        );
     }
 
     #[test]

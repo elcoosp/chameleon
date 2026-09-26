@@ -52,8 +52,7 @@ pub fn run(pool: &str, out: &str) -> i32 {
         eprintln!("warm-cache: pool file '{pool}' not found");
         return crate::cmd::EXIT_FAIL;
     }
-    let _guard =
-        crate::cmd::cache_guard::CachePersist::hydrate("warm-cache", out);
+    let _guard = crate::cmd::cache_guard::CachePersist::hydrate("warm-cache", out);
     // Fixed fixture hash: the warm grid is pool-independent by construction
     // (SPR bands recur across arms), so one constant identifies all fixture
     // entries. Real-match entries carry the live abstraction hash and never
@@ -88,10 +87,7 @@ pub fn run(pool: &str, out: &str) -> i32 {
     let (h1, m1) = cham_search::cache::cache_stats();
     println!(
         "warm-cache: {built} fixture builds (hits {}→{}, misses {}→{}) → {out}",
-        h0,
-        h1,
-        m0,
-        m1
+        h0, h1, m0, m1
     );
     // `CachePersist`'s Drop saves the now-warm L1 to `out`.
     crate::cmd::EXIT_OK

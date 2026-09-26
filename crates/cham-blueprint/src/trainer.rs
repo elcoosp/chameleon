@@ -137,15 +137,11 @@ fn build_frozen_opponent(
     let text = std::fs::read_to_string(&oracle.config_path).map_err(|e| {
         BlueprintError::Training(format!("frozen oracle config {}: {e}", oracle.config_path))
     })?;
-    let cfg: cham_engine::config::AbstractionConfig =
-        cham_engine::config::parse_config(&text).map_err(|e| {
-            BlueprintError::Training(format!("frozen oracle config parse: {e}"))
-        })?;
-    let encoder = cham_engine::Encoder::from_artifacts_dir(
-        std::path::Path::new(&oracle.buckets_dir),
-        cfg,
-    )
-    .map_err(|e| BlueprintError::Training(format!("frozen oracle encoder: {e}")))?;
+    let cfg: cham_engine::config::AbstractionConfig = cham_engine::config::parse_config(&text)
+        .map_err(|e| BlueprintError::Training(format!("frozen oracle config parse: {e}")))?;
+    let encoder =
+        cham_engine::Encoder::from_artifacts_dir(std::path::Path::new(&oracle.buckets_dir), cfg)
+            .map_err(|e| BlueprintError::Training(format!("frozen oracle encoder: {e}")))?;
     Ok(cham_opponents::factory::build_frozen(
         spec,
         cham_opponents::PercentileChart::global(),

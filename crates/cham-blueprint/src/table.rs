@@ -337,9 +337,7 @@ fn hash_step(key: u64, mask: usize) -> usize {
     // Independent mix (different constant + rotation from hash_key), forced
     // odd ⇒ coprime to 2^m ⇒ full-cycle probe for every key. `| 1` also
     // guarantees nonzero, so progress is unconditional.
-    let mut z = key
-        .wrapping_mul(0xC2B2_AE35_27D4_EB4F)
-        .rotate_left(29);
+    let mut z = key.wrapping_mul(0xC2B2_AE35_27D4_EB4F).rotate_left(29);
     z ^= z >> 27;
     ((z as usize) & mask) | 1
 }

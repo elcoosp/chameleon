@@ -94,10 +94,7 @@ pub fn preflop_equity(hero: Hand2, villain: Hand2) -> f64 {
     vill_range.set(villain.combo_id(), true);
     let (w, t) = cham_core::eval::equity_exact(hero, &vill_range, &[]);
     let eq = w + t / 2.0;
-    preflop_memo()
-        .lock()
-        .expect("preflop memo")
-        .insert(key, eq);
+    preflop_memo().lock().expect("preflop memo").insert(key, eq);
     eq
 }
 
