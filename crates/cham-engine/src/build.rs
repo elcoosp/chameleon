@@ -26,13 +26,23 @@ use crate::tables::MISS_SENTINEL;
 pub struct BuildParams {
     /// orbits to sample for features (0 = enumerate ALL orbits; full coverage)
     pub sample_orbits: usize,
-    /// runout samples per orbit for the CDF feature
+    /// runout samples per orbit for the CDF feature (ignored when
+    /// `exhaustive_runouts` is set)
     pub feature_runs: u32,
     /// MC equity iterations per runout
     pub mc_iters: u32,
     /// pilot sample size for the global equal-mass equity quantiles
     pub quantile_sample: u32,
     pub lloyd_iters: u32,
+    /// Potential-aware exact features (v3 §4.1, A2): when true, each orbit's
+    /// feature is the EXHAUSTIVE next-street equity histogram — all 47 turn
+    /// cards (flop) / 46 river cards (turn), exact `equity_exact` per card —
+    /// instead of `feature_runs` seeded MC runouts. Zero sampling noise, and
+    /// exactly the bulk-enumeration shape the GPU factory already proved
+    /// (2.65–3.57e9 evals/s): the GPU bulk-fill (§4.2 job 1) produces these
+    /// same bins offline for the full orbit enumeration, and this CPU path
+    /// validates them bit-for-bit on the sampled scale.
+    pub exhaustive_runouts: bool,
 }
 
 impl BuildParams {
@@ -44,6 +54,7 @@ impl BuildParams {
             mc_iters: 16,
             quantile_sample: 20_000,
             lloyd_iters: 24,
+            exhaustive_runouts: false,
         }
     }
     /// Full-spec defaults (M2 overnight build; document wall time before running).
@@ -54,6 +65,23 @@ impl BuildParams {
             mc_iters: 16,
             quantile_sample: 100_000,
             lloyd_iters: 50,
+            exhaustive_runouts: false,
+        }
+    }
+    /// Exact validation scale (v3 §4.1): sampled orbits (2000) with
+    /// exhaustive next-street features. CPU-feasible (~80 ms/orbit flop,
+    /// rayon-parallel ≈ minutes); proves the A2 feature definition before
+    /// the GPU bulk-fill runs it at full-orbit scale. Gate: abstraction-local
+    /// exploitability (§2.3 bench) must improve ≥10% vs `tiny`, else the
+    /// feature set was already adequate — stop, don't chase richness.
+    pub fn exact() -> BuildParams {
+        BuildParams {
+            sample_orbits: 2000,
+            feature_runs: 0,
+            mc_iters: 0,
+            quantile_sample: 20_000,
+            lloyd_iters: 24,
+            exhaustive_runouts: true,
         }
     }
 }
@@ -98,6 +126,7 @@ pub fn histo_fingerprint(
     let mut h = blake3::Hasher::new();
     h.update(&(board_len as u64).to_le_bytes());
     h.update(&params.feature_runs.to_le_bytes());
+    h.update(&(params.exhaustive_runouts as u8).to_le_bytes());
     h.update(&params.mc_iters.to_le_bytes());
     h.update(&params.quantile_sample.to_le_bytes());
     h.update(&(keys.len() as u64).to_le_bytes());
@@ -257,7 +286,11 @@ pub fn build_street(
         coverage: coverage.to_string(),
         kmeans: KmeansMeta {
             k,
-            feature: "river_cdf16".into(),
+            feature: if params.exhaustive_runouts {
+                "nextstreet_cdf16_exact".into()
+            } else {
+                "river_cdf16".into()
+            },
             feature_runs: params.feature_runs,
             seeds: km.seeds,
             inertia: km.inertia,
@@ -369,6 +402,55 @@ pub fn equity_quantile_edges(n: u32, seed: u64) -> Vec<f64> {
     edges
 }
 
+/// Exact next-street CDF feature for one orbit (v3 §4.1, A2): the potential-aware
+/// histogram. For a flop orbit, the exact turn equity vs uniform over all 47
+/// unseen turn cards; for a turn orbit, the exact river equity over all 46
+/// unseen river cards — binned into the global equal-mass bins, accumulated
+/// to a CDF so `kmeans_l1` (EMD = L1 on CDFs) consumes it unchanged.
+///
+/// Per Johanson et al. / Ganzfried & Sandholm this is the signal mean-EHS
+/// and equity-variance both miss: two hands with identical current equity but
+/// different future distributions land in different buckets. Same bucket
+/// COUNT (flop k=300, turn k=200) and same table shape — only the clustering
+/// metric's input changes, so decision latency and memory are identical.
+pub fn next_street_cdf_exact(hand: Hand2, board: &[Card], edges: &[f64]) -> [f32; CDF_BINS] {
+    debug_assert!(board.len() == 3 || board.len() == 4);
+    let mut used = [false; 52];
+    for c in hand.cards() {
+        used[c.idx() as usize] = true;
+    }
+    for c in board {
+        used[c.idx() as usize] = true;
+    }
+    let range = Range::all();
+    let mut hist = [0u32; CDF_BINS];
+    let mut total = 0u32;
+    for idx in 0..52u8 {
+        if used[idx as usize] {
+            continue;
+        }
+        let mut next = board.to_vec();
+        next.push(Card(idx));
+        let (w, t) = cham_core::eval::equity_exact(hand, &range, &next);
+        let eq = w + t / 2.0;
+        let bin = edges
+            .partition_point(|&e| e <= eq)
+            .saturating_sub(1)
+            .min(CDF_BINS - 1);
+        hist[bin] += 1;
+        total += 1;
+    }
+    debug_assert!(total == 47 || total == 46);
+    let mut f = [0f32; CDF_BINS];
+    let mut acc = 0f32;
+    for (i, &h) in hist.iter().enumerate() {
+        acc += h as f32 / total.max(1) as f32;
+        f[i] = acc; // CDF, not PDF — same convention as the MC path
+    }
+    f[CDF_BINS - 1] = 1.0;
+    f
+}
+
 /// CDF feature for one orbit: distribution of FINAL RIVER EQUITY vs uniform over
 /// seeded runout samples, binned into the global equal-mass bins (EMD = L1 on CDFs).
 /// Runout equities are computed EXACTLY (MC would quantize and collapse bins).
@@ -384,6 +466,10 @@ fn features_for(
         .enumerate()
         .map(|(oi, &key)| {
             let (hand, board) = unpack_orbit(key, board_len);
+            // v3 §4.1: exhaustive next-street features bypass MC entirely.
+            if params.exhaustive_runouts {
+                return next_street_cdf_exact(hand, &board, edges);
+            }
             let mut rng = child(0xF00D, &format!("{board_len}.{oi}"));
             let mut hist = [0u32; CDF_BINS];
             for _ in 0..params.feature_runs {
