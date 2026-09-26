@@ -1,5 +1,7 @@
 # GPU-PLAN — M1 Metal Accelerator Track (Agent Runbook, execute BEFORE V2-DEV-PLAN)
 
+> **Status:** [DONE] — all tasks G0.0–G4.0 resolved (SKIPs recorded); see docs/BOARD.md
+
 You are a coding agent working in the CHAMELEON repo root (Rust workspace, edition 2024).
 Your job: add a **feature-gated Apple Metal (GPU) accelerator track** that speeds up
 exact-equity enumeration and eval-harness stages WITHOUT changing any bot behavior,

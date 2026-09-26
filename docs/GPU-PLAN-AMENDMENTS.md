@@ -1,5 +1,7 @@
 # GPU-PLAN Amendments
 
+> **Status:** [DONE] — Amendment 001 (bar) + Amendment 002 (wgpu target) applied
+
 Two amendments to `docs/GPU-PLAN.md`, both written *after* G0.3 was
 measured. They are governance changes, not re-readings of the numbers.
 

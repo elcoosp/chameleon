@@ -1,5 +1,7 @@
 # V2-DEV-PLAN — Agent Runbook (supersedes QUALITY-PLAN.md as the operational doc)
 
+> **Status:** [TODO] — next major phase — not started; prerequisites complete (see BOARD.md)
+
 You are a coding agent implementing the merged v2 quality roadmap (source documents in
 this repo: `CHAMELEON-v2-ROADMAP.md` = rationale, `QUALITY-PLAN.md` = reconciliation).
 This file is your **only** operational reference. Execute phases in order. Never skip a

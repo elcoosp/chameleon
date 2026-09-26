@@ -1,5 +1,7 @@
 # G3.0 — `chameleon verify --gpu` design
 
+> **Status:** [DONE] — implemented in crates/cham-cli/src/cmd/verify.rs
+
 ## Purpose
 
 One command that reads every table under `artifacts/gpu-tables/` and asserts

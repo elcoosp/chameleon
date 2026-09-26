@@ -6,7 +6,7 @@ NN, bit-exact determinism, 16 GB fence.
 
 ## Ready to try, low risk
 
-### B-1. Multiset-rank eval path (CPU evaluate7)
+### [DEAD] B-1. Multiset-rank eval path (CPU evaluate7)
 `cham-core/src/eval/mod.rs` already builds `seven_multiset_ranks: Vec<u32>`
 (50,388 u32s) -- same table keyed by combinadic rank, not prime product --
 but only exposes it via `eval_tables()` for the GPU/WGSL backend.
@@ -25,13 +25,13 @@ vs current: 7 multiplies + splitmix hash + linear probe. Must be measured.
 Baseline recorded: eval_evaluate7 mean ~31.86 us / 1000 evals.
 Effort: 30-60 min. Risk: low (bit-exact by construction).
 
-### B-2. River-subgame cache persistence
+### [DONE] B-2. River-subgame cache persistence
 `cham-search/src/cache.rs` L1 is process-global, wholesale-evicted past
 256 entries. Warm 189 us vs 35 ms cold (185x). Serialize to an mmap file
 keyed by content hash; load at startup. Reduces session-1 cold cost.
 Effort: 3-5 h. Risk: medium (format-version discipline).
 
-### B-3. Targeted Hogwild hot-node accumulation — NOT APPLICABLE
+### [DEAD] B-3. Targeted Hogwild hot-node accumulation — NOT APPLICABLE
 
 Correction after reading `trainer.rs`: the training loop is
 `for t in 0..cfg.iters` — fully serial. There is only one writer to the
@@ -42,31 +42,31 @@ buffered). No contention, no B-3.
 
 ## Named SOTA techniques worth writing up as specs
 
-### B-4. Snapbatch bit-exact multi-thread ordering — NOT APPLICABLE
+### [DEAD] B-4. Snapbatch bit-exact multi-thread ordering — NOT APPLICABLE
 
 Same reason as B-3: the iteration loop is serial, so there are no worker
 DeltaBuffers to reorder. `Deterministic` mode is already bit-exact, and
 that's the only mode CI uses. A real "parallel iterations + deterministic
 reduction" mode would be a much larger structural change.
 
-### B-5. DCFR-style regret discounting
+### [DONE] B-5. DCFR-style regret discounting
 alpha < 1 discount on positive regret accumulation. A/B against CFR+ on
 the abstraction-local exploitability metric (C3). Research item.
 
-### B-6. EMD-based potential-aware clustering
+### [TODO] B-6. EMD-based potential-aware clustering
 v3 A2 bucket rebuild should use Earth Mover's Distance between per-hand
 equity histograms (Johanson et al., Ganzfried & Sandholm), not mean EHS.
 Multi-day (rebuilds bucketing).
 
-### B-7. Multi-leaf continuation strategies for turn solving
+### [TODO] B-7. Multi-leaf continuation strategies for turn solving
 DeepStack's lesson: single fixed leaf continuation is itself exploitable.
 2-3 perturbed-blueprint leaf variants blended by a small combinator. v3.
 
-### B-8. Bayesian sequential router update
+### [TODO] B-8. Bayesian sequential router update
 `runtime.rs` weights_for_hand uses fixed-alpha exponential smoothing.
 Replace with Beta-Binomial posterior + log-likelihood fusion. Research.
 
-### B-9. SwissTable-style RegretTable probing
+### [TODO] B-9. SwissTable-style RegretTable probing
 `hashbrown` SIMD-probed SwissTable for RegretTable slot finder. Medium
 risk; needs a profile to justify.
 
@@ -79,7 +79,7 @@ bench shows help; B-4 is worth doing regardless; B-5 through B-9 are v3.
 
 ## In progress / staged
 
-### B-10. bincode -> postcard migration (RUSTSEC-2025-0141)
+### [DONE] B-10. bincode -> postcard migration (RUSTSEC-2025-0141)
 
 bincode 1.3.3 is unmaintained; postcard is the serde-compatible replacement
 with a frozen wire format. Migration is staged per file, each behind its own

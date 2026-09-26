@@ -1,5 +1,7 @@
 # CHAMELEON v3 Brainstorm — Competitive Against Nash, Inside the Fence
 
+> **Status:** [DRAFT] — brainstorm v0.1; nothing committed to implement
+
 > **Status**: brainstorm draft v0.1 for review.
 > **Grounding**: all numbers cite `docs/COMPETITIVENESS-AND-SPEED-REPORT` (measurements from `target/criterion/*/new/estimates.json`, `bench-before-gpu.txt`, `docs/bench-status-20260925.md`, `docs/bench-status-gpu-trials.md`, `artifacts/ledger/ledger.jsonl`).
 > **Relationship to v2**: v2's contract (per `CHAMELEON-v2-ROADMAP.md §7`) was *"the ability to say, with a computed number and a CI, whether your own agent would survive a bot built specifically to beat it."* v3's contract is sharper: **be flat against a Nash bot, and strictly beat everything that deviates from Nash — without leaving the 16 GB M1 fence.**

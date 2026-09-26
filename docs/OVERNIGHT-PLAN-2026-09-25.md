@@ -1,5 +1,7 @@
 # Overnight run — 2026-09-25
 
+> **Status:** [DONE] — run completed 2026-09-26; see worklog for numbers
+
 ## One question to answer by morning
 
 **Do the CHAMELEON blueprints need the *full* abstraction to produce
