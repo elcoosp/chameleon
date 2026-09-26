@@ -74,13 +74,31 @@ impl BeliefBins {
     }
 }
 
+/// Frozen-snapshot oracle for M6 self-exploit training (v3 §6): how to
+/// rebuild the victim's encoder + which materialized rows it plays. All
+/// `Clone` (paths + map) so [`TrainMode`] keeps its `Clone` derive; the
+/// encoder itself is constructed once per training run in `trainer.rs`.
+#[derive(Clone, Debug)]
+pub struct FrozenOracle {
+    /// buckets dir + abstraction config the VICTIM snapshot was built with
+    /// (keys are encoder-content-addressed — must match exactly).
+    pub buckets_dir: String,
+    pub config_path: String,
+    /// materialized victim average strategy (`BlueprintPolicy::export_rows`).
+    pub rows: std::collections::BTreeMap<u64, Vec<f64>>,
+}
+
 /// Training mode (SPECS/04 §3).
 #[derive(Clone)]
 pub enum TrainMode {
-    /// One-sided ES-MCCFR vs a scripted opponent distribution.
+    /// One-sided ES-MCCFR vs a scripted opponent distribution. `frozen` is
+    /// `Some` iff `opponent` is `OpponentSpec::Frozen` with real snapshot
+    /// rows (v3 §6, M6) — the exploiter then trains against the frozen
+    /// victim instead of a script.
     Exploit {
         opponent: OpponentSpec,
         jitter_seed: u64,
+        frozen: Option<FrozenOracle>,
     },
     /// ONE policy vs a per-session-sampled hidden type with a quantized belief bin.
     ExploitBayes {
