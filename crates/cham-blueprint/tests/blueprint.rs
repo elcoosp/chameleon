@@ -1093,3 +1093,91 @@ fn artifact_lazy_replay_bit_identical() {
         assert!(sa.is_some(), "covered key decodes a strategy");
     }
 }
+
+#[test]
+fn external_sampling_strat_sum_has_no_reach_factor() {
+    // SPECS/04 §4: external-sampling MCCFR (Lanctot Alg. 3 variant).
+    //   strat_sum[a] += w_t · σ[a]      ← NO reach factor, NO π_hero, NO 1/σ
+    // A v1-style bug multiplied by π_hero (hero's own reach to this node),
+    // which double-counts and is invisible in the final strategy (both are
+    // scale-invariant) but silently biases the average. This test asserts
+    // the delta on one walk equals w_t · σ[a] to float precision, which the
+    // wrong rule cannot satisfy at non-root nodes.
+    //
+    // Setup: deterministic river spot (no chance nodes left), CallBot below
+    // → exact σ_before, exact per-slot deltas.
+    let cfg = TINY();
+    let mut enc = Encoder::cfg_only(cfg).expect("enc");
+    let mut table = RegretTable::new(ThreadMode::Deterministic);
+    let mut opp = cham_opponents::baselines::CallBot;
+    let rng = &mut rng_from_seed(3);
+    let w_t = 1.0_f64;
+
+    // Pre-insert the hero row so we can read it back with a stable off.
+    let state0 = river_state();
+    let obs = Observables::view(&state0, Player::Bb);
+    let slots = enc.slots(&obs, &ActionSeq::default());
+    let wslots = slots.len();
+    let key = enc.key(&obs, &ActionSeq::default());
+    let (off, _w) = table.entry_or_insert(key.0, wslots);
+
+    // σ_before = regret-matching+ on the (all-zero) current regrets → uniform.
+    let raw: Vec<f64> = (0..wslots)
+        .map(|a| (table.regret(off, wslots, a) as f64).max(0.0))
+        .collect();
+    let sum: f64 = raw.iter().sum();
+    let sigma_before: Vec<f64> = if sum <= 0.0 {
+        vec![1.0 / wslots as f64; wslots]
+    } else {
+        raw.iter().map(|r| r / sum).collect()
+    };
+
+    let strat_before: Vec<f32> = (0..wslots)
+        .map(|a| table.strat_sum(off, wslots, a))
+        .collect();
+
+    // One external-sampling walk.
+    let mut state = river_state();
+    let mut seq = ActionSeq::default();
+    let mut walker = Traversal {
+        table: &mut table,
+        opp: &mut opp,
+        rbp: RbpConfig {
+            theta0: 0.0,
+            delta: 0.99,
+        },
+        iteration: 0,
+        total_iters: 1,
+        mode: cham_blueprint::modes::TrainModeTag::Exploit,
+        hero_nodes: 0,
+        pruned_nodes: 0,
+        regret_discount: 1.0,
+    };
+    let _ = walker.walk(&mut state, 1, w_t, &mut seq, &mut enc, rng);
+
+    // Assert exact deltas.
+    let mut mismatches = 0;
+    for a in 0..wslots {
+        let got = table.strat_sum(off, wslots, a) - strat_before[a];
+        let expected = (w_t * sigma_before[a]) as f32;
+        if (got - expected).abs() > 1e-6 {
+            eprintln!(
+                "slot {a}: strat_sum delta {got} != w_t·σ {expected} \
+                 (σ_before={:.6}, got/σ={:.6})",
+                sigma_before[a],
+                if sigma_before[a] > 0.0 {
+                    got as f64 / sigma_before[a]
+                } else {
+                    0.0
+                }
+            );
+            mismatches += 1;
+        }
+    }
+    assert_eq!(
+        mismatches, 0,
+        "strat_sum update does not match w_t·σ[a] on {}/{} slots — a reach \
+         factor is leaking into the external-sampling estimator (SPECS/04 §4)",
+        mismatches, wslots
+    );
+}

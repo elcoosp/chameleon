@@ -470,6 +470,14 @@ impl RegretTable {
         self.arena.add_f32(self.slot_of(off, w + a), delta);
     }
 
+    /// Read the accumulated strategy-sum for slot `a` of row `off`.
+    /// Mirrors `avg_weight` / `regret` — pure getter, no side effects.
+    /// Exposed for the external-sampling audit (`strat_sum` has no reach
+    /// factor by SPECS/04 §4; the test asserts exact deltas).
+    pub fn strat_sum(&self, off: u32, w: usize, a: usize) -> f32 {
+        f32::from_bits(self.arena.load(self.slot_of(off, w + a)))
+    }
+
     pub fn avg_weight(&self, off: u32, w: usize) -> f32 {
         f32::from_bits(self.arena.load(self.slot_of(off, 2 * w)))
     }
