@@ -56,9 +56,11 @@ pub fn train_cache_key(
     cfg.depth_bb.hash(&mut h);
     cfg.iters.hash(&mut h);
     cfg.train_seed.hash(&mut h);
-    // regret_discount is f32; hash its bits so 1.0 vs 0.99 collide only if
-    // bit-identical (they must).
+    // regret_discount / avg_gamma are f32; hash their bits so 1.0 vs 0.99
+    // collide only if bit-identical (they must). γ is keyed too: different
+    // averaging weights produce different artifacts (v3 §3.1 α/γ split).
     cfg.regret_discount.to_bits().hash(&mut h);
+    cfg.avg_gamma.to_bits().hash(&mut h);
     mode_tag.hash(&mut h);
     opponent_id.unwrap_or("").hash(&mut h);
     abstraction_hash.hash(&mut h);
@@ -148,6 +150,7 @@ mod tests {
             snapshot_every: 10,
             bayes_session_block: 2000,
             regret_discount: 1.0,
+            avg_gamma: 0.9,
         }
     }
 
