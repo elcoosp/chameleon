@@ -285,7 +285,11 @@ fn solve_cached_equals_fresh() {
     // B5: a cached subgame solves bit-identically to a fresh build (pure-function
     // memo: same content hash → same built subgame → same solver output), and
     // the second build is a cache hit.
-    use cham_search::cache::{cache_clear_for_tests, cache_stats, cached_build};
+    use cham_search::cache::{
+        cache_clear_for_tests, cache_stats, cached_build, test_serial_lock,
+    };
+    // process-global cache: serialize against sibling tests (see cache.rs).
+    let _serial = test_serial_lock();
     cache_clear_for_tests();
     let hero = classes(9);
     let villain = classes(9);
