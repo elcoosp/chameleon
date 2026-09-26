@@ -1,0 +1,17 @@
+{
+  "mode": "Robust",
+  "opponent_id": null,
+  "depth_bb": 100,
+  "iters": 10000,
+  "train_seed": 7,
+  "thread_mode": "Deterministic",
+  "threads": 4,
+  "abstraction_hash": 8078057981912287418,
+  "infosets": 2823,
+  "wall_s": 0.440903834,
+  "parent": null,
+  "seat_histogram": [
+    5000,
+    5000
+  ]
+}

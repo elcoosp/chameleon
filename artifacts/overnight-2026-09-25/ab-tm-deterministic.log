@@ -1,0 +1,2 @@
+train-bp: robust iters=10000 depth=100 seed=7 infosets=2823 wall=0.5s artifact=artifacts/overnight-2026-09-25/ab/tm-deterministic/robust-7/policy
+policy.bin: 50287 bytes blake3 088241cab64e6ff7

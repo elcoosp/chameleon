@@ -1,0 +1,14 @@
+verify --gpu: tables dir = artifacts/gpu-tables
+  table flop     boards=22100 holes=1326 denom=1070190 bytes=117218400 complete=true
+    blake3=60b23b581f03b740
+    manifest throughput = 2.65e9 evals/s
+    P7 resample: 24/24 bit-equal
+    P8 rate:     2.65e9 >= 1.0e8 (floor)
+  table turn     boards=270725 holes=1326 denom=45540 bytes=1435925400 complete=true
+    blake3=a1e260fbf3a38142
+    manifest throughput = 3.57e9 evals/s
+    P7 resample: 24/24 bit-equal
+    P8 rate:     3.57e9 >= 1.0e8 (floor)
+  P9: 0 shipped consumers (G2.0 skip) — informational
+verify --gpu: 2 table(s) checked — all gates green
+verify: GREEN

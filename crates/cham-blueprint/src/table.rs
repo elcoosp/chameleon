@@ -14,6 +14,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::BlueprintError;
 
+/// Snapshot format version. Bump on any change to the `Snap` layout or the
+/// serializer. v1 was bincode; v2 (current) is postcard. Old files are
+/// rejected by `restore` with a clear message — regenerate with train-bp.
+const SNAP_VERSION: u8 = 2;
+
 /// Threading mode recorded in provenance (SPECS/00 §3.5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThreadMode {
@@ -642,7 +647,7 @@ impl RegretTable {
         self.arena_len
     }
 
-    // ---------- snapshots (bincode + zstd, tmp+rename) ----------
+    // ---------- snapshots (postcard + zstd, tmp+rename) ----------
 
     /// Serialize: every slot carries its width W (invariant I8 bookkeeping).
     pub fn snapshot(&self) -> Vec<u8> {
@@ -670,8 +675,12 @@ impl RegretTable {
             mode: self.mode,
             rows,
         };
-        let raw = bincode::serialize(&snap).unwrap_or_default();
-        zstd::bulk::compress(&raw, 3).unwrap_or_default()
+        let raw = postcard::to_allocvec(&snap).unwrap_or_default();
+        let body = zstd::bulk::compress(&raw, 3).unwrap_or_default();
+        let mut out = Vec::with_capacity(body.len() + 1);
+        out.push(SNAP_VERSION);
+        out.extend_from_slice(&body);
+        out
     }
 
     /// Restore a snapshot (replaces contents).
@@ -682,10 +691,18 @@ impl RegretTable {
             mode: ThreadMode,
             rows: Vec<(u64, u8, Vec<u32>)>,
         }
-        let raw = zstd::bulk::decompress(bytes, 1 << 30)
+        let (version, body) = bytes
+            .split_first()
+            .ok_or_else(|| BlueprintError::Table("empty snapshot".into()))?;
+        if *version != SNAP_VERSION {
+            return Err(BlueprintError::Table(format!(
+                "snapshot v{version} unsupported (current v{SNAP_VERSION}); regenerate with train-bp"
+            )));
+        }
+        let raw = zstd::bulk::decompress(body, 1 << 30)
             .map_err(|e| BlueprintError::Table(format!("zstd: {e}")))?;
-        let snap: Snap = bincode::deserialize(&raw)
-            .map_err(|e| BlueprintError::Table(format!("bincode: {e}")))?;
+        let snap: Snap = postcard::from_bytes(&raw)
+            .map_err(|e| BlueprintError::Table(format!("postcard: {e}")))?;
         let slots_cap = (snap.n.max(16) * 2).next_power_of_two();
         self.slots = vec![
             Slot {

@@ -1,0 +1,2 @@
+train-bp: robust iters=500000 depth=100 seed=7 infosets=5156 wall=18.4s artifact=artifacts/blueprints-tiny/robust-7/policy
+policy.bin: 91815 bytes blake3 e27d077e471a8cbc

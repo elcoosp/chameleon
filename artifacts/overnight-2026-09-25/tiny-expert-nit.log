@@ -1,0 +1,2 @@
+train-bp: exploit iters=500000 depth=100 seed=7 infosets=4889 wall=49.2s artifact=artifacts/blueprints-tiny/nit/exploit-7/policy
+policy.bin: 89684 bytes blake3 b20c92b875590956

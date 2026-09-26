@@ -1,0 +1,12 @@
+ladder[fast] agent=bayes opponents=9 deals/deal-pair=2500
+  arch:nit: -105.0 ± 17.2 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:tag: -215.0 ± 21.9 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:lag: -317.0 ± 24.6 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:station: -302.0 ± 26.2 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  callbot: -266.0 ± 31.3 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  jamfix: -750.0 ± 0.0 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  pnash:overfold:0.15: -402.0 ± 23.7 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  famB:tag: -461.0 ± 23.5 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  noisy:0.1:arch:lag: -364.0 ± 24.5 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+WARNING: ladder[fast]:bayes fell back on 1212/5017 decisions (24.2%) — artifacts missing or stale, strength numbers are meaningless
+ladder[fast]: 4500 seatings total (ledger entry written)

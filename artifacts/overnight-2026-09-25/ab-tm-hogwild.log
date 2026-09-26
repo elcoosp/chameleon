@@ -1,0 +1,2 @@
+train-bp: robust iters=10000 depth=100 seed=7 infosets=2823 wall=0.5s artifact=artifacts/overnight-2026-09-25/ab/tm-hogwild/robust-7/policy
+policy.bin: 50287 bytes blake3 bbb9977bf0b13ca8

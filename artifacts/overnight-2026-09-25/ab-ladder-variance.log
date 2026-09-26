@@ -1,0 +1,11 @@
+ladder[fast] agent=full opponents=9 deals/deal-pair=2500
+  arch:nit: -1184.5 ± 1053.6 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:tag: -914.4 ± 1385.2 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:lag: -1598.0 ± 1417.8 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:station: -4193.2 ± 1849.0 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  callbot: -1268.0 ± 1627.7 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  jamfix: -2979.0 ± 2135.3 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  pnash:overfold:0.15: +5220.0 ± 1780.0 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH1)
+  famB:tag: -1560.0 ± 1893.4 mb/seating (1000 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  noisy:0.1:arch:lag: +1389.0 ± 1511.8 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH1)
+ladder[fast]: 5000 seatings total (ledger entry written)

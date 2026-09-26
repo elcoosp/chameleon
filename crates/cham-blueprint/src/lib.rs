@@ -45,8 +45,8 @@ pub enum BlueprintError {
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("bincode: {0}")]
-    Bincode(String),
+    #[error("postcard: {0}")]
+    Postcard(String),
     #[error("training: {0}")]
     Training(String),
 }

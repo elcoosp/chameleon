@@ -1,0 +1,12 @@
+ladder[fast] agent=robust-only opponents=9 deals/deal-pair=2500
+  arch:nit: -2683.3 ± 1088.3 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:tag: -3260.1 ± 1432.5 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:lag: -6110.0 ± 1593.0 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:station: -3075.4 ± 1825.2 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  callbot: -1435.0 ± 1858.2 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  jamfix: -1802.0 ± 2090.5 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  pnash:overfold:0.15: +4719.0 ± 1784.0 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH1)
+  famB:tag: -2432.6 ± 1877.5 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  noisy:0.1:arch:lag: -4917.7 ± 1728.6 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+WARNING: ladder[fast]:robust-only fell back on 1407/5487 decisions (25.6%) — artifacts missing or stale, strength numbers are meaningless
+ladder[fast]: 4500 seatings total (ledger entry written)

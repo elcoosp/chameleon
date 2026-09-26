@@ -1,0 +1,2 @@
+train-bp: robust iters=10000 depth=100 seed=11 infosets=2817 wall=0.5s artifact=artifacts/overnight-2026-09-25/ab/seed-11/robust-11/policy
+policy.bin: 50177 bytes blake3 0c783ad3ffaad4bb

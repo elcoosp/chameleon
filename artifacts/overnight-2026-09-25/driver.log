@@ -1,0 +1,73 @@
+[23:59:24] overnight driver starting (pid 28548)
+[23:59:24] metadata: artifacts/overnight-2026-09-25/run-metadata.txt
+[23:59:24] === phase tiny-robust (budget 1800s) ===
+[23:59:43] phase tiny-robust done rc=0 in 19s
+[23:59:43] === phase tiny-expert-nit (budget 900s) ===
+[00:00:33] phase tiny-expert-nit done rc=0 in 50s
+[00:00:33] === phase tiny-expert-tag (budget 900s) ===
+[00:01:30] phase tiny-expert-tag done rc=0 in 57s
+[00:01:30] === phase tiny-expert-lag (budget 900s) ===
+[00:02:34] phase tiny-expert-lag done rc=0 in 64s
+[00:02:34] === phase tiny-expert-station (budget 900s) ===
+[00:03:48] phase tiny-expert-station done rc=0 in 74s
+[00:03:48] assembling artifacts/agent
+[00:03:48] artifacts/agent layout:
+artifacts/agent/buckets/flop.bin
+artifacts/agent/buckets/turn.bin
+artifacts/agent/buckets/meta.json
+artifacts/agent/robust/policy.bin
+artifacts/agent/abstraction.toml
+artifacts/agent/experts/0/policy.bin
+artifacts/agent/experts/1/policy.bin
+artifacts/agent/experts/3/policy.bin
+artifacts/agent/experts/2/policy.bin
+[00:03:48] === phase tiny-ladder (budget 1800s) ===
+[00:03:49] phase tiny-ladder done rc=0 in 1s
+[00:03:49] === phase tiny-probe (budget 900s) ===
+[00:03:50] phase tiny-probe done rc=0 in 1s
+[00:03:50] === phase ab-ladder-variance (budget 1800s) ===
+[00:03:51] phase ab-ladder-variance done rc=0 in 1s
+[00:03:51] === phase ab-arm-robust-only (budget 1800s) ===
+[00:03:52] phase ab-arm-robust-only done rc=0 in 1s
+[00:03:52] === phase ab-arm-argmax (budget 1800s) ===
+[00:03:53] phase ab-arm-argmax done rc=0 in 1s
+[00:03:53] === phase ab-arm-bayes (budget 1800s) ===
+[00:03:54] phase ab-arm-bayes done rc=0 in 1s
+[00:03:54] === phase ab-probe-robust-only (budget 600s) ===
+[00:03:55] phase ab-probe-robust-only done rc=0 in 1s
+[00:03:55] === phase ab-probe-argmax (budget 600s) ===
+[00:03:56] phase ab-probe-argmax done rc=0 in 0s
+[00:03:56] === phase ab-probe-bayes (budget 600s) ===
+[00:03:56] phase ab-probe-bayes done rc=0 in 0s
+[00:03:56] === phase_bg full-flop (budget 14400s) ===
+[00:03:56] phase_bg full-flop pid=29831
+[00:03:56] === phase ab-tm-deterministic (budget 1200s) ===
+[00:03:57] phase ab-tm-deterministic done rc=0 in 1s
+[00:03:57] === phase ab-tm-hogwild (budget 1200s) ===
+[00:03:58] phase ab-tm-hogwild done rc=0 in 1s
+[00:03:58] === phase ab-tm-snapbatch (budget 1200s) ===
+[00:04:00] phase ab-tm-snapbatch done rc=0 in 2s
+[00:04:00] === phase ab-seed-11 (budget 1200s) ===
+[00:04:01] phase ab-seed-11 done rc=0 in 1s
+[00:04:01] === phase ab-seed-22 (budget 1200s) ===
+[00:04:02] phase ab-seed-22 done rc=0 in 1s
+[00:04:02] === phase ab-seed-33 (budget 1200s) ===
+[00:04:03] phase ab-seed-33 done rc=0 in 1s
+[00:04:03] === phase ab-depth-50 (budget 1200s) ===
+[00:04:04] phase ab-depth-50 done rc=0 in 1s
+[00:04:04] === phase ab-depth-100 (budget 1200s) ===
+[00:04:05] phase ab-depth-100 done rc=0 in 1s
+[00:04:05] === phase ab-depth-200 (budget 1200s) ===
+[00:04:06] phase ab-depth-200 done rc=0 in 1s
+[00:04:06] === phase ab-iters-1000 (budget 2400s) ===
+[00:04:07] phase ab-iters-1000 done rc=0 in 1s
+[00:04:07] === phase ab-iters-5000 (budget 2400s) ===
+[00:04:08] phase ab-iters-5000 done rc=0 in 1s
+[00:04:08] === phase ab-iters-50000 (budget 2400s) ===
+[00:04:10] phase ab-iters-50000 done rc=0 in 2s
+[03:21:07] phase_bg full-flop done rc=0 in 11831s
+[03:21:07] wait_bg full-flop: done
+[03:21:07] === phase verify-gpu (budget 600s) ===
+[03:21:08] phase verify-gpu done rc=0 in 1s
+[03:21:08] driver done; total wall 12104s
+[03:23:26] DISK GUARD: free=1GB < 3GB — aborting

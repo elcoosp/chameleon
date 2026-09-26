@@ -1,0 +1,83 @@
+PHASE_turn-ehs-wait                  wall_s=0       status=done
+PHASE_tiny-robust                    wall_s=19      status=ok
+PHASE_tiny-expert-nit                wall_s=50      status=ok
+PHASE_tiny-expert-tag                wall_s=57      status=ok
+PHASE_tiny-expert-lag                wall_s=64      status=ok
+PHASE_tiny-expert-station            wall_s=74      status=ok
+PHASE_tiny-ladder                    wall_s=1       status=ok
+PHASE_tiny-probe                     wall_s=1       status=ok
+PHASE_ab-ladder-variance             wall_s=1       status=ok
+PHASE_ab-arm-robust-only             wall_s=1       status=ok
+PHASE_ab-arm-argmax                  wall_s=1       status=ok
+PHASE_ab-arm-bayes                   wall_s=1       status=ok
+PHASE_ab-probe-robust-only           wall_s=1       status=ok
+PHASE_ab-probe-argmax                wall_s=0       status=ok
+PHASE_ab-probe-bayes                 wall_s=0       status=ok
+PHASE_ab-tm-deterministic            wall_s=1       status=ok
+PHASE_ab-tm-hogwild                  wall_s=1       status=ok
+PHASE_ab-tm-snapbatch                wall_s=2       status=ok
+PHASE_ab-seed-11                     wall_s=1       status=ok
+PHASE_ab-seed-22                     wall_s=1       status=ok
+PHASE_ab-seed-33                     wall_s=1       status=ok
+PHASE_ab-depth-50                    wall_s=1       status=ok
+PHASE_ab-depth-100                   wall_s=1       status=ok
+PHASE_ab-depth-200                   wall_s=1       status=ok
+PHASE_ab-iters-1000                  wall_s=1       status=ok
+PHASE_ab-iters-5000                  wall_s=1       status=ok
+PHASE_ab-iters-50000                 wall_s=2       status=ok
+PHASE_full-flop                      wall_s=11831   status=ok
+PHASE_verify-gpu                     wall_s=1       status=ok
+
+=== overnight summary ===
+total wall: 12104s
+
+--- run metadata ---
+start_utc: 2026-09-25T21:59:24Z
+git_rev: 56954b2419fcef104c6690a7c66dd9dc50322976
+git_branch: gpu/g0
+uname: Darwin mini.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:17:12 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T8103 arm64
+host_model: Macmini9,1
+hw_memsize_bytes: 17179869184
+hw_ncpu: 8
+disk_free_gb_at_start: 51
+bash_version: GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+cargo_version: cargo 1.98.1 (797e8a9bc 2026-08-05)
+rustc_version: rustc 1.98.1 (48a229cea 2026-09-01)
+pwd: /Users/adm/Documents/Repos/chameleon
+
+--- per-phase JSONL ---
+{"name":"turn-ehs-wait","wall_s":0,"status":"done","ts":"2026-09-25T21:59:24Z"}
+{"name":"tiny-robust","wall_s":19,"status":"ok","ts":"2026-09-25T21:59:43Z"}
+{"name":"tiny-expert-nit","wall_s":50,"status":"ok","ts":"2026-09-25T22:00:33Z"}
+{"name":"tiny-expert-tag","wall_s":57,"status":"ok","ts":"2026-09-25T22:01:30Z"}
+{"name":"tiny-expert-lag","wall_s":64,"status":"ok","ts":"2026-09-25T22:02:34Z"}
+{"name":"tiny-expert-station","wall_s":74,"status":"ok","ts":"2026-09-25T22:03:48Z"}
+{"name":"tiny-ladder","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:49Z"}
+{"name":"tiny-probe","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:50Z"}
+{"name":"ab-ladder-variance","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:51Z"}
+{"name":"ab-arm-robust-only","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:52Z"}
+{"name":"ab-arm-argmax","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:53Z"}
+{"name":"ab-arm-bayes","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:54Z"}
+{"name":"ab-probe-robust-only","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:55Z"}
+{"name":"ab-probe-argmax","wall_s":0,"status":"ok","ts":"2026-09-25T22:03:56Z"}
+{"name":"ab-probe-bayes","wall_s":0,"status":"ok","ts":"2026-09-25T22:03:56Z"}
+{"name":"ab-tm-deterministic","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:57Z"}
+{"name":"ab-tm-hogwild","wall_s":1,"status":"ok","ts":"2026-09-25T22:03:58Z"}
+{"name":"ab-tm-snapbatch","wall_s":2,"status":"ok","ts":"2026-09-25T22:04:00Z"}
+{"name":"ab-seed-11","wall_s":1,"status":"ok","ts":"2026-09-25T22:04:01Z"}
+{"name":"ab-seed-22","wall_s":1,"status":"ok","ts":"2026-09-25T22:04:02Z"}
+{"name":"ab-seed-33","wall_s":1,"status":"ok","ts":"2026-09-25T22:04:03Z"}
+{"name":"ab-depth-50","wall_s":1,"status":"ok","ts":"2026-09-25T22:04:04Z"}
+{"name":"ab-depth-100","wall_s":1,"status":"ok","ts":"2026-09-25T22:04:05Z"}
+{"name":"ab-depth-200","wall_s":1,"status":"ok","ts":"2026-09-25T22:04:06Z"}
+{"name":"ab-iters-1000","wall_s":1,"status":"ok","ts":"2026-09-25T22:04:07Z"}
+{"name":"ab-iters-5000","wall_s":1,"status":"ok","ts":"2026-09-25T22:04:08Z"}
+{"name":"ab-iters-50000","wall_s":2,"status":"ok","ts":"2026-09-25T22:04:10Z"}
+{"name":"full-flop","wall_s":11831,"status":"ok","ts":"2026-09-26T01:21:07Z"}
+{"name":"verify-gpu","wall_s":1,"status":"ok","ts":"2026-09-26T01:21:08Z"}
+
+--- phase results ---
+PHASE_turn-ehs-wait                  wall_s=0       status=done
+PHASE_tiny-robust                    wall_s=19      status=ok
+PHASE_tiny-expert-nit                wall_s=50      status=ok
+PHASE_tiny-expert-tag                wall_s=57      status=o
