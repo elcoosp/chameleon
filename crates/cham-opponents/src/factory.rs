@@ -10,6 +10,7 @@
 use crate::baselines::{CallBot, FishBot, JamBot, RaiseBot, RandomBot};
 use crate::drift::SwitcherBot;
 use crate::family_b::FamilyBAgent;
+use crate::frozen::{FrozenAgent, FrozenRows};
 use crate::noisy::NoisyAgent;
 use crate::params::ArchetypeId;
 use crate::percentile::PercentileChart;
@@ -55,6 +56,13 @@ pub enum OpponentSpec {
         b: Box<OpponentSpec>,
         switch_at: u64,
     },
+    /// Frozen snapshot analytic opponent (v3 §6, M6): `frozen:<label>` where
+    /// label identifies the snapshot run (e.g. `robust-seed7`). The strategy
+    /// rows are injected at build time via [`build_frozen`] (same DAG-safe
+    /// injection shape as `Perturbed`'s strategy source — the artifact never
+    /// enters this crate). Family `SELF`: never a router training/tuning
+    /// source, never a promotion gate — diagnostic self-measurement only.
+    Frozen { label: String },
 }
 
 impl OpponentSpec {
@@ -114,6 +122,14 @@ impl OpponentSpec {
                 epsilon,
             });
         }
+        if let Some(label) = id.strip_prefix("frozen:") {
+            if label.is_empty() {
+                return Err(OpponentsError::UnknownId(id.to_string()));
+            }
+            return Ok(OpponentSpec::Frozen {
+                label: label.to_string(),
+            });
+        }
         if let Some(rest) = id.strip_prefix("switch:") {
             let (ab, hand) = rest
                 .rsplit_once('@')
@@ -149,6 +165,7 @@ impl OpponentSpec {
             OpponentSpec::Switcher { a, b, switch_at } => {
                 format!("switch:{}->{}@{}", a.id(), b.id(), switch_at)
             }
+            OpponentSpec::Frozen { label } => format!("frozen:{label}"),
         }
     }
 
@@ -166,6 +183,9 @@ impl OpponentSpec {
             OpponentSpec::FamilyB(_) => "B",
             OpponentSpec::Noisy { .. } => "noise",
             OpponentSpec::Switcher { .. } => "A",
+            // SELF: our own frozen snapshot — excluded from router training,
+            // tuning, and promotion gates (diagnostic self-measurement only).
+            OpponentSpec::Frozen { .. } => "SELF",
         }
     }
 }
@@ -208,6 +228,34 @@ pub fn build_with_source(
             *switch_at,
             chart,
         )),
+        // No rows injected → uniform diagnostic (loudly questionable: use
+        // `build_frozen` with real snapshot rows for any meaningful number).
+        OpponentSpec::Frozen { label } => Box::new(FrozenAgent::new(
+            label.clone(),
+            cham_engine::Encoder::cfg_only(cham_engine::config::AbstractionConfig::tiny())
+                .expect("tiny encoder"),
+            FrozenRows::default(),
+        )),
+    }
+}
+
+/// Build a `Frozen` opponent with real snapshot rows (v3 §6, M6). The
+/// `encoder` must match the victim snapshot's abstraction EXACTLY (same
+/// buckets dir + config — keys are encoder-content-addressed); `rows` come
+/// from `BlueprintPolicy::export_rows`. Mismatched encoders surface as a high
+/// `miss_rate()`, not silent wrongness.
+pub fn build_frozen(
+    spec: &OpponentSpec,
+    chart: &'static PercentileChart,
+    encoder: cham_engine::Encoder,
+    rows: FrozenRows,
+) -> Box<dyn Agent> {
+    match spec {
+        OpponentSpec::Frozen { label } => {
+            let _ = chart;
+            Box::new(FrozenAgent::new(label.clone(), encoder, rows))
+        }
+        other => build(other, chart),
     }
 }
 
