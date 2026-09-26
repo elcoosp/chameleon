@@ -201,6 +201,15 @@ impl<'a> Traversal<'a> {
         // ---- opponent node ----
         if p != hero_seat {
             let obs = Observables::view(state, Player::from_usize(p));
+            // v3 §6 (M6): sync the current-path history into sequence-aware
+            // opponents (FrozenAgent) before the oracle query, so frozen keys
+            // match the victim's live keys exactly. Stateless opponents
+            // return None and skip this (zero behavior change).
+            if let Some(any) = self.opp.as_any_mut() {
+                if let Some(f) = any.downcast_mut::<cham_opponents::frozen::FrozenAgent>() {
+                    f.set_seq(*seq);
+                }
+            }
             // In Robust mode the opponent is the other seat's CURRENT strategy
             // sampled from its own rows; in Exploit modes the scripted oracle.
             let dist: Vec<(Action, f64)> = if self.mode == TrainModeTag::Robust {
