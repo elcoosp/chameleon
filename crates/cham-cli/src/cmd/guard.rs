@@ -63,6 +63,28 @@ pub fn require_agent_artifacts(agent: &str) -> Result<(), Vec<String>> {
 /// strength numbers are meaningless (uniform-policy contamination).
 pub const FALLBACK_WARN_RATE: f64 = 0.20;
 
+/// Content identity of the artifact bundle bound to `agent` (v3 §2.2: fills
+/// `LedgerEntry::artifact_hash` so every gate number is auditable).
+///
+/// * Pure baselines (no trained artifacts): `baseline:<mode>` — deterministic
+///   by construction (the code IS the artifact, pinned by the git revision
+///   the ledger consumer records separately).
+/// * Trained modes: `blake3:<hex>` over the concatenated bytes of every file
+///   in [`required_bundle_files`] (missing files → `None`, so callers that
+///   already passed `require_agent_artifacts` never see `None`, and callers
+///   that didn't get a loud signal instead of a silent unaudited number).
+pub fn artifact_identity(agent: &str) -> Option<String> {
+    if !requires_trained_artifacts(agent) {
+        return Some(format!("baseline:{agent}"));
+    }
+    let mut h = blake3::Hasher::new();
+    for p in required_bundle_files() {
+        let bytes = std::fs::read(p).ok()?;
+        h.update(&bytes);
+    }
+    Some(format!("blake3:{}", h.finalize().to_hex()))
+}
+
 /// Check a run's fallback rate. Returns the prominent warning when
 /// `fallback / total` exceeds [`FALLBACK_WARN_RATE`]; the caller prints it
 /// and writes it into the ledger entry. `total == 0` (no traced decisions,
