@@ -32,6 +32,7 @@ pub fn run(
     config: Option<&str>,
     buckets: Option<&str>,
     regret_discount: f32,
+    avg_gamma: f32,
     reuse: bool,
     resume_from: Option<&str>,
     cache_dir: Option<&str>,
@@ -74,6 +75,7 @@ pub fn run(
             cham_blueprint::TrainMode::Exploit {
                 opponent: opp,
                 jitter_seed: seed,
+                frozen: None,
             }
         }
         other => {
@@ -88,6 +90,7 @@ pub fn run(
         snapshot_every: iters.max(10) / 10,
         bayes_session_block: 2000,
         regret_discount,
+        avg_gamma,
     };
     let runs = std::path::Path::new(out).join(format!("{mode}-{seed}"));
 
@@ -131,6 +134,7 @@ pub fn run(
             snapshot_every: iters.max(10) / 10,
             bayes_session_block: 2000,
             regret_discount,
+            avg_gamma,
         };
         let key = cham_blueprint::train_cache::train_cache_key(
             &cfg_peek,
@@ -233,6 +237,7 @@ pub fn run(
             snapshot_every: iters.max(10) / 10,
             bayes_session_block: 2000,
             regret_discount,
+            avg_gamma,
         };
         let key = cham_blueprint::train_cache::train_cache_key(
             &cfg_peek,
