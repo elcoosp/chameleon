@@ -377,6 +377,7 @@ fn pipeline_mode_matrix() {
             solver: "Rnr".into(),
             g4_ledger_ref: String::new(),
         },
+        fallback_mode: std::env::var("CHAM_FALLBACK_MODE").unwrap_or_else(|_| "renorm".into()),
     };
     assert!(
         bad.validate().is_err(),
@@ -390,6 +391,7 @@ fn pipeline_mode_matrix() {
             solver: "Rnr".into(),
             g4_ledger_ref: "EXP-002".into(),
         },
+        fallback_mode: "renorm".into(),
     };
     assert!(ok.validate().is_ok());
 }
@@ -533,4 +535,40 @@ fn loader_refuses_over_budget() {
         !format!("{err2}").contains("budget"),
         "guard must pass first: {err2}"
     );
+}
+
+#[test]
+fn exp012_r3_robust_only_telemetry_scoped() {
+    // R3: robust-only fallback bit reflects the robust tier alone, and the
+    // trace carries identical miss-detection counts regardless of mode.
+    let mut a = make_agent(AgentMode::robust_only());
+    let s = fresh_hand();
+    let obs = Observables::view(&s, Player::Bb);
+    let rng = &mut rng_from_seed(21);
+    let _ = a.act(&obs, rng);
+    let t = a.last_trace.expect("trace");
+    // R3 scoping invariant: robust-only's bit equals the robust tier's own
+    // miss (never the mixture/expert bits), whatever the coverage.
+    assert_eq!(t.fallback_used, t.robust_missed);
+}
+
+#[test]
+fn exp013_r2_renorm_differs_from_substitute() {
+    // R2 invariant: miss DETECTION is identical under both composition modes;
+    // only the mixture VALUE changes. Exercised at the AgentMode level: both
+    // modes validate and route identically on fully-covered infosets.
+    let mut renorm = AgentMode::full_search_off();
+    renorm.fallback_mode = "renorm".into();
+    let mut subst = AgentMode::full_search_off();
+    subst.fallback_mode = "substitute".into();
+    let mut a = make_agent(renorm);
+    let mut b = make_agent(subst);
+    let s = fresh_hand();
+    let obs = Observables::view(&s, Player::Bb);
+    let _ = a.act(&obs, &mut rng_from_seed(31));
+    let _ = b.act(&obs, &mut rng_from_seed(31));
+    let (ta, tb) = (a.last_trace.unwrap(), b.last_trace.unwrap());
+    assert_eq!(ta.expert_missed, tb.expert_missed, "detection identical");
+    assert_eq!(ta.robust_missed, tb.robust_missed);
+    assert_eq!(ta.fallback_used, tb.fallback_used, "no misses -> same bit");
 }
