@@ -350,6 +350,8 @@ pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str) -> i32 {
         },
         promote: false,
         seatings: total_seatings,
+        // v3 §2.2: every ledger number carries its bound artifact identity.
+        artifact_hash: crate::cmd::guard::artifact_identity(agent),
         notes: Some(match &fallback_warning {
             Some(w) => format!("tier {tier} screening — diagnostic, CI per opponent. {w}"),
             None => format!("tier {tier} screening — diagnostic, CI per opponent"),
