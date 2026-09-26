@@ -8,6 +8,8 @@ pub mod gpu_doctor;
 pub mod guard;
 pub mod hero;
 pub mod ladder;
+pub mod lint_ledger;
+pub mod self_exploit;
 pub mod play;
 pub mod probe;
 pub mod slumbot;
@@ -16,6 +18,7 @@ pub mod train_bp;
 pub mod train_buckets;
 pub mod train_router;
 pub mod verify;
+pub mod warm_cache;
 
 /// Shared exit-code vocabulary.
 pub const EXIT_OK: i32 = 0;
