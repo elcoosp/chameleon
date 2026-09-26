@@ -17,17 +17,18 @@
 //!   [postcard(Subgame): len bytes]
 //! ```
 //!
-//! Pure file I/O; no mmap needed (≤ 256 entries × ~500 B = ~128 KB).
+//! Pure file I/O; no mmap needed (≤ 2048 entries × ~500 B ≈ 1 MB).
 //! Determinism: postcard's wire format is frozen since 1.0.0, so a
 //! `Subgame` serializes to the same bytes across runs. `hydrate_from`
 //! MERGES into the process-global L1 (never clears existing entries);
 //! a bad magic or truncated file returns an `io::Error`, so callers can
 //! ignore persistence failures with a single `if let Ok(..)`.
 //!
-//! Cache-cap interplay: the L1 evicts wholesale past `CACHE_CAP` (256). A
-//! saved file larger than 256 entries is truncated at save time to the
-//! first 256 in iteration order; hydrate refuses to load more than 256 so
-//! `verify --gpu`-style callers can't see a surprising L1 size.
+//! Cache-cap interplay: the L1 evicts per-entry LRU past `CACHE_CAP`
+//! (2048). A saved file larger than the cap is truncated at save time to
+//! the first `MAX_ENTRIES` in iteration order; hydrate refuses to load
+//! more than the cap so `verify --gpu`-style callers can't see a
+//! surprising L1 size.
 
 use std::fs;
 use std::io::{self, Write};
@@ -43,9 +44,9 @@ use crate::subgame::Subgame;
 const MAGIC: u32 = 0x5053_4853;
 /// Version bump on any format change.
 const VERSION: u32 = 2;
-/// Same cap as the in-process L1 (crate::cache::CACHE_CAP is private, so
-/// hard-coded here; `cache::cache_stats` reports the live count).
-const MAX_ENTRIES: usize = 256;
+/// Same cap as the in-process L1 (v3 §1.2: raised 256 → 2048 alongside the
+/// LRU switch; `cache::CACHE_CAP` is the single source of truth).
+const MAX_ENTRIES: usize = cache::CACHE_CAP;
 
 /// Serialize the process-global cache to `path` (atomic write via `.tmp` +
 /// rename). Returns the number of entries written.
@@ -141,18 +142,23 @@ pub fn hydrate_from(path: &Path) -> io::Result<usize> {
         loaded.push((key, sg));
     }
 
-    let inserted = cache::with_global_map(|map| {
+    let fresh_keys: Vec<u64> = cache::with_global_map(|map| {
         use std::collections::hash_map::Entry;
-        let mut ins = 0usize;
+        let mut fresh = Vec::new();
         for (k, sg) in loaded {
             if let Entry::Vacant(slot) = map.entry(k) {
                 slot.insert(std::sync::Arc::new(sg));
-                ins += 1;
+                fresh.push(k);
             }
         }
-        ins
+        fresh
     });
-    Ok(inserted)
+    // Keep the LRU order in lockstep with the out-of-band map inserts
+    // (hydrate must not create order-less entries the evictor can't see).
+    for k in &fresh_keys {
+        cache::note_inserted(*k);
+    }
+    Ok(fresh_keys.len())
 }
 
 #[cfg(test)]
@@ -178,6 +184,7 @@ mod tests {
 
     #[test]
     fn roundtrip_three_spots() {
+        let _serial = cache::test_serial_lock();
         cache::cache_clear_for_tests();
         // Populate by content key.
         for i in 0..3 {
@@ -233,6 +240,7 @@ mod tests {
 
     #[test]
     fn hydrate_rejects_bad_magic() {
+        let _serial = cache::test_serial_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("bad.bin");
         std::fs::write(&path, b"garbage").expect("write");
@@ -242,6 +250,7 @@ mod tests {
 
     #[test]
     fn hydrate_missing_file_is_ok_zero() {
+        let _serial = cache::test_serial_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let n = hydrate_from(&dir.path().join("nope.bin")).expect("no file");
         assert_eq!(n, 0);
@@ -249,6 +258,7 @@ mod tests {
 
     #[test]
     fn hydrate_truncated_header_errors() {
+        let _serial = cache::test_serial_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("cut.bin");
         // 6 bytes is < 12 (magic + version + count).
@@ -259,6 +269,7 @@ mod tests {
 
     #[test]
     fn save_empty_still_writes_valid_header() {
+        let _serial = cache::test_serial_lock();
         cache::cache_clear_for_tests();
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("empty.bin");
