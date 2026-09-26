@@ -1,0 +1,14 @@
+# EXP-012 (v4 brainstorm).
+id = "EXP-012"
+slug = "fallback-r3-decision-path"
+gate = "G-fallback"
+tier = "diag"
+a = "robust-only"
+b = "robust-only-pre-r3"
+pool = ["callbot", "arch:station", "jamfix", "pnash:overfold:0.15"]
+deals_per_opp = 60
+seeds = [1]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "a_lt_b"
