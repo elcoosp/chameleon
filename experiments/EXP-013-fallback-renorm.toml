@@ -1,0 +1,14 @@
+# EXP-013 (v4 brainstorm).
+id = "EXP-013"
+slug = "fallback-renorm"
+gate = "G-fallback"
+tier = "ab"
+a = "full"
+b = "full"
+pool = ["callbot", "arch:station", "jamfix", "pnash:overfold:0.15"]
+deals_per_opp = 10000
+seeds = [1, 2, 3]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "sensitivity_report"
