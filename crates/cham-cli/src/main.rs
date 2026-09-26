@@ -79,6 +79,15 @@ enum Command {
         /// DCFR positive-regret discount (1.0 = CFR+ classic; try 0.9)
         #[arg(long, default_value = "1.0")]
         regret_discount: f32,
+        /// Reuse a cached blueprint with identical inputs (V2 A/B speedup)
+        #[arg(long)]
+        reuse: bool,
+        /// Resume training from a snapshot path
+        #[arg(long)]
+        resume: Option<String>,
+        /// Override the training cache directory
+        #[arg(long)]
+        cache_dir: Option<String>,
     },
     /// Train the router on a .rbin dataset (SPECS/05)
     TrainRouter {
@@ -196,6 +205,9 @@ fn main() -> anyhow::Result<()> {
             config,
             buckets,
             regret_discount,
+            reuse,
+            resume,
+            cache_dir,
         } => cmd::train_bp::run(
             &mode,
             opponent.as_deref(),
@@ -209,6 +221,9 @@ fn main() -> anyhow::Result<()> {
             config.as_deref(),
             buckets.as_deref(),
             regret_discount,
+            reuse,
+            resume.as_deref(),
+            cache_dir.as_deref(),
         ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),

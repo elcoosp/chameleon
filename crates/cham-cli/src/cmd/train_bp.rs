@@ -2,6 +2,23 @@
 
 use std::path::Path;
 
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let from = entry.path();
+        let to = dst.join(&name);
+        let ft = entry.file_type()?;
+        if ft.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else if ft.is_file() {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn run(
     mode: &str,
     opponent: Option<&str>,
@@ -15,6 +32,9 @@ pub fn run(
     config: Option<&str>,
     buckets: Option<&str>,
     regret_discount: f32,
+    reuse: bool,
+    resume_from: Option<&str>,
+    cache_dir: Option<&str>,
 ) -> i32 {
     if let Some(run_dir) = status {
         return print_status(run_dir);
@@ -70,6 +90,7 @@ pub fn run(
         regret_discount,
     };
     let runs = std::path::Path::new(out).join(format!("{mode}-{seed}"));
+
     let thread_mode = match thread_mode.unwrap_or("deterministic") {
         "deterministic" => cham_blueprint::ThreadMode::Deterministic,
         "hogwild" => cham_blueprint::ThreadMode::Hogwild,
@@ -87,6 +108,56 @@ pub fn run(
             .map(|n: std::num::NonZeroUsize| n.get() as u32)
             .unwrap_or(4)
     });
+
+    // ---- V2 A/B training cache ----
+    let cache_root = cache_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(cham_blueprint::train_cache::default_cache_dir);
+    let _ = resume_from; // TODO: wire into train_with_threads (already accepts it)
+    if reuse {
+        let mode_tag = match mode {
+            "robust" => "Robust".to_string(),
+            other => format!("Exploit:{other}"),
+        };
+        let opp_id = if mode == "robust" {
+            None
+        } else {
+            opponent.map(str::to_string)
+        };
+        let cfg_peek = cham_blueprint::TrainerConfig {
+            depth_bb: depth,
+            iters,
+            train_seed: seed,
+            snapshot_every: iters.max(10) / 10,
+            bayes_session_block: 2000,
+            regret_discount,
+        };
+        let key = cham_blueprint::train_cache::train_cache_key(
+            &cfg_peek,
+            &mode_tag,
+            opp_id.as_deref(),
+            enc.abstraction_hash(),
+            &format!("{:?}", thread_mode),
+            threads,
+        );
+        if let Some(cached) = cham_blueprint::train_cache::lookup(&cache_root, &key) {
+            println!(
+                "train-bp: REUSE hit {mode}-{seed} key={key} from {}",
+                cached.display()
+            );
+            let _ = std::fs::remove_dir_all(&runs);
+            if let Some(parent) = runs.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(e) = copy_dir_all(&cached, &runs) {
+                eprintln!("train-bp: reuse copy failed: {e}");
+                return crate::cmd::EXIT_FAIL;
+            }
+            println!("train-bp: reused at {}", runs.display());
+            return crate::cmd::EXIT_OK;
+        }
+        println!("train-bp: cache miss key={key}");
+    }
     let t0 = std::time::Instant::now();
     let (table, prov) = match cham_blueprint::train_with_threads(
         &tcfg,
@@ -141,6 +212,41 @@ pub fn run(
             bytes.len(),
             &blake3::hash(&bytes).to_string()[..16]
         );
+    }
+    // ---- V2 A/B training cache: store the fresh artifact ----
+    // Recompute key (cheap hash) so we don't have to hoist it out of the
+    // reuse branch above. Store is idempotent: first writer wins.
+    if reuse {
+        let mode_tag = match mode {
+            "robust" => "Robust".to_string(),
+            other => format!("Exploit:{other}"),
+        };
+        let opp_id = if mode == "robust" {
+            None
+        } else {
+            opponent.map(str::to_string)
+        };
+        let cfg_peek = cham_blueprint::TrainerConfig {
+            depth_bb: depth,
+            iters,
+            train_seed: seed,
+            snapshot_every: iters.max(10) / 10,
+            bayes_session_block: 2000,
+            regret_discount,
+        };
+        let key = cham_blueprint::train_cache::train_cache_key(
+            &cfg_peek,
+            &mode_tag,
+            opp_id.as_deref(),
+            enc.abstraction_hash(),
+            &format!("{:?}", thread_mode),
+            threads,
+        );
+        if let Err(e) = cham_blueprint::train_cache::store(&cache_root, &key, &runs) {
+            eprintln!("train-bp: cache store skipped: {e}");
+        } else {
+            println!("train-bp: cached at {}/{key}", cache_root.display());
+        }
     }
     crate::cmd::EXIT_OK
 }

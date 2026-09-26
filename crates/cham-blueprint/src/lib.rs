@@ -13,6 +13,7 @@ pub mod lbr;
 pub mod modes;
 pub mod policy;
 pub mod table;
+pub mod train_cache;
 pub mod trainer;
 pub mod traversal;
 pub mod warmstart;

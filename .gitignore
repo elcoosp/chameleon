@@ -34,3 +34,15 @@ artifacts/buckets-full/
 
 # transient ladder swap
 artifacts/agent-tiny-backup/
+
+# V2 training cache
+artifacts/blueprints-cache/
+
+# V2 A/B match cache
+artifacts/eval-cache/
+
+# cargo-mutants output
+mutants.out/
+
+# cargo-mutants output
+mutants.out.old/
