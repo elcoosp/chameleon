@@ -142,118 +142,248 @@ impl ChameleonAgent {
         let w = *weights;
 
         // per-expert strategies + reach products (disjoint field borrows)
-        let mut mix: Vec<f64> = vec![0.0; n];
-        let mut weight_mass = 0.0;
-        let mut fallback_used = false;
-        let mut expert_visits = [0u32; 4];
-        // P1 diagnostic: distinguish the four fallback sources.
+        // EXP-013 R2: gather per-tier strategies WITHOUT substitution; a
+        // missed tier is dropped from the mixture and the remaining weights
+        // are renormalized (legacy "substitute" path kept behind
+        // `mode.fallback_mode == "substitute"` for A/B).
+        let legacy_substitute = mode.fallback_mode == "substitute"
+            || std::env::var("CHAM_FALLBACK_MODE").as_deref() == Ok("substitute");
+        let mut expert_sigma: Vec<Option<Vec<f64>>> = Vec::with_capacity(4);
         let mut expert_missed = [false; 4];
         let mut robust_missed = false;
-
         for k in 0..4 {
-            if w[k] <= 1e-9 {
-                continue;
-            }
-            let sigma = match experts[k].strategy(obs, encoder, seq) {
-                Some(s) => s,
+            match experts[k].strategy(obs, encoder, seq) {
+                Some(s) => expert_sigma.push(Some(s)),
                 None => {
                     expert_missed[k] = true;
-                    match robust.strategy(obs, encoder, seq) {
-                        Some(s) => {
-                            fallback_used = true;
-                            s
-                        }
-                        None => {
-                            robust_missed = true;
-                            fallback_used = true;
-                            vec![1.0 / n as f64; n]
-                        }
-                    }
+                    expert_sigma.push(None);
                 }
-            };
-            let pi = reach[k];
-            weight_mass += w[k] * pi;
-            for a in 0..n {
-                mix[a] += w[k] * pi * sigma.get(a).copied().unwrap_or(0.0);
             }
+        }
+        let robust_sigma: Option<Vec<f64>> = match robust.strategy(obs, encoder, seq) {
+            Some(s) => Some(s),
+            None => {
+                robust_missed = true;
+                None
+            }
+        };
+        let mut expert_visits = [0u32; 4];
+        for k in 0..4 {
             let c = experts[k].confidence(obs, encoder, seq).unwrap_or(0.0);
             expert_visits[k] = ((c * 64.0) / (1.0 - c).max(1e-9)) as u32;
         }
-        // robust expert (weight w[4])
-        {
-            let sigma = match robust.strategy(obs, encoder, seq) {
-                Some(s) => s,
-                None => {
-                    robust_missed = true;
-                    fallback_used = true;
-                    vec![1.0 / n as f64; n]
-                }
-            };
-            let pi = reach[4];
-            weight_mass += w[4] * pi;
-            for a in 0..n {
-                mix[a] += w[4] * pi * sigma.get(a).copied().unwrap_or(0.0);
-            }
-        }
-        // reach-weighted fallback: Σ w_k π_k = 0 → plain weighted average of σ_k
-        let reach_mass_zero = weight_mass <= 1e-12;
-        if reach_mass_zero {
-            fallback_used = true;
-            mix = vec![0.0; n];
-            // re-derive plain σ averages without reach
+
+        // Mixture composition.
+        let mut mix: Vec<f64> = vec![0.0; n];
+        #[allow(clippy::needless_late_init)]
+        let mix_fallback: bool;
+        #[allow(clippy::needless_late_init)]
+        let reach_mass_zero: bool;
+        #[allow(clippy::needless_late_init)]
+        let mix_zero: bool;
+        if legacy_substitute {
+            // ---- legacy semantics (pre-R2): substitute + old fallback bit ----
+            let mut fallback_used = false;
+            let mut weight_mass = 0.0;
             for k in 0..4 {
                 if w[k] <= 1e-9 {
                     continue;
                 }
-                let sigma = match experts[k].strategy(obs, encoder, seq) {
-                    Some(s) => s,
-                    None => vec![1.0 / n as f64; n],
+                let sigma = match expert_sigma[k].as_ref() {
+                    Some(s) => s.clone(),
+                    None => match robust_sigma.as_ref() {
+                        Some(s) => {
+                            fallback_used = true;
+                            s.clone()
+                        }
+                        None => {
+                            fallback_used = true;
+                            vec![1.0 / n as f64; n]
+                        }
+                    },
                 };
+                let pi = reach[k];
+                weight_mass += w[k] * pi;
                 for a in 0..n {
-                    mix[a] += w[k] * sigma.get(a).copied().unwrap_or(0.0);
+                    mix[a] += w[k] * pi * sigma.get(a).copied().unwrap_or(0.0);
                 }
             }
-        }
-        let mix_total: f64 = mix.iter().sum();
-        let mix_zero = mix_total <= 1e-12;
-        if mix_zero {
-            fallback_used = true;
-            mix = vec![1.0 / n as f64; n];
-        } else {
-            for v in mix.iter_mut() {
-                *v /= mix_total;
+            {
+                let sigma = match robust_sigma.as_ref() {
+                    Some(s) => s.clone(),
+                    None => {
+                        fallback_used = true;
+                        vec![1.0 / n as f64; n]
+                    }
+                };
+                let pi = reach[4];
+                weight_mass += w[4] * pi;
+                for a in 0..n {
+                    mix[a] += w[4] * pi * sigma.get(a).copied().unwrap_or(0.0);
+                }
             }
+            reach_mass_zero = weight_mass <= 1e-12;
+            if reach_mass_zero {
+                fallback_used = true;
+                mix = vec![0.0; n];
+                for k in 0..4 {
+                    if w[k] <= 1e-9 {
+                        continue;
+                    }
+                    let sigma: Vec<f64> = match expert_sigma[k].as_ref() {
+                        Some(s) => s.clone(),
+                        None => vec![1.0 / n as f64; n],
+                    };
+                    for a in 0..n {
+                        mix[a] += w[k] * sigma.get(a).copied().unwrap_or(0.0);
+                    }
+                }
+            }
+            let mix_total: f64 = mix.iter().sum();
+            mix_zero = mix_total <= 1e-12;
+            if mix_zero {
+                fallback_used = true;
+                mix = vec![1.0 / n as f64; n];
+            } else {
+                for v in mix.iter_mut() {
+                    *v /= mix_total;
+                }
+            }
+            mix_fallback = fallback_used;
+        } else {
+            // ---- R2 semantics: DROP missed tiers, renormalize, fallback only
+            // ---- when the mixture is genuinely empty (mix_zero). ----
+            // Available mass (router weight × reach) over non-missed tiers.
+            let mut mass = 0.0;
+            for k in 0..4 {
+                if w[k] <= 1e-9 || expert_sigma[k].is_none() {
+                    continue;
+                }
+                mass += w[k] * reach[k];
+            }
+            if robust_sigma.is_some() {
+                mass += w[4] * reach[4];
+            }
+            reach_mass_zero = mass <= 1e-12;
+            // Any tier available at all (ignoring reach)? Determines mix_zero.
+            let any_tier = (0..4).any(|k| expert_sigma[k].is_some())
+                || robust_sigma.is_some();
+            mix_zero = !any_tier;
+            if mix_zero {
+                mix = vec![1.0 / n as f64; n]; // only NOW a true fallback
+            } else if reach_mass_zero {
+                // reach collapsed but tiers exist: plain router-weighted
+                // average over AVAILABLE tiers (no reach, no uniform).
+                let mut m2 = 0.0;
+                for k in 0..4 {
+                    if w[k] <= 1e-9 {
+                        continue;
+                    }
+                    if let Some(s) = expert_sigma[k].as_ref() {
+                        for a in 0..n {
+                            mix[a] += w[k] * s.get(a).copied().unwrap_or(0.0);
+                        }
+                        m2 += w[k];
+                    }
+                }
+                if let Some(s) = robust_sigma.as_ref() {
+                    for a in 0..n {
+                        mix[a] += w[4] * s.get(a).copied().unwrap_or(0.0);
+                    }
+                    m2 += w[4];
+                }
+                if m2 > 1e-12 {
+                    for v in mix.iter_mut() {
+                        *v /= m2;
+                    }
+                }
+            } else {
+                for k in 0..4 {
+                    if w[k] <= 1e-9 {
+                        continue;
+                    }
+                    if let Some(s) = expert_sigma[k].as_ref() {
+                        for a in 0..n {
+                            mix[a] += w[k] * reach[k] * s.get(a).copied().unwrap_or(0.0);
+                        }
+                    }
+                }
+                if let Some(s) = robust_sigma.as_ref() {
+                    for a in 0..n {
+                        mix[a] += w[4] * reach[4] * s.get(a).copied().unwrap_or(0.0);
+                    }
+                }
+                let total: f64 = mix.iter().sum();
+                if total > 1e-12 {
+                    for v in mix.iter_mut() {
+                        *v /= total;
+                    }
+                }
+            }
+            mix_fallback = mix_zero;
         }
 
-        // mode dispatch
+        // mode dispatch — EXP-012 R3: trace.fallback_used comes from the
+        // DECISION path (the arm actually used), not the mixture path.
+        let mut tier_missed = false;
         let action = match mode.routing.as_str() {
             "robust-only" => {
-                let sigma = robust
-                    .strategy(obs, encoder, seq)
-                    .unwrap_or_else(|| vec![1.0 / n as f64; n]);
+                let sigma = match robust_sigma.as_ref() {
+                    Some(s) => s.clone(),
+                    None => {
+                        tier_missed = true;
+                        vec![1.0 / n as f64; n]
+                    }
+                };
                 slots[sample_index(&sigma, rng)].action
             }
             "argmax" => {
                 let k = argmax_k.unwrap_or(0);
-                let sigma = match experts[k].strategy(obs, encoder, seq) {
-                    Some(s) => s,
-                    None => robust
-                        .strategy(obs, encoder, seq)
-                        .unwrap_or_else(|| vec![1.0 / n as f64; n]),
+                let sigma = match expert_sigma[k].as_ref() {
+                    Some(s) => s.clone(),
+                    None => match robust_sigma.as_ref() {
+                        Some(s) => {
+                            tier_missed = true; // chosen expert missed, robust covered
+                            s.clone()
+                        }
+                        None => {
+                            tier_missed = true;
+                            vec![1.0 / n as f64; n]
+                        }
+                    },
                 };
+                // R3 policy: argmax counts as fallback only when the decision
+                // itself is uniform (both tiers missed). A robust-covered
+                // expert miss is recoverable, not a fallback.
+                if expert_missed[k] && robust_sigma.is_none() {
+                    tier_missed = true;
+                } else if expert_missed[k] && robust_sigma.is_some() {
+                    tier_missed = false;
+                }
                 slots[argmax_of(&sigma)].action // NO rng (replayability)
             }
             "bayes" => {
                 let sigma = match bayes {
-                    Some(bp) => bp
-                        .strategy(obs, encoder, seq)
-                        .unwrap_or_else(|| vec![1.0 / n as f64; n]),
-                    None => vec![1.0 / n as f64; n],
+                    Some(bp) => match bp.strategy(obs, encoder, seq) {
+                        Some(s) => s,
+                        None => {
+                            tier_missed = true;
+                            vec![1.0 / n as f64; n]
+                        }
+                    },
+                    None => {
+                        tier_missed = true;
+                        vec![1.0 / n as f64; n]
+                    }
                 };
                 slots[argmax_of(&sigma)].action // bayes-greedy consumes NO rng
             }
-            _ => slots[sample_index(&mix, rng)].action, // mixture
+            _ => {
+                tier_missed = mix_fallback; // mixture modes keep mixture bit
+                slots[sample_index(&mix, rng)].action // mixture
+            }
         };
+        let fallback_used = tier_missed;
 
         // per-expert reach update: π_k *= σ_k(a_chosen | i)
         let chosen_slot = slots.iter().position(|s| s.action == action).unwrap_or(0);
