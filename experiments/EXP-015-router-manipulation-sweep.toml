@@ -1,0 +1,12 @@
+# EXP-015 (v4 brainstorm).
+id = "EXP-015"
+slug = "router-manipulation-sweep"
+gate = "G-SELF-sweep"
+tier = "self-exploit"
+pool = ["switch:arch:nit->arch:lag"]
+deals_per_opp = 2000
+seeds = [1]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "report_only"
