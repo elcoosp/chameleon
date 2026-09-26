@@ -200,29 +200,29 @@ phase_bg full-flop 14400 \
 AB="$OUT/ab"; mkdir -p "$AB"
 
 for tm in deterministic hogwild snapbatch; do
-  phase "ab-tm-$tm" 1200 \
+  phase "ab-tm-$tm" 2400 \
     nice -n 15 cargo run -q --release -p cham-cli -- train-bp \
-      --mode robust --iters 10000 --depth 100 --seed 7 \
+      --mode robust --iters 100000 --depth 100 --seed 7 \
       --threads 4 --thread-mode "$tm" \
       --out "$AB/tm-$tm"
 done
 
 for s in 11 22 33; do
-  phase "ab-seed-$s" 1200 \
+  phase "ab-seed-$s" 2400 \
     nice -n 15 cargo run -q --release -p cham-cli -- train-bp \
-      --mode robust --iters 10000 --depth 100 --seed "$s" \
+      --mode robust --iters 100000 --depth 100 --seed "$s" \
       --out "$AB/seed-$s" --threads 4
 done
 
 for d in 50 100 200; do
-  phase "ab-depth-$d" 1200 \
+  phase "ab-depth-$d" 2400 \
     nice -n 15 cargo run -q --release -p cham-cli -- train-bp \
-      --mode robust --iters 10000 --depth "$d" --seed 7 \
+      --mode robust --iters 100000 --depth "$d" --seed 7 \
       --out "$AB/depth-$d" --threads 4
 done
 
-for it in 1000 5000 50000; do
-  phase "ab-iters-$it" 2400 \
+for it in 10000 100000 1000000; do
+  phase "ab-iters-$it" 7200 \
     nice -n 15 cargo run -q --release -p cham-cli -- train-bp \
       --mode robust --iters "$it" --depth 100 --seed 7 \
       --out "$AB/iters-$it" --threads 4

@@ -313,3 +313,53 @@ limit=100 truncate tests before this run.
 Prereq for the overnight tiny-ladder experiment: artifacts/agent needs the
 EHS consumers. That work is G2.x, G2.0 skip outcome; the table has no v2
 consumer. It is however the v3 flagship's prerequisite (V3-BRAINSTORM).
+
+## G4.0 GPU track closure — 2026-09-26
+
+Final state after the 2026-09-25/26 overnight run.
+
+### Tables built and verified
+
+| table | boards | bytes | blake3 (first 16) | rate |
+|---|---|---|---|---|
+| turn  | 270,725 | 1,435,925,400 | a1e260fbf3a38142 | 3.57e9 evals/s |
+| flop  | 22,100  | 117,218,400   | 60b23b581f03b740 | 2.65e9 evals/s |
+
+Both complete=true; `verify --gpu` P7 24/24 bit-equal on each, P8 pass,
+P9 informational (G2.0 SKIP outcome: no pure-acceleration consumer in
+the v2 workspace).
+
+### What landed this session
+
+- cham-gpu: eval7 MSL (Metal + WGSL, bit-exact), turn EHS MSL, flop EHS MSL,
+  persistent GpuContext, tdr-safe batch clamp (flop batch=4, turn a.batch).
+- cham-gpu tests: consistency_eval7 (1M hands), consistency_turn (24 pairs),
+  consistency_flop (18 pairs), reference (3 hand-derived fixtures).
+- cham-eval: matcheng now calls on_public_action for both agents before
+  state.apply — the fix that took the ladder from 65% fallback to 0.
+- cham-cli: verify --gpu (P7 resample + P8 rate floor), train-bp
+  --thread-mode {deterministic|hogwild|snapbatch} flag, train-bp reads
+  the same tiny TOML the loader parses (hash parity fix).
+- config/abstraction-tiny.toml completed to match AbstractionConfig::tiny().
+
+### Skip outcomes (recorded in plan's own mechanism)
+
+- G2.1 turn-machinery consumer: SKIP (no runtime CPU path computes turn
+  EHS; substitution changes semantics).
+- G2.2 AIVAT enumeration: SKIP (stage not implemented).
+- G1.4 river EHS: SKIP (no consumer, no v3 anchor).
+
+### Known bugs fixed this session
+
+- matcheng missing on_public_action → 65% ladder fallback.
+- train-bp used in-code config while loader hashed TOML bytes → hash mismatch.
+- Driver summary.txt self-appended → 47 GB disk fill; fixed in driver.
+- flop kernel TDR truncation above batch=4.
+
+### Still open
+
+- G4.0 doc items: README GPU paragraph, SPECS/00 whitelist amendment
+  sentence for wgpu + pollster (this commit).
+- A/B iters chains were run at 10k, not the intended 10k/100k/1M; fixed in
+  the driver for the next run.
+- Full-abstraction bp: not attempted; queued.

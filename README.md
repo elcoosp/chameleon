@@ -100,3 +100,8 @@ layout + multiset rank (no u64 in the kernel).
 ## Dev tools
 
 `cargo-nextest`, `cargo-llvm-cov`, `cargo-mutants`, `cargo-deny` (wired in the justfile); benchmarks via `criterion` with regression thresholds.
+
+
+### GPU track
+
+Two exact-EHS tables built (turn + flop), verify --gpu green.

@@ -168,3 +168,23 @@ DoD — <crate>
 - `Vec` allocation inside per-decision hot paths (engine `apply`/`legal_actions`, encoder `key`, traversal, solver inner loops) — `ArrayVec`/fixed arrays/borrowed views only; enforced by review + `cargo-mutants` triage, and the P2/P3 gates
 - HashMap iteration for decisions/outputs; `#[serde(default)]` on gameplay knobs; `mod utils` / `misc.rs`
 - `AllIn` action variants (canonicalization, §4)
+
+---
+
+## Appendix — whitelist amendments
+
+Beyond the closed dependency set in §2, two additions were sanctioned
+by docs/GPU-PLAN-AMENDMENTS.md (Amendment 002) and are feature-gated so
+they never ship in a default build:
+
+- **`metal`** (macOS-only, `cham-gpu`'s `metal` feature): Apple Metal FFI
+  for the eval7 and EHS kernels. FFI unsafe is scoped to a single shim
+  module (`crates/cham-gpu/src/mtl.rs`), same pattern as the memmap2
+  carve-out (D-001).
+- **`wgpu` + `pollster`** (`cham-gpu`'s `wgpu` feature): the
+  cross-platform backend (Vulkan / Metal / DX12, single WGSL source).
+  `pollster` is the synchronous executor for wgpu's async API.
+
+Both are opt-in: `cham-gpu` ships with `default = []`, and no other crate
+in the workspace activates either feature. Transitive closures are
+recorded in the Cargo.lock diffs of the commits that added them.
