@@ -1,0 +1,38 @@
+# EXP-011 `dcfr-alpha-gamma` — DCFR {α, γ} sweep (v3 §3.1, optims-claude.md #1).
+#
+# Verified preconditions (code-grounded, 2026-09-26):
+# - CFR+ flooring SHIPPED (`table.rs::regret_add_cfr_plus`: R ← max(R+Δ, 0)).
+# - DCFR regret discounting SHIPPED and wired (`regret_add_cfr_plus_discounted*`
+#   via `DeltaBuffer::flush_with_discount`, `TrainerConfig::regret_discount`).
+# - ALTERNATING UPDATES SHIPPED: `trainer.rs` seats the updating player at
+#   `t % 2` in Robust mode and each ES-MCCFR traversal updates exactly one
+#   seat's regrets — that IS alternating updates for a sampling solver.
+# - α/γ SPLIT SHIPPED: `TrainerConfig::{regret_discount (α), avg_gamma (γ)}`,
+#   `--regret-discount` / `--avg-gamma` on `train-bp`. α discounts accumulated
+#   positive regret; γ tilts strategy-sum recency. Defaults (1.0, 0.9)
+#   reproduce historical behavior bit-for-bit.
+#
+# Grid (tiny abstraction first, then mid): α ∈ {1.0, 0.9, 0.5}, γ ∈ {1.0, 0.9, 0.5}.
+# Metric: §2.3 exploitability bench (`cargo bench -p cham-blueprint --bench
+# exploitability`), NOT a days-scale ladder. Per-street reporting arrives with
+# the subgame-sampled extension of that bench.
+# Kill criterion: if no (α, γ) cell beats (1.0, 0.9) LBR by more than the
+# bench noise floor, keep the default and close this EXP (cheap to kill).
+id = "EXP-011"
+slug = "dcfr-alpha-gamma"
+gate = "G3-track-A"
+tier = "bench"
+pool = []
+deals_per_opp = 0
+clusters = 1
+seeds = [7]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "minimize_lbr"
+[grid]
+alpha = [1.0, 0.9, 0.5]
+gamma = [1.0, 0.9, 0.5]
+baseline = { alpha = 1.0, gamma = 0.9 }
+[expect.note]
+text = "No (α, γ) cell beating the (1.0, 0.9) baseline LBR beyond bench noise → keep defaults, close EXP."
