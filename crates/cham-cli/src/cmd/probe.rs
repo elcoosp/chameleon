@@ -134,6 +134,7 @@ fn run_diag(agent: &str, bundle: &str) -> i32 {
             solver: "Rnr".into(),
             g4_ledger_ref: String::new(),
         },
+        fallback_mode: std::env::var("CHAM_FALLBACK_MODE").unwrap_or_else(|_| "renorm".into()),
     };
     let router = match std::fs::read(Path::new(bundle).join("router.bin")) {
         Ok(bytes) => match RouterRuntime::from_model_bytes(&bytes) {
