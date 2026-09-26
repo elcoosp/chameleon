@@ -57,11 +57,18 @@ run_abstraction() {
     cp -a "$outroot/slot$slot/exploit-$SEED/policy/policy.bin" \
           "$agent/experts/$slot/policy.bin"
   done
-  # Robust: reuse the existing artifact from artifacts/agent if present, else
-  # train it (deterministic — same seed/iters = same bytes).
-  if [ -f artifacts/agent/robust/policy.bin ]; then
-    cp -a artifacts/agent/robust/policy.bin "$agent/robust/policy.bin"
-    log "  robust: reused from artifacts/agent"
+  # Robust: reuse the existing artifact from the matching existing bundle
+  # (tiny for label=tiny, full for label=full) if present, else train it.
+  # The abstraction_hash MUST match the experts or the loader refuses.
+  local reuse_src
+  if [ "$label" = "tiny" ]; then
+    reuse_src="artifacts/agent/robust/policy.bin"
+  else
+    reuse_src="artifacts/agent-full/robust/policy.bin"
+  fi
+  if [ -f "$reuse_src" ]; then
+    cp -a "$reuse_src" "$agent/robust/policy.bin"
+    log "  robust: reused from $reuse_src"
   else
     log "  robust: no existing artifact; training fresh"
     cargo run -q --release -p cham-cli -- train-bp \
