@@ -13,12 +13,12 @@
 //! [n_entries: u32]
 //! for each entry:
 //!   [key: u64]
-//!   [len: u32]              // bincode(Subgame) byte count
-//!   [bincode(Subgame): len bytes]
+//!   [len: u32]              // postcard(Subgame) byte count
+//!   [postcard(Subgame): len bytes]
 //! ```
 //!
 //! Pure file I/O; no mmap needed (≤ 256 entries × ~500 B = ~128 KB).
-//! Determinism: bincode's default config is fixint little-endian, so a
+//! Determinism: postcard's wire format is frozen since 1.0.0, so a
 //! `Subgame` serializes to the same bytes across runs. `hydrate_from`
 //! MERGES into the process-global L1 (never clears existing entries);
 //! a bad magic or truncated file returns an `io::Error`, so callers can
@@ -42,7 +42,7 @@ use crate::subgame::Subgame;
 /// container.
 const MAGIC: u32 = 0x5053_4853;
 /// Version bump on any format change.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 /// Same cap as the in-process L1 (crate::cache::CACHE_CAP is private, so
 /// hard-coded here; `cache::cache_stats` reports the live count).
 const MAX_ENTRIES: usize = 256;
@@ -58,7 +58,7 @@ pub fn save_to(path: &Path) -> io::Result<usize> {
     let snapshot: Vec<(u64, Vec<u8>)> = cache::with_global_map(|map| {
         let mut out = Vec::with_capacity(map.len().min(MAX_ENTRIES));
         for (k, sg) in map.iter().take(MAX_ENTRIES) {
-            let bytes = bincode::serialize(&**sg).expect("Subgame bincode is infallible");
+            let bytes = postcard::to_allocvec(&**sg).expect("Subgame postcard is infallible");
             out.push((*k, bytes));
         }
         out
@@ -135,8 +135,8 @@ pub fn hydrate_from(path: &Path) -> io::Result<usize> {
         let key = u64::from_le_bytes(take(&mut cur, 8)?.try_into().unwrap());
         let len = u32::from_le_bytes(take(&mut cur, 4)?.try_into().unwrap()) as usize;
         let payload = take(&mut cur, len)?;
-        let sg: Subgame = bincode::deserialize(payload).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("cache: bincode: {e}"))
+        let sg: Subgame = postcard::from_bytes(payload).map_err(|e| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("cache: postcard: {e}"))
         })?;
         loaded.push((key, sg));
     }

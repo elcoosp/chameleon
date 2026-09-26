@@ -10,7 +10,7 @@ description = "Inference-time river solving: FMBR / RNR / reach-gadget over exte
 rustc-hash = { workspace = true }
 arrayvec = { workspace = true }
 blake3 = { workspace = true }
-bincode = { workspace = true }
+postcard = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 cham-core = { path = "../cham-core" }
