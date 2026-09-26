@@ -67,7 +67,7 @@ pub fn run(agent: &str, depth: i64, search_warmstart: bool) -> i32 {
             }
         },
         Err(_) => {
-            cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5)
+            cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5)
         }
     };
     let mut bot = match ChameleonAgent::new(
