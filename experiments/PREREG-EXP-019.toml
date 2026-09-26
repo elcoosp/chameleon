@@ -1,0 +1,8 @@
+# PREREG-EXP-019 — pre-registered gate for EXP-019 (v4 brainstorm).
+[gate]
+run_prefix = "exp-019-preflop-equity-cost"
+kind = "report"
+min_seatings = 0
+require_promote = false
+# expect: report-only cold vs warm ns + wall-clock on 25k-deal ab; SKIP GPU table if negligible
+# gate = "G-C1-followup"
