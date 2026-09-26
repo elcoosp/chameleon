@@ -36,8 +36,10 @@ use std::path::Path;
 use crate::cache;
 use crate::subgame::Subgame;
 
-/// Magic bytes at the file head. "SH" + "PS" — the "S" doubles as a tag
-/// in case future files come from a different sub-cache.
+/// Magic bytes at the file head: LE u32 of the ASCII bytes "SHSP"
+/// (0x53='S', 0x48='H', 0x53='S', 0x50='P'). The doubled 'S' is a
+/// namespace tag for a future sub-cache if one ever needs a distinct
+/// container.
 const MAGIC: u32 = 0x5053_4853;
 /// Version bump on any format change.
 const VERSION: u32 = 1;
