@@ -140,13 +140,16 @@ fn play_seating(
 /// Unbiased by construction: the replacement is the conditional expectation of
 /// the realized net given the all-in cards (Rao–Blackwell), applied
 /// symmetrically on both seatings so the duplicate formula stays fair and
-/// paired A/B streams stay paired. Scope: flop/turn all-ins only —
+/// paired A/B streams stay paired. Scope (v3 §2.1 step 3: preflop now
+/// included via the memoized completion table):
+/// * flop/turn all-ins: exact singleton-range enumeration on the partial
+///   board (as before);
+/// * preflop all-ins: `vr::preflop_equity` — exact C(48,5) enumeration on
+///   first sight per pair (~54 ms at 31.6M evals/s), memoized process-wide
+///   afterwards. Previously kept the realized net (the largest remaining
+///   variance source); now adjusted like every other street.
 /// * river all-ins have no runout luck left (equity ∈ {0, ½, 1} reproduces the
-///   realized net exactly, so adjustment is a no-op);
-/// * preflop all-ins need ~1.7M completion evals (offline-grade cost) and keep
-///   the realized net — the documented remainder of full AIVAT, which further
-///   needs per-deal metadata (pot/invest at all-in time on every street) the
-///   recorder does not yet persist.
+///   realized net exactly, so adjustment is a no-op).
 fn allin_adjusted_net(
     state: &State,
     hero_seat: usize,
@@ -156,17 +159,21 @@ fn allin_adjusted_net(
     let Some(aboard) = allin_board else {
         return net_hero as f64;
     };
-    // only flop/turn all-in runouts adjust (see scope note above); anything
-    // else — including a non-runout terminal — keeps the realized net
-    if !state.is_all_in_runout() || aboard.is_empty() || aboard.len() >= 5 {
+    // only preflop/flop/turn all-in runouts adjust (see scope note above);
+    // anything else — including a non-runout terminal — keeps realized net
+    if !state.is_all_in_runout() || aboard.len() >= 5 {
         return net_hero as f64;
     }
     let hero_hand = state.hole(hero_seat);
     let vill_hand = state.hole(1 - hero_seat);
-    let mut vill_range = cham_core::eval::Range::default();
-    vill_range.set(vill_hand.combo_id(), true);
-    let (w, t) = cham_core::eval::equity_exact(hero_hand, &vill_range, aboard);
-    let eq = w + t / 2.0;
+    let eq = if aboard.is_empty() {
+        crate::vr::preflop_equity(hero_hand, vill_hand)
+    } else {
+        let mut vill_range = cham_core::eval::Range::default();
+        vill_range.set(vill_hand.combo_id(), true);
+        let (w, t) = cham_core::eval::equity_exact(hero_hand, &vill_range, aboard);
+        w + t / 2.0
+    };
     let start = state.cfg().start_stack as f64;
     crate::vr::allin_replacement(eq, 2.0 * start, start)
 }
