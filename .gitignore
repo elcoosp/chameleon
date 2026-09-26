@@ -25,3 +25,12 @@ dump.txt
 # B-2 persistent river cache (regenerated; do not commit)
 artifacts/river-cache.bin
 artifacts/river-cache.tmp
+
+# histo-cache dir
+artifacts/histo-cache/
+
+# full-bucket artifacts (12 MB, regenerable)
+artifacts/buckets-full/
+
+# transient ladder swap
+artifacts/agent-tiny-backup/
