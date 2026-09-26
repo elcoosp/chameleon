@@ -1,0 +1,12 @@
+# EXP-018 (v4 brainstorm).
+id = "EXP-018"
+slug = "meta-strategy-zoo"
+gate = "G-meta"
+tier = "report"
+pool = []
+deals_per_opp = 0
+seeds = [1]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "report_only"
