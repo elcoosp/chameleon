@@ -1,0 +1,8 @@
+# PREREG-EXP-015 — pre-registered gate for EXP-015 (v4 brainstorm).
+[gate]
+run_prefix = "exp-015-router-manipulation-sweep"
+kind = "report"
+min_seatings = 0
+require_promote = false
+# expect: report-only grid heatmap switch_at x (N0,temp) -> manipulator earn; promote only with ladder follow-up
+# gate = "G-SELF-sweep"
