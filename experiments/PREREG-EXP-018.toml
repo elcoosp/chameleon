@@ -1,0 +1,8 @@
+# PREREG-EXP-018 — pre-registered gate for EXP-018 (v4 brainstorm).
+[gate]
+run_prefix = "exp-018-meta-strategy-zoo"
+kind = "report"
+min_seatings = 0
+require_promote = false
+# expect: report-only Nash mixture; follow-up A/B only if non-default mode >20pct weight
+# gate = "G-meta"
