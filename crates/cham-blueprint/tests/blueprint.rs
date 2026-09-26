@@ -241,10 +241,12 @@ fn seat_randomized() {
         snapshot_every: 100,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
         jitter_seed: 7,
+        frozen: None,
     };
     let (_t, prov) = cham_blueprint::train(
         &tcfg,
@@ -275,10 +277,12 @@ fn rm_plus_floors() {
         snapshot_every: 300,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
         jitter_seed: 7,
+        frozen: None,
     };
     let (t, _) = cham_blueprint::train(
         &tcfg,
@@ -318,6 +322,7 @@ fn robust_two_sided_updates() {
         snapshot_every: 100,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let mode = TrainMode::Robust;
     let (_t, prov) = cham_blueprint::train(
@@ -495,10 +500,12 @@ fn determinism_same_seed_and_resume() {
             snapshot_every: 50,
             bayes_session_block: 100,
             regret_discount: 1.0,
+            avg_gamma: 0.9,
         };
         let mode = TrainMode::Exploit {
             opponent: cham_opponents::OpponentSpec::CallBot,
             jitter_seed: 13,
+            frozen: None,
         };
         let dir = std::path::Path::new("artifacts/runs/det-test");
         let (t, _) = cham_blueprint::train(
@@ -544,10 +551,12 @@ fn resume_continues_bitstream() {
             snapshot_every: 50,
             bayes_session_block: 100,
             regret_discount: 1.0,
+            avg_gamma: 0.9,
         };
         let mode = TrainMode::Exploit {
             opponent: cham_opponents::OpponentSpec::CallBot,
             jitter_seed: 21,
+            frozen: None,
         };
         let (t, _) = cham_blueprint::train(
             &tcfg,
@@ -737,10 +746,12 @@ fn exploit_vs_constant_callbot() {
         snapshot_every: 30_000,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
         jitter_seed: 3,
+        frozen: None,
     };
     let (table, _) = cham_blueprint::train(
         &tcfg,
@@ -823,6 +834,7 @@ fn warmstart_exact_keys_and_beats_cold() {
         snapshot_every: 2_000,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let (robust_table, _) = cham_blueprint::train(
         &robust_cfg,
@@ -938,6 +950,7 @@ fn snapbatch_train_smoke() {
         snapshot_every: 30,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let dir = Path::new("artifacts/runs/snap-test");
     let (t, prov) = cham_blueprint::train_with_threads(
@@ -1207,6 +1220,7 @@ fn snapbatch_matches_deterministic_at_one_thread() {
         snapshot_every: 1000,
         bayes_session_block: 2000,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let cfg_tiny = TINY();
     let mode = TrainMode::Robust;
