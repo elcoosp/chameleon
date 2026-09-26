@@ -264,6 +264,33 @@ impl BlueprintPolicy {
         Some(probs.iter().map(|&b| b as f64 / total as f64).collect())
     }
 
+    /// Export all rows as (key, normalized distribution) pairs (v3 §6, M6):
+    /// materializes the frozen snapshot for `FrozenAgent` without exposing
+    /// the quantized byte layout outside this module. Distributions are
+    /// dequantized exactly as [`Self::strategy`] decodes them, so the export
+    /// is bit-identical to live queries.
+    pub fn export_rows(&self) -> Vec<(u64, Vec<f64>)> {
+        let mut out = Vec::with_capacity(self.n);
+        for i in 0..self.n {
+            let key = self.key_at(i);
+            let start = self.rows_off + self.offset_at(i);
+            let end = self.rows_off + self.offset_at(i + 1);
+            if end <= start {
+                continue;
+            }
+            let w = self.bytes[start] as usize;
+            let probs = &self.bytes[start + 3..start + 3 + w];
+            let total: u32 = probs.iter().map(|&b| b as u32).sum();
+            let dist = if total == 0 {
+                vec![1.0 / w as f64; w]
+            } else {
+                probs.iter().map(|&b| b as f64 / total as f64).collect()
+            };
+            out.push((key, dist));
+        }
+        out
+    }
+
     /// Visit-based confidence: c = visits / (visits + 64); None if uncovered.
     pub fn confidence(
         &self,
