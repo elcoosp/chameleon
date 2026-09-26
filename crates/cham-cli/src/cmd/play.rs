@@ -55,6 +55,7 @@ pub fn run(agent: &str, depth: i64, search_warmstart: bool) -> i32 {
             solver: "Rnr".into(),
             g4_ledger_ref: String::new(),
         },
+        fallback_mode: std::env::var("CHAM_FALLBACK_MODE").unwrap_or_else(|_| "renorm".into()),
     };
     // router: use the trained model when present; otherwise a deterministic
     // zero-initialized model (live-play convenience, recorded in the load card)
