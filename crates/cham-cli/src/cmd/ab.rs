@@ -112,6 +112,41 @@ pub fn run(
         );
     }
     if verdict.promote && promote {
+        // EXP-016 gate (v5-deepdive-audit item 5): a promotion candidate must
+        // not regress against the last-3 shadow snapshots before it's allowed
+        // to promote. This does not replace the primary EXP-001-style
+        // CI-lower-bound check that produced `verdict.promote` above — it's an
+        // ADDITIONAL check against recent history, not a substitute for the
+        // current experiment's own pass/fail.
+        match crate::cmd::shadow::run_gauntlet(a, "artifacts/shadow", 10_000) {
+            Ok(report) if report.all_within_tolerance(-10.0) => {
+                println!(
+                    "shadow gauntlet: PASS ({} shadows, all >= -10.0 mb/seating)",
+                    report.n_shadows
+                );
+            }
+            Ok(report) => {
+                eprintln!(
+                    "shadow gauntlet: FAIL — candidate regresses against a recent shadow (worst: {:+.1} mb/seating). Promotion BLOCKED.",
+                    report.worst_delta_mb
+                );
+                return crate::cmd::EXIT_FAIL;
+            }
+            Err(e) => {
+                // No shadows yet (first-ever promotion) is not a failure —
+                // there's nothing to regress against. Any other error IS.
+                if e.contains("no shadow snapshots") {
+                    println!(
+                        "shadow gauntlet: no prior shadows — first promotion, skipping gate."
+                    );
+                } else {
+                    eprintln!(
+                        "shadow gauntlet: error ({e}) — treating as a hard stop, not a silent pass."
+                    );
+                    return crate::cmd::EXIT_FAIL;
+                }
+            }
+        };
         let mut ledger = match cham_eval::Ledger::open(ledger_dir) {
             Ok(l) => l,
             Err(e) => {
@@ -146,6 +181,15 @@ pub fn run(
             return crate::cmd::EXIT_FAIL;
         }
         println!("ab: PROMOTED → artifacts/ledger/ledger.jsonl");
+        // Snapshot the newly-promoted champion so the NEXT promotion has it
+        // to compare against (EXP-016 shadow ladder). `snapshot` returns an
+        // exit code (see cmd::shadow), not a Result — adapt here.
+        if crate::cmd::shadow::snapshot("artifacts/agent", "artifacts/shadow")
+            != crate::cmd::EXIT_OK
+        {
+            eprintln!("shadow snapshot: warning, failed to snapshot new champion — next gauntlet run will be missing this baseline");
+            // non-fatal: the promotion itself already succeeded; don't roll it back over a snapshot failure
+        }
     }
     crate::cmd::EXIT_OK
 }

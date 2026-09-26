@@ -230,14 +230,19 @@ pub fn build_with_source(
             *switch_at,
             chart,
         )),
-        // No rows injected → uniform diagnostic (loudly questionable: use
-        // `build_frozen` with real snapshot rows for any meaningful number).
-        OpponentSpec::Frozen { label } => Box::new(FrozenAgent::new(
-            label.clone(),
-            cham_engine::Encoder::cfg_only(cham_engine::config::AbstractionConfig::tiny())
-                .expect("tiny encoder"),
-            FrozenRows::default(),
-        )),
+        // Registry hit (EXP-016 shadow gauntlet registered real snapshot
+        // rows under this label) → full-fidelity frozen opponent. Miss →
+        // uniform diagnostic (loudly questionable: use `build_frozen` with
+        // real snapshot rows for any meaningful number).
+        OpponentSpec::Frozen { label } => match crate::frozen::registered_shadow(label) {
+            Some(entry) => Box::new(crate::frozen::build_registered(label.clone(), &entry)),
+            None => Box::new(FrozenAgent::new(
+                label.clone(),
+                cham_engine::Encoder::cfg_only(cham_engine::config::AbstractionConfig::tiny())
+                    .expect("tiny encoder"),
+                FrozenRows::default(),
+            )),
+        },
     }
 }
 

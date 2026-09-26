@@ -22,7 +22,7 @@ pub mod session;
 
 pub use archetype::ArchetypeAgent;
 pub use factory::OpponentSpec;
-pub use frozen::{FrozenAgent, FrozenRows};
+pub use frozen::{FrozenAgent, FrozenRows, build_registered, register_shadow, registered_shadow};
 pub use params::ArchetypeId;
 pub use params::{ArchetypeParams, JitterSpec};
 pub use percentile::PercentileChart;

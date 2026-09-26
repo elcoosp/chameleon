@@ -172,3 +172,73 @@ impl std::fmt::Debug for FrozenAgent {
             .finish()
     }
 }
+
+// ---- EXP-016 shadow registry (v5-deepdive-audit item 5) ----
+//
+// Lets the EXP-016 shadow gauntlet (`cham-cli shadow gauntlet`, and the
+// `--promote` gate in `cmd::ab`) resolve `frozen:<label>` specs to REAL
+// snapshot rows at match time. The factory crate never touches artifacts
+// (DAG: opponents → engine → core), so the CLI registers rows it loaded
+// from `artifacts/shadow/` here before running matches; `build()` consults
+// the registry and falls back to the empty diagnostic when absent.
+//
+// The encoder is rebuilt per `build()` call from the registered
+// buckets+config paths (mmap-backed, ~µs) because `Encoder` is neither
+// Clone nor cheap to share across the per-opponent/per-thread agents that
+// `MatchRunner` constructs. Keys only match when the registered paths are
+// the snapshot champion's own abstraction (same buckets dir + config the
+// rows were exported under) — a mismatch surfaces as a high miss rate,
+// not silent wrongness (see `dist()`).
+#[derive(Clone, Debug)]
+pub struct ShadowEntry {
+    pub rows: FrozenRows,
+    pub buckets_dir: String,
+    pub config_path: String,
+}
+
+fn shadow_registry() -> &'static std::sync::Mutex<std::collections::HashMap<String, ShadowEntry>> {
+    static REGISTRY: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, ShadowEntry>>,
+    > = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Register snapshot rows for `frozen:<label>` resolution. Overwrites any
+/// prior entry under the same label (snapshots are content-addressed, so a
+/// re-registration under an existing label carries identical rows).
+pub fn register_shadow(label: &str, rows: FrozenRows, buckets_dir: &str, config_path: &str) {
+    if let Ok(mut reg) = shadow_registry().lock() {
+        reg.insert(
+            label.to_string(),
+            ShadowEntry {
+                rows,
+                buckets_dir: buckets_dir.to_string(),
+                config_path: config_path.to_string(),
+            },
+        );
+    }
+}
+
+/// Look up a registered shadow (cloned; snapshots are small enough that one
+/// clone per match build is negligible next to the match itself).
+pub fn registered_shadow(label: &str) -> Option<ShadowEntry> {
+    shadow_registry()
+        .lock()
+        .ok()
+        .and_then(|reg| reg.get(label).cloned())
+}
+
+/// Build a `FrozenAgent` from a registry entry: encoder from the snapshot's
+/// own buckets+config, falling back to the tiny diagnostic encoder when the
+/// artifacts are unreadable (miss rate will then expose the mismatch).
+pub fn build_registered(label: String, entry: &ShadowEntry) -> FrozenAgent {
+    let cfg = std::fs::read_to_string(&entry.config_path)
+        .ok()
+        .and_then(|t| cham_engine::config::parse_config(&t).ok())
+        .unwrap_or_else(cham_engine::config::AbstractionConfig::tiny);
+    let encoder =
+        cham_engine::Encoder::from_artifacts_dir(std::path::Path::new(&entry.buckets_dir), cfg.clone())
+            .or_else(|_| cham_engine::Encoder::cfg_only(cfg))
+            .expect("tiny encoder");
+    FrozenAgent::new(label, encoder, entry.rows.clone())
+}

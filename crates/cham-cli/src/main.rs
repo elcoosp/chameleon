@@ -265,7 +265,7 @@ enum Command {
 enum ShadowCmd {
     /// Snapshot the current champion policy rows into artifacts/shadow/
     Snapshot {
-        #[arg(long, default_value = "artifacts/agent/full/policy")]
+        #[arg(long, default_value = "artifacts/agent")]
         policy: String,
         #[arg(long, default_value = "artifacts/shadow")]
         out: String,
