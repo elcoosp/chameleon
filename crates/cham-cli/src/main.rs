@@ -217,6 +217,52 @@ enum Command {
         train_iters: u64,
         #[arg(long, default_value = "artifacts/blueprints")]
         out: String,
+        /// EXP-015: manipulator switch point (default 40 = legacy behavior)
+        #[arg(long, default_value = "40")]
+        switch_at: u64,
+        /// EXP-015: router temp override (default: bundle default)
+        #[arg(long)]
+        router_temp: Option<f64>,
+        /// EXP-015: router prior strength N0 override
+        #[arg(long)]
+        router_n0: Option<f64>,
+    },
+    /// EXP-016 shadow ladder: snapshot a champion / gauntlet vs shadows
+    Shadow {
+        #[command(subcommand)]
+        cmd: ShadowCmd,
+    },
+    /// EXP-018 empirical meta-strategy: Nash over the agent zoo from ledger
+    MetaSolve {
+        #[arg(long, default_value = "full,robust-only,argmax,bayes,fmbr")]
+        modes: String,
+        #[arg(long, default_value = "artifacts/ledger/ledger.jsonl")]
+        ledger: String,
+    },
+    /// EXP-017 bucket-quality audit: within vs between realized-EV variance
+    AuditBuckets {
+        #[arg(long, default_value = "artifacts/audit.json")]
+        input: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ShadowCmd {
+    /// Snapshot the current champion policy rows into artifacts/shadow/
+    Snapshot {
+        #[arg(long, default_value = "artifacts/agent/full/policy")]
+        policy: String,
+        #[arg(long, default_value = "artifacts/shadow")]
+        out: String,
+    },
+    /// Gauntlet: challenger vs last-N frozen shadows
+    Gauntlet {
+        #[arg(long, default_value = "full")]
+        agent: String,
+        #[arg(long, default_value = "artifacts/shadow")]
+        shadow_dir: String,
+        #[arg(long, default_value = "10000")]
+        deals: u64,
     },
 }
 
@@ -315,7 +361,37 @@ fn main() -> anyhow::Result<()> {
             deals,
             train_iters,
             out,
-        } => cmd::self_exploit::run(&snapshot, &buckets, &config, deals, train_iters, &out),
+            switch_at,
+            router_temp,
+            router_n0,
+        } => {
+            let overrides = match (router_temp, router_n0) {
+                (Some(t), Some(n0)) => Some((t, n0, 0.5, -1.5)),
+                (Some(t), None) => Some((t, 8.0, 0.5, -1.5)),
+                (None, Some(n0)) => Some((0.7, n0, 0.5, -1.5)),
+                (None, None) => None,
+            };
+            cmd::self_exploit::run(
+                &snapshot,
+                &buckets,
+                &config,
+                deals,
+                train_iters,
+                &out,
+                switch_at,
+                overrides,
+            )
+        }
+        Command::Shadow { cmd } => match cmd {
+            ShadowCmd::Snapshot { policy, out } => cmd::shadow::snapshot(&policy, &out),
+            ShadowCmd::Gauntlet {
+                agent,
+                shadow_dir,
+                deals,
+            } => cmd::shadow::gauntlet(&agent, &shadow_dir, deals),
+        },
+        Command::MetaSolve { modes, ledger } => cmd::meta_solve::run(&modes, &ledger),
+        Command::AuditBuckets { input } => cmd::audit_buckets::run(&input),
     };
     // exit codes: 0 green, 1 failure, 2 budget refusal (SPECS/09 §3)
     match code {
