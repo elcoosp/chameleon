@@ -323,6 +323,27 @@ fn hash_key(key: u64) -> usize {
     z as usize
 }
 
+/// Second hash for double-hash probing (v3 §3.2). Returns an ODD step so the
+/// probe sequence `(h1 + k·step) mod 2^m` is a full cycle over power-of-two
+/// tables for every key — primary clustering (the unbounded worst-case chain
+/// of linear probing near load 0.7) is gone by construction, with no new
+/// dependency: `hashbrown` is NOT in the closed workspace whitelist
+/// (SPECS/00 §2 — adding it needs a human decision), so this is the
+/// no-new-trust-surface equivalent. The `hashbrown::raw::RawTable` swap from
+/// the roadmap stays the documented escalation path behind whitelist
+/// amendment + the `benches/mccfr.rs` kill-criterion measurement.
+#[inline]
+fn hash_step(key: u64, mask: usize) -> usize {
+    // Independent mix (different constant + rotation from hash_key), forced
+    // odd ⇒ coprime to 2^m ⇒ full-cycle probe for every key. `| 1` also
+    // guarantees nonzero, so progress is unconditional.
+    let mut z = key
+        .wrapping_mul(0xC2B2_AE35_27D4_EB4F)
+        .rotate_left(29);
+    z ^= z >> 27;
+    ((z as usize) & mask) | 1
+}
+
 impl RegretTable {
     pub fn new(mode: ThreadMode) -> RegretTable {
         RegretTable::with_capacity(mode, 1024)
@@ -356,12 +377,13 @@ impl RegretTable {
         self.n == 0
     }
 
-    /// Lookup a row offset; None if absent.
+    /// Lookup a row offset; None if absent (double-hash probe, v3 §3.2).
     #[inline]
     pub fn find(&self, key: u64) -> Option<u32> {
         if key == 0 {
             return None;
         }
+        let step = hash_step(key, self.mask);
         let mut i = hash_key(key) & self.mask;
         loop {
             let s = self.slots[i];
@@ -371,7 +393,7 @@ impl RegretTable {
             if s.key == 0 {
                 return None;
             }
-            i = (i + 1) & self.mask;
+            i = (i + step) & self.mask;
         }
     }
 
@@ -396,9 +418,10 @@ impl RegretTable {
         while self.arena.len() < self.arena_len as usize {
             self.arena.cells.push(std::sync::atomic::AtomicU32::new(0));
         }
+        let step = hash_step(key, self.mask);
         let mut i = hash_key(key) & self.mask;
         while self.slots[i].key != 0 {
-            i = (i + 1) & self.mask;
+            i = (i + step) & self.mask;
         }
         self.slots[i] = Slot {
             key,
@@ -422,9 +445,10 @@ impl RegretTable {
         let mask = new_cap - 1;
         for s in &self.slots {
             if s.key != 0 {
+                let step = hash_step(s.key, mask);
                 let mut i = hash_key(s.key) & mask;
                 while slots[i].key != 0 {
-                    i = (i + 1) & mask;
+                    i = (i + step) & mask;
                 }
                 slots[i] = *s;
             }
@@ -749,5 +773,45 @@ impl RegretTable {
         let mut t = RegretTable::new(ThreadMode::Deterministic);
         t.restore(&bytes)?;
         Ok(t)
+    }
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    fn hash_step_is_always_odd_and_nonzero() {
+        for k in [0u64, 1, 2, 0xFFFF_FFFF_FFFF_FFFF, 0x9E37_79B9_7F4A_7C15] {
+            for mask in [15usize, 1023, 65535] {
+                let s = hash_step(k, mask);
+                assert!(s & 1 == 1, "step must be odd (full cycle on 2^m)");
+                assert!(s != 0, "step must be nonzero (progress)");
+            }
+        }
+    }
+
+    #[test]
+    fn double_hash_find_after_grows() {
+        // 5000 inserts past several 0.70-load grows; every key must resolve
+        // to its own offset with its width intact (probing change is
+        // behavior-preserving by construction).
+        let mut t = RegretTable::with_capacity(ThreadMode::Deterministic, 16);
+        let mut want: Vec<(u64, u32, usize)> = Vec::new();
+        for k in 1..=5000u64 {
+            let key = k.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(7);
+            let key = if key == 0 { 1 } else { key };
+            let w = (k % 12 + 1) as usize;
+            let (off, w_out) = t.entry_or_insert(key, w);
+            assert_eq!(w_out, w);
+            want.push((key, off, w));
+        }
+        assert_eq!(t.len(), 5000);
+        for (key, off, w) in &want {
+            assert_eq!(t.find(*key), Some(*off), "key {key} must resolve");
+            // re-insert is a pure hit (no dup row, same offset)
+            assert_eq!(t.entry_or_insert(*key, *w).0, *off);
+        }
+        assert_eq!(t.find(0), None, "key 0 is reserved-empty");
     }
 }
