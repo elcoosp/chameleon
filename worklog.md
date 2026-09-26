@@ -375,3 +375,52 @@ the v2 workspace).
 - 5 cache_persist tests pass; cham-search test suite green.
 - Stages 2–6 (table.snap, policy.bin, recorder, ledger, router dataset)
   are recorded in docs/backlog/perf.md §B-10 with per-file plan.
+
+## Session 2026-09-26 (afternoon) — post-recovery governance
+
+### Recovered from a bad swap
+
+`scripts/run-full-agent.sh` swaps `artifacts/agent/` to the full-abstraction
+bundle for one ladder run and restores it after. The final `mv artifacts/
+agent-tiny-backup artifacts/agent` nested the backup inside `artifacts/agent/`
+instead of replacing it (target dir already existed). Working tree was
+carrying the 154 MB full bundle in a path tracked as the tiny agent.
+
+Fixed in commit `1f46f3f`:
+- `artifacts/agent/` restored from HEAD (tiny, 200 KB buckets)
+- `artifacts/agent/agent-tiny-backup/` removed (untracked duplicate of HEAD)
+- `.gitignore` now covers `artifacts/agent-full/`, `artifacts/blueprints-full/`,
+  `artifacts/mutants-traversal*.log`, `artifacts/mutants-traversal*.pid`,
+  and the nested backup dir (regenerable artifacts; ~171 MB kept out of git).
+
+The driver script itself has not been fixed; a follow-up should change
+`mv artifacts/agent artifacts/agent-tiny-backup` to first `rm -rf` the
+destination (or use a temp dir).
+
+### V2 Phase 1 status
+
+All of Phase 1 is now DONE:
+
+- 1.1 external-sampling strat_sum audit — already landed (commit `ec61fd8`).
+- 1.2 mutants gate on traversal.rs — landed (`a8c17f8`); 40 missed, 25 caught.
+- 1.2.1 close top-two mutant gaps — SnapBatchSink direct unit tests in
+  `crates/cham-blueprint/tests/snapbatch.rs` (`4fd35d8`). The existing
+  byte-equality parity test was loosened to structural-only: CFR+ flooring is
+  not associative across a batched flush (see test doc comment for the
+  `+5, -10, +5` counterexample), so numeric equality is not achievable between
+  Snapbatch and Deterministic. Per-method coverage now lives in the unit tests.
+- 1.3 ExploitBayes memory probe — `crates/cham-blueprint/tests/memory.rs`
+  (`1f46f3f`). Tiny-scale result: 3124 infosets, 58 923 B snapshot,
+  18 B/infoset, RSS delta 4.4 MB. Assert of total < 512 MB holds with huge
+  margin. Not EXP-blocked.
+- 1.4 unsafe-scope doc — landed (`0ffb891`).
+- 1.5 license notes — landed (`dfa91fb`).
+
+### Outstanding — P1 from the handoff
+
+The full-abstraction ladder produced 26.7% fallback (2010/7540 decisions).
+The tiny agent is 0%. Root cause has not been diagnosed; the plan's Phase 2
+(cold-start mixture LBR) and Phase 7 (ensemble-disagreement shield) both
+attack it. Immediate next step: add per-expert fallback reporting to
+`crates/cham-cli/src/cmd/probe.rs` so we can see which of the 4 experts is
+falling below the confidence gate and on which opponents.

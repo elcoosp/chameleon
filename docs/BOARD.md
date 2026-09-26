@@ -43,9 +43,12 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
   `docs/reports/mutants-traversal-20260926.md`. Top gap: SnapBatchSink
   write path has zero direct tests.
 - **[DONE]** 1.5 license notes — no postflop-solver content in tree; standing rule recorded.
-- **[TODO]** 1.3 ExploitBayes memory probe.
-- **[TODO]** 1.2.1 close the two highest-value mutant gaps (Snapbatch parity,
-  DirectSink weight/visit assertions).
+- **[DONE]** 1.2.1 mutants gap close — SnapBatchSink direct unit tests in
+  `crates/cham-blueprint/tests/snapbatch.rs`; parity test now structural-only
+  (CFR+ flooring is not associative across a batched flush — see the test's
+  doc comment for the counterexample).
+- **[DONE]** 1.3 ExploitBayes memory probe — `crates/cham-blueprint/tests/memory.rs`;
+  tiny-scale measured 18 B/infoset, 58 KB snapshot, RSS delta 4.4 MB; assert < 512 MB holds.
 
 ### Eval / training pipeline
 - **[DONE]** `matcheng` `on_public_action` wiring — 65% → 0% fallback.
