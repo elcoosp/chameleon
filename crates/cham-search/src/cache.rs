@@ -128,6 +128,15 @@ pub fn cache_stats() -> (u64, u64) {
     )
 }
 
+/// Scoped access to the process-global map under its lock. Used by
+/// `cache_persist` to snapshot/merge without exposing the `Mutex` itself.
+/// Callers must not hold the lock across I/O.
+pub(crate) fn with_global_map<R>(f: impl FnOnce(&mut HashMap<u64, Arc<Subgame>>) -> R) -> R {
+    let c = global();
+    let mut guard = c.map.lock().expect("cache");
+    f(&mut guard)
+}
+
 /// Test-only reset (keeps unit tests hermetic; never used on live paths).
 /// Compiled unconditionally so integration tests can use it.
 pub fn cache_clear_for_tests() {
