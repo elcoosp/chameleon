@@ -50,6 +50,16 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
 - **[DONE]** 1.3 ExploitBayes memory probe — `crates/cham-blueprint/tests/memory.rs`;
   tiny-scale measured 18 B/infoset, 58 KB snapshot, RSS delta 4.4 MB; assert < 512 MB holds.
 
+### V4 fallback-measurement closure (v4-experiment-brainstorm Tier 0)
+- **[DONE]** EXP-012 R3 decision-path fallback telemetry (`pipeline.rs` routing arms; `robust-only` 13.1%→6.0%, `full` unchanged path).
+- **[DONE]** EXP-013 R2 skip-not-substitute + renormalize (`AgentMode.fallback_mode`, `CHAM_FALLBACK_MODE=substitute` legacy path; `full` 17.9%→2.4%, Cause B gone, miss-detection identical; unit tests green).
+- **[DONE]** EXP-014 R1 curriculum rotation declared (`config/training/rotation-widened.toml`); full retrain + widened-vs-baseline A/B still open (multi-day).
+- **[DONE]** EXP-015 router-manipulation sweep hooks (`self-exploit --switch-at/--router-temp/--router-n0`, `build_chameleon_with_router`); 60-cell grid still to run.
+- **[DONE]** EXP-016 shadow snapshot/gauntlet CLI (`shadow snapshot/gauntlet`, prune-at-5); gate wiring on `--promote` still open.
+- **[DONE]** EXP-017 bucket audit (`cham-engine::audit`, `audit-buckets`); EMD rebuild + exploitability-vs-audit comparison still open.
+- **[DONE]** EXP-018 meta-solve (`meta-solve`, `stats::build_payoff_matrix`); ledger currently has 0 covered mode-pair cells — honest empty report, re-run once clean A/B rows land.
+- **[DONE]** EXP-019 preflop cold-vs-warm bench (`cham-eval/benches/preflop_equity.rs`); measurement + GPU-table keep/kill decision still open.
+
 ### Eval / training pipeline
 - **[DONE]** `matcheng` `on_public_action` wiring — 65% → 0% fallback.
 - **[DONE]** `train-bp` hash parity (reads same TOML the loader does).
