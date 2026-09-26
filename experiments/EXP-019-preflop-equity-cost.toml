@@ -1,0 +1,12 @@
+# EXP-019 (v4 brainstorm).
+id = "EXP-019"
+slug = "preflop-equity-cost"
+gate = "G-C1-followup"
+tier = "bench"
+pool = []
+deals_per_opp = 0
+seeds = [1]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "report_only"
