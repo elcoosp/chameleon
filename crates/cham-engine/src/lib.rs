@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod audit;
 pub mod build;
 pub mod canon;
 pub mod config;
