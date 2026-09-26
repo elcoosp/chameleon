@@ -21,3 +21,7 @@ artifacts/gpu-tables/
 bench-before-gpu.txt
 bench-after-gpu.txt
 dump.txt
+
+# B-2 persistent river cache (regenerated; do not commit)
+artifacts/river-cache.bin
+artifacts/river-cache.tmp
