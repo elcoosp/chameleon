@@ -68,6 +68,7 @@ fn exploit_bayes_memory_probe() {
         snapshot_every: 10_000,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
 
     let rss_before = rss_bytes();
