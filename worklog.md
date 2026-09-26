@@ -363,3 +363,15 @@ the v2 workspace).
 - A/B iters chains were run at 10k, not the intended 10k/100k/1M; fixed in
   the driver for the next run.
 - Full-abstraction bp: not attempted; queued.
+
+## Postcard migration — stage 1
+
+- bincode 1.3.3 is unmaintained (RUSTSEC-2025-0141); postcard 1.1.3 is
+  the recommended serde-compatible replacement. Whitelisted.
+- `crates/cham-search/src/cache_persist.rs`: Subgame now serializes via
+  `postcard::to_allocvec` / `postcard::from_bytes`. On-disk VERSION 1→2
+  so v1 (bincode) files are rejected cleanly and the session starts cold
+  once — the cache is a speed optimization, not correctness input.
+- 5 cache_persist tests pass; cham-search test suite green.
+- Stages 2–6 (table.snap, policy.bin, recorder, ledger, router dataset)
+  are recorded in docs/PERF-BACKLOG.md §B-10 with per-file plan.

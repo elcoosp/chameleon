@@ -31,18 +31,23 @@ Effort: 30-60 min. Risk: low (bit-exact by construction).
 keyed by content hash; load at startup. Reduces session-1 cold cost.
 Effort: 3-5 h. Risk: medium (format-version discipline).
 
-### B-3. Targeted Hogwild hot-node accumulation
-`table.rs::Arena::add_f32` CAS retry; preflop-root infosets hit every
-traversal. Depth <= 1 nodes -> thread-local accumulators, reduced at
-snapshot cadence. Effort: needs profiling first. Risk: medium (training
-math; needs Snapbatch-parity test).
+### B-3. Targeted Hogwild hot-node accumulation — NOT APPLICABLE
+
+Correction after reading `trainer.rs`: the training loop is
+`for t in 0..cfg.iters` — fully serial. There is only one writer to the
+arena; the "CAS contention under 8-way Hogwild" the reviewer described
+cannot happen without parallel iterations, which don't exist. `ThreadMode`
+only selects how single-threaded writes reach the arena (direct atomic vs
+buffered). No contention, no B-3.
 
 ## Named SOTA techniques worth writing up as specs
 
-### B-4. Snapbatch bit-exact multi-thread ordering
-Drain each worker's DeltaBuffer in fixed worker-index order at each snapshot
-boundary (one barrier). Upgrades "fast but stochastic" to "fast and
-reproducible." Cheap, high-value for the correctness fence.
+### B-4. Snapbatch bit-exact multi-thread ordering — NOT APPLICABLE
+
+Same reason as B-3: the iteration loop is serial, so there are no worker
+DeltaBuffers to reorder. `Deterministic` mode is already bit-exact, and
+that's the only mode CI uses. A real "parallel iterations + deterministic
+reduction" mode would be a much larger structural change.
 
 ### B-5. DCFR-style regret discounting
 alpha < 1 discount on positive regret accumulation. A/B against CFR+ on
@@ -70,3 +75,27 @@ risk; needs a profile to justify.
 After tonight's tiny-agent experiment lands real ladder numbers, we'll know
 where bottlenecks actually are. B-1 through B-3 are candidates only if a
 bench shows help; B-4 is worth doing regardless; B-5 through B-9 are v3.
+
+
+## In progress / staged
+
+### B-10. bincode -> postcard migration (RUSTSEC-2025-0141)
+
+bincode 1.3.3 is unmaintained; postcard is the serde-compatible replacement
+with a frozen wire format. Migration is staged per file, each behind its own
+magic/version bump:
+
+| Stage | Target | Status |
+|---|---|---|
+| 1 | `cache_persist` (river cache) | **done** (`c441a29`, VERSION 1->2) |
+| 2 | `table.snap` (bp snapshots) | pending |
+| 3 | `policy.bin` + provenance | pending (needs checked-in test artifacts regenerated) |
+| 4 | recorder flight records | pending |
+| 5 | ledger entries | pending |
+| 6 | router dataset (.rbin) | pending |
+
+Each stage: swap `bincode::{serialize,deserialize}` for
+`postcard::{to_allocvec,from_bytes}`, bump the file's own VERSION, update
+the loader to reject the old version. Deterministic output unchanged; only
+the on-disk bytes change. Existing artifacts need regeneration, which for
+the pinned fixtures means re-running `train-buckets` / `train-bp`.
