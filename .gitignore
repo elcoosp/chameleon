@@ -58,3 +58,6 @@ artifacts/mutants-traversal*.pid
 artifacts/agent-widened-*/
 artifacts/blueprints-widened-*/
 artifacts/exp-*-run.log
+
+# EXP-017 bucket-quality audit input (regenerable)
+artifacts/audit.json

@@ -243,6 +243,21 @@ enum Command {
     AuditBuckets {
         #[arg(long, default_value = "artifacts/audit.json")]
         input: String,
+        /// Generate the audit file from a short match instead of reading it (EXP-017).
+        #[arg(long)]
+        generate: bool,
+        /// Agent bundle dir for --generate (default: artifacts/agent).
+        #[arg(long, default_value = "artifacts/agent")]
+        bundle: String,
+        /// Opponent pool TOML for --generate (default: config/pool.toml).
+        #[arg(long, default_value = "config/pool.toml")]
+        pool: String,
+        /// Deals per opponent for --generate.
+        #[arg(long, default_value = "40")]
+        deals: u64,
+        /// Output file for --generate (default: artifacts/audit.json).
+        #[arg(long, default_value = "artifacts/audit.json")]
+        out: String,
     },
 }
 
@@ -391,7 +406,20 @@ fn main() -> anyhow::Result<()> {
             } => cmd::shadow::gauntlet(&agent, &shadow_dir, deals),
         },
         Command::MetaSolve { modes, ledger } => cmd::meta_solve::run(&modes, &ledger),
-        Command::AuditBuckets { input } => cmd::audit_buckets::run(&input),
+        Command::AuditBuckets {
+            input,
+            generate,
+            bundle,
+            pool,
+            deals,
+            out,
+        } => {
+            if generate {
+                cmd::audit_buckets::run_generate(&bundle, &pool, deals, &out)
+            } else {
+                cmd::audit_buckets::run(&input)
+            }
+        }
     };
     // exit codes: 0 green, 1 failure, 2 budget refusal (SPECS/09 §3)
     match code {

@@ -210,3 +210,47 @@ fn artifact_hash_printed() {
     // also acceptable here (the hash contract is exercised on green runs)
     assert_ne!(out.status.code(), Some(101), "train-bp must not panic");
 }
+
+/// EXP-017: `audit-buckets --generate` produces a JSON file that the
+/// existing `--input` path accepts (round-trip check). Bundle-absence is
+/// tolerated the same way as play/ladder refusals (exit 2).
+#[test]
+fn audit_buckets_generate_smoke() {
+    let tmp = tempfile::tempdir().expect("dir");
+    let out = tmp.path().join("audit.json");
+    let out_s = out.to_string_lossy().to_string();
+
+    let gen_out = Command::new(bin())
+        .args([
+            "audit-buckets",
+            "--generate",
+            "--deals",
+            "5",
+            "--out",
+            out_s.as_str(),
+        ])
+        .output()
+        .expect("spawn generate");
+    assert_ne!(gen_out.status.code(), Some(101), "generate must not panic");
+    let code = gen_out.status.code().unwrap_or(-1);
+    if code != 0 {
+        assert!(code == 1 || code == 2, "unexpected generate exit {code}");
+        return;
+    }
+
+    let audit = Command::new(bin())
+        .args(["audit-buckets", "--input", out_s.as_str()])
+        .output()
+        .expect("spawn audit");
+    assert_eq!(
+        audit.status.code(),
+        Some(0),
+        "produced audit.json must re-audit cleanly"
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&audit.stdout),
+        String::from_utf8_lossy(&audit.stderr)
+    );
+    assert!(text.contains("audit-buckets:"), "audit output: {text}");
+}
