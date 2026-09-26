@@ -12,29 +12,33 @@ pub fn run(
     status: Option<&str>,
     threads: Option<u32>,
     thread_mode: Option<&str>,
+    config: Option<&str>,
+    buckets: Option<&str>,
 ) -> i32 {
     if let Some(run_dir) = status {
         return print_status(run_dir);
     }
     let engine_cfg = cham_core::engine::config::EngineConfig::depth(depth);
-    // Load the tiny abstraction from the same file the agent loader will
-    // parse. MUST be the same values or `abstraction_hash` diverges:
-    // the trainer hashes `serde_json(cfg)` and the loader hashes
-    // `serde_json(cfg_from_toml)`. Same bytes -> same cfg -> same hash.
-    let cfg = match std::fs::read_to_string("config/abstraction-tiny.toml")
+    // Load the abstraction from the file the agent loader will also parse
+    // (hash parity requirement). Overridable via --config so we can train
+    // against the full abstraction without editing the default.
+    let config_path = config.unwrap_or("config/abstraction-tiny.toml");
+    let cfg = match std::fs::read_to_string(config_path)
         .ok()
         .and_then(|t| cham_engine::config::parse_config(&t).ok())
     {
         Some(c) => c,
-        None => cham_engine::config::AbstractionConfig::tiny(),
+        None => {
+            eprintln!("config: cannot load {config_path}, falling back to tiny in-code defaults");
+            cham_engine::config::AbstractionConfig::tiny()
+        }
     };
-    let mut enc = match cham_engine::Encoder::from_artifacts_dir(
-        Path::new("artifacts/buckets-tiny"),
-        cfg.clone(),
-    ) {
-        Ok(e) => e,
-        Err(_) => cham_engine::Encoder::cfg_only(cfg.clone()).expect("enc"),
-    };
+    let buckets_dir = buckets.unwrap_or("artifacts/buckets-tiny");
+    let mut enc =
+        match cham_engine::Encoder::from_artifacts_dir(Path::new(buckets_dir), cfg.clone()) {
+            Ok(e) => e,
+            Err(_) => cham_engine::Encoder::cfg_only(cfg.clone()).expect("enc"),
+        };
     let train_mode = match mode {
         "robust" => cham_blueprint::TrainMode::Robust,
         "exploit" | "exploit-bayes" => {

@@ -70,6 +70,12 @@ enum Command {
         /// hogwild (atomic adds), snapbatch (buffered atomic adds)
         #[arg(long)]
         thread_mode: Option<String>,
+        /// Abstraction config TOML (default: config/abstraction-tiny.toml)
+        #[arg(long)]
+        config: Option<String>,
+        /// Bucket directory (default: artifacts/buckets-tiny)
+        #[arg(long)]
+        buckets: Option<String>,
     },
     /// Train the router on a .rbin dataset (SPECS/05)
     TrainRouter {
@@ -184,6 +190,8 @@ fn main() -> anyhow::Result<()> {
             status,
             threads,
             thread_mode,
+            config,
+            buckets,
         } => cmd::train_bp::run(
             &mode,
             opponent.as_deref(),
@@ -194,6 +202,8 @@ fn main() -> anyhow::Result<()> {
             status.as_deref(),
             threads,
             thread_mode.as_deref(),
+            config.as_deref(),
+            buckets.as_deref(),
         ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),
