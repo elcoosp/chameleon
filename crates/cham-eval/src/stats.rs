@@ -152,6 +152,42 @@ pub fn sprrt(
     }
 }
 
+/// EXP-018: empirical payoff matrix over the agent zoo from ledger A/B rows.
+/// `triples` are (a_mode, b_mode, delta_mb) with delta signed a-minus-b.
+/// Missing cells fill 0.0 (reported by the caller, never assumed).
+pub fn build_payoff_matrix(
+    modes: &[&str],
+    triples: &[(String, String, f64)],
+) -> Vec<Vec<f64>> {
+    let n = modes.len();
+    let mut sum = vec![vec![0.0; n]; n];
+    let mut count = vec![vec![0u32; n]; n];
+    for (a, b, d) in triples {
+        if let (Some(i), Some(j)) = (
+            modes.iter().position(|&m| m == a),
+            modes.iter().position(|&m| m == b),
+        ) {
+            sum[i][j] += d;
+            sum[j][i] -= d;
+            count[i][j] += 1;
+            count[j][i] += 1;
+        }
+    }
+    (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| {
+                    if count[i][j] > 0 {
+                        sum[i][j] / count[i][j] as f64
+                    } else {
+                        0.0
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// Holm step-down correction (SPECS/08 §3): returns which hypotheses are rejected
 /// at familywise α.
 pub fn holm(pvals: &[f64], alpha: f64) -> Vec<bool> {
