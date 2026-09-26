@@ -79,6 +79,9 @@ enum Command {
         /// DCFR positive-regret discount (1.0 = CFR+ classic; try 0.9)
         #[arg(long, default_value = "1.0")]
         regret_discount: f32,
+        /// DCFR strategy-sum discount γ (v3 §3.1 α/γ split; 0.9 = historical)
+        #[arg(long, default_value = "0.9")]
+        avg_gamma: f32,
         /// Reuse a cached blueprint with identical inputs (V2 A/B speedup)
         #[arg(long)]
         reuse: bool,
@@ -107,6 +110,12 @@ enum Command {
     Probe {
         #[arg(long, default_value = "full")]
         agent: String,
+        /// P1 diagnostic: print per-expert fallback breakdown.
+        #[arg(long)]
+        diag_fallback: bool,
+        /// Agent bundle directory (default: artifacts/agent).
+        #[arg(long)]
+        bundle: Option<String>,
     },
     /// Diagnostic: probe Apple Metal device + whitelist amendment status (GPU-PLAN G0.1)
     GpuDoctor,
@@ -176,6 +185,39 @@ enum Command {
         #[arg(long, default_value = "50")]
         last: usize,
     },
+    /// Pre-seed the river-subgame cache from a canonical fixture (v3 §1.2);
+    /// run once before a multi-arm EXP-* sweep so the first arm is warm too
+    WarmCache {
+        #[arg(long, default_value = "config/pool.toml")]
+        pool: String,
+        #[arg(long, default_value = "artifacts/river-cache.bin")]
+        out: String,
+    },
+    /// Check a pre-registered gate against the ledger (v3 §2.2)
+    LintLedger {
+        #[arg(long)]
+        prereg: String,
+        #[arg(long, default_value = "artifacts/ledger")]
+        ledger: String,
+    },
+    /// Self-exploit audit vs a frozen snapshot: static LBR + adaptive
+    /// router-manipulation probe, G-SELF with CI (v3 §6, diagnostic only)
+    SelfExploit {
+        /// Snapshot run dir containing `policy/policy.bin`
+        #[arg(long)]
+        snapshot: String,
+        #[arg(long, default_value = "artifacts/buckets-tiny")]
+        buckets: String,
+        #[arg(long, default_value = "config/abstraction-tiny.toml")]
+        config: String,
+        #[arg(long, default_value = "200")]
+        deals: u64,
+        /// If > 0, also train a best-response exploiter vs the frozen victim
+        #[arg(long, default_value = "0")]
+        train_iters: u64,
+        #[arg(long, default_value = "artifacts/blueprints")]
+        out: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -206,6 +248,7 @@ fn main() -> anyhow::Result<()> {
             config,
             buckets,
             regret_discount,
+            avg_gamma,
             reuse,
             resume,
             cache_dir,
@@ -222,13 +265,18 @@ fn main() -> anyhow::Result<()> {
             config.as_deref(),
             buckets.as_deref(),
             regret_discount,
+            avg_gamma,
             reuse,
             resume.as_deref(),
             cache_dir.as_deref(),
         ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),
-        Command::Probe { agent } => cmd::probe::run(&agent),
+        Command::Probe {
+            agent,
+            diag_fallback,
+            bundle,
+        } => cmd::probe::run(&agent, diag_fallback, bundle.as_deref()),
         Command::GpuDoctor => cmd::gpu_doctor::run(),
         Command::Ladder {
             fast,
@@ -258,6 +306,16 @@ fn main() -> anyhow::Result<()> {
         } => cmd::play::run(&agent, depth, search_warmstart),
         Command::Trace { run, top, by } => cmd::trace::run(&run, top, &by),
         Command::Dashboard { out, last } => cmd::dashboard::run(&out, last),
+        Command::WarmCache { pool, out } => cmd::warm_cache::run(&pool, &out),
+        Command::LintLedger { prereg, ledger } => cmd::lint_ledger::run(&prereg, &ledger),
+        Command::SelfExploit {
+            snapshot,
+            buckets,
+            config,
+            deals,
+            train_iters,
+            out,
+        } => cmd::self_exploit::run(&snapshot, &buckets, &config, deals, train_iters, &out),
     };
     // exit codes: 0 green, 1 failure, 2 budget refusal (SPECS/09 §3)
     match code {
