@@ -116,7 +116,6 @@ pub fn run(
     let cache_root = cache_dir
         .map(std::path::PathBuf::from)
         .unwrap_or_else(cham_blueprint::train_cache::default_cache_dir);
-    let _ = resume_from; // TODO: wire into train_with_threads (already accepts it)
     if reuse {
         let mode_tag = match mode {
             "robust" => "Robust".to_string(),
@@ -163,6 +162,10 @@ pub fn run(
         println!("train-bp: cache miss key={key}");
     }
     let t0 = std::time::Instant::now();
+    let resume_path = resume_from.map(std::path::Path::new);
+    if let Some(p) = resume_path {
+        println!("train-bp: resuming from {}", p.display());
+    }
     let (table, prov) = match cham_blueprint::train_with_threads(
         &tcfg,
         &train_mode,
@@ -172,7 +175,7 @@ pub fn run(
         threads,
         &runs,
         None,
-        None,
+        resume_path,
     ) {
         Ok(r) => r,
         Err(e) => {
