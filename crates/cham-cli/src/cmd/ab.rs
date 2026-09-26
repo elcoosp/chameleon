@@ -6,9 +6,12 @@ pub fn run(
     deals: u64,
     _clusters: usize,
     margin: f64,
-    sprt: bool,
+    no_sprt: bool,
     promote: bool,
 ) -> i32 {
+    // B-2: same cache guard as play/ladder. No-op today; cheap.
+    let _cache_guard =
+        crate::cmd::cache_guard::CachePersist::hydrate("ab", "artifacts/river-cache.bin");
     // PERF-PLAN T7 guardrail on both arms: A/B-ing a trained agent without
     // its bundle compares two silent fallbacks (delta ≈ 0, meaningless).
     for arm in [a, b] {
@@ -28,7 +31,7 @@ pub fn run(
         seeds: vec![1, 2, 3],
         conf: 0.95,
         margin_mb: margin,
-        sprt: sprt.then_some(cham_eval::ab::SprtParams {
+        sprt: (!no_sprt).then_some(cham_eval::ab::SprtParams {
             delta0_mb: 0.0,
             delta1_mb: 25.0,
             alpha: 0.05,

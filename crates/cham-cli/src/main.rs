@@ -133,8 +133,9 @@ enum Command {
         clusters: usize,
         #[arg(long, default_value = "0.0")]
         margin: f64,
+        /// Disable SPRT early-stopping (screening arms run SPRT by default)
         #[arg(long)]
-        sprt: bool,
+        no_sprt: bool,
         #[arg(long)]
         promote: bool,
     },
@@ -241,9 +242,9 @@ fn main() -> anyhow::Result<()> {
             deals,
             clusters,
             margin,
-            sprt,
+            no_sprt,
             promote,
-        } => cmd::ab::run(&a, &b, deals, clusters, margin, sprt, promote),
+        } => cmd::ab::run(&a, &b, deals, clusters, margin, no_sprt, promote),
         Command::Slumbot {
             seatings,
             real,

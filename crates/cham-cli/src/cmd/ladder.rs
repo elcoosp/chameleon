@@ -234,6 +234,10 @@ fn run_opponent(
 }
 
 pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str) -> i32 {
+    // B-2: hydrate the persistent river-subgame cache. A no-op today
+    // (ladder does not enable search), but cheap and future-proof.
+    let _cache_guard =
+        crate::cmd::cache_guard::CachePersist::hydrate("ladder", "artifacts/river-cache.bin");
     // PERF-PLAN T7 guardrail: evaluating a trained agent without its bundle
     // yields silent-fallback mirror rows (meaningless strength numbers).
     if let Err(missing) = crate::cmd::guard::require_agent_artifacts(agent) {

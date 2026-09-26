@@ -5,6 +5,7 @@
 
 use std::io::{BufRead, Write};
 
+use crate::cmd::cache_guard::CachePersist;
 use cham_agent::modes::{AgentMode, SearchCfg};
 use cham_agent::pipeline::ChameleonAgent;
 use cham_core::card::Deck;
@@ -14,32 +15,6 @@ use cham_core::engine::{Action, State, Street};
 use cham_core::obs::{Agent as _, Observables, Player};
 use cham_core::rng::{child, rng_from_seed};
 use cham_router::model::SoftmaxModel;
-
-/// Hydrate the persistent river cache at session start; save it back on
-/// any clean exit (including a `return EXIT_OK`). Deliberately best-effort:
-/// a missing/old/bad cache file just means this session starts cold, which
-/// is what happens today. Never blocks the live path.
-struct CachePersist {
-    path: std::path::PathBuf,
-}
-impl CachePersist {
-    fn hydrate(path: std::path::PathBuf) -> Self {
-        match cham_search::cache_persist::hydrate_from(&path) {
-            Ok(0) => {} // fresh session or empty file — nothing to log
-            Ok(n) => println!("play: cache hydrated ({n} subgames)"),
-            Err(e) => eprintln!("play: cache hydrate skipped ({e})"),
-        }
-        CachePersist { path }
-    }
-}
-impl Drop for CachePersist {
-    fn drop(&mut self) {
-        match cham_search::cache_persist::save_to(&self.path) {
-            Ok(n) => println!("play: cache saved ({n} subgames → {})", self.path.display()),
-            Err(e) => eprintln!("play: cache save skipped ({e})"),
-        }
-    }
-}
 
 const PLAY_SEED: u64 = 0x0BEA;
 
@@ -55,7 +30,7 @@ pub fn run(agent: &str, depth: i64, search_warmstart: bool) -> i32 {
     // guard saves it on any clean return. Path is stable per process;
     // concurrent sessions overwrite last-writer-wins (acceptable: the
     // cache is a speed optimization, not a correctness input).
-    let _cache_guard = CachePersist::hydrate(std::path::PathBuf::from("artifacts/river-cache.bin"));
+    let _cache_guard = CachePersist::hydrate("play", "artifacts/river-cache.bin");
     let bundle = std::path::Path::new("artifacts/agent");
     // CLI mode names → AgentMode routing strings (SPECS/07 §3 canonical set)
     let routing = match agent {

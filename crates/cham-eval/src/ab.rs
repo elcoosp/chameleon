@@ -62,32 +62,59 @@ impl AbRunner {
         rec: Option<&mut Recorder>,
     ) -> Result<AbVerdict, EvalError>
     where
-        F: Fn() -> Box<dyn Agent>,
+        F: Fn() -> Box<dyn Agent> + Sync,
     {
-        let mut per_opp = Vec::new();
-        let mut all_diffs: Vec<f64> = Vec::new();
-        for (i, opp) in pool.iter().enumerate() {
-            let mk = |arm_seed: u64| MatchSpec {
-                opponent: OpponentSpecDto(opp.id()),
-                deals: spec.deals_per_opp,
-                depth_bb,
-                base_seed: arm_seed ^ ((i as u64) << 32),
-                label: format!("ab:{}/{}/{}", spec.a, spec.b, opp.id()),
-            };
-            let ra = MatchRunner::run(&mk(spec.seeds[0]), hero_factory_a, None)?;
-            let rb = MatchRunner::run(&mk(spec.seeds[0]), hero_factory_b, None)?;
-            // paired diffs per deal (identical opponent streams)
-            let da = ra.per_deal_profits.clone().unwrap_or_default();
-            let db = rb.per_deal_profits.clone().unwrap_or_default();
-            let diffs: Vec<f64> = da.iter().zip(db.iter()).map(|(x, y)| x - y).collect();
-            let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0] ^ 0xAB);
-            let ci = paired_ci(&diffs, spec.conf, rng);
-            let delta = crate::stats::mean(&diffs);
-            per_opp.push(PerOppDelta {
-                opponent: opp.id(),
-                delta_mb: delta,
-                ci,
+        // Parallel per-opponent (V2 A/B speedup). Each thread computes one
+        // arm pair independently: same seed (opponent stream identical
+        // across arms), own RNG for the bootstrap CI. Order preserved by
+        // collecting handles, then joining in pool order — deterministic
+        // results regardless of completion order.
+        let per_opp_results: Vec<Result<(PerOppDelta, Vec<f64>), EvalError>> =
+            std::thread::scope(|s| {
+                let handles: Vec<_> = pool
+                    .iter()
+                    .enumerate()
+                    .map(|(i, opp)| {
+                        s.spawn(move || -> Result<(PerOppDelta, Vec<f64>), EvalError> {
+                            let mk = |arm_seed: u64| MatchSpec {
+                                opponent: OpponentSpecDto(opp.id()),
+                                deals: spec.deals_per_opp,
+                                depth_bb,
+                                base_seed: arm_seed ^ ((i as u64) << 32),
+                                label: format!("ab:{}/{}/{}", spec.a, spec.b, opp.id()),
+                            };
+                            let ra = MatchRunner::run(&mk(spec.seeds[0]), hero_factory_a, None)?;
+                            let rb = MatchRunner::run(&mk(spec.seeds[0]), hero_factory_b, None)?;
+                            let da = ra.per_deal_profits.clone().unwrap_or_default();
+                            let db = rb.per_deal_profits.clone().unwrap_or_default();
+                            let diffs: Vec<f64> =
+                                da.iter().zip(db.iter()).map(|(x, y)| x - y).collect();
+                            let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0] ^ 0xAB);
+                            let ci = paired_ci(&diffs, spec.conf, rng);
+                            let delta = crate::stats::mean(&diffs);
+                            Ok((
+                                PerOppDelta {
+                                    opponent: opp.id(),
+                                    delta_mb: delta,
+                                    ci,
+                                },
+                                diffs,
+                            ))
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().expect("ab thread"))
+                    .collect()
             });
+
+        // Reassemble in pool order.
+        let mut per_opp = Vec::with_capacity(per_opp_results.len());
+        let mut all_diffs: Vec<f64> = Vec::new();
+        for r in per_opp_results {
+            let (d, diffs) = r?;
+            per_opp.push(d);
             all_diffs.extend(diffs);
         }
         let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0]);

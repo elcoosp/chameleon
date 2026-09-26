@@ -1,6 +1,7 @@
 //! Command implementations: thin orchestration over the workspace crates.
 
 pub mod ab;
+pub mod cache_guard;
 pub mod collect;
 pub mod dashboard;
 pub mod gpu_doctor;
