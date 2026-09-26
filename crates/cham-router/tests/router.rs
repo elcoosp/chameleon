@@ -127,7 +127,7 @@ fn sharpening_math() {
     model.weights[0][0] = 100.0; // overwhelming class 0
     let mut features = [0f32; 20];
     features[0] = 1.0; // activates the overwhelming class-0 weight
-    let mut rt = RouterRuntime::new(model.clone(), 0.7, 1.0, 0.5, -1.5);
+    let mut rt = RouterRuntime::new(model.clone(), 0.7, 8.0, 0.5, -1.5);
     let w = rt.weights_for_hand(&features, 0.0);
     assert!(
         (w[0] - 1.0).abs() < 1e-9,
@@ -135,7 +135,7 @@ fn sharpening_math() {
     );
     // 0.7/0.1/0.1/0.1 posterior: p^(1/0.7) sharpens to w0 = 0.7^1.4286 / Σ ≈ 0.88
     model.weights = vec![vec![0.0; 20]; 4];
-    let rt2 = RouterRuntime::new(model, 0.7, 1.0, 0.5, -1.5);
+    let rt2 = RouterRuntime::new(model, 0.7, 8.0, 0.5, -1.5);
     let mut feats = [0f32; 20];
     feats[0] = 1.0; // score0 = 1 → p ∝ e
     let p = rt2.model.forward(&feats);
@@ -166,7 +166,7 @@ fn weights_frozen_per_hand() {
     // The runtime produces weights ONCE per hand; repeated queries within the hand
     // return identical values (frozen) — guaranteed by the API contract that
     // weights_for_hand is called once; we pin the hysteresis determinism:
-    let mut rt = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
+    let mut rt = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5);
     let features = [0.5f32; 20];
     let w1 = rt.weights_for_hand(&features, 0.0);
     let w1b = {
@@ -181,7 +181,7 @@ fn weights_frozen_per_hand() {
     let mut features2 = features;
     features2[0] = 0.9;
     let w2 = rt.weights_for_hand(&features2, 0.0);
-    let mut cold = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
+    let mut cold = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5);
     let w2_cold = cold.weights_for_hand(&features2, 0.0);
     assert!(
         w2.iter()
@@ -197,7 +197,7 @@ fn reach_weighted_mixture_documented() {
     // cham-agent (SPECS/05 §5); the Kuhn counterexample is pinned there
     // (reach_weighted_mixture_e2e). Here we pin the formula constants: robust
     // weight starts at 0 and only enters via shield/fallback.
-    let mut rt = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
+    let mut rt = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5);
     let features = [0.5f32; 20];
     let w = rt.weights_for_hand(&features, 0.0); // trend 0 > shield_z(-1.5)
     assert_eq!(w[4], 0.0, "robust weight starts 0");
@@ -206,44 +206,48 @@ fn reach_weighted_mixture_documented() {
 }
 
 #[test]
-fn hysteresis_math() {
-    // w = α·w_inst + (1−α)·w_prev — then normalized to the 5-simplex.
-    // (Normalization is mandated by `sharpening_math`: p=(1,0,0,0) must give
-    // w=(1,0,0,0) exactly, impossible on hand 1 without it since w_prev=0.)
+fn bayesian_fusion_math() {
+    // v3 §5.2: w_k = (N0·prior_k + c_k) / (N0 + Σc), hand 1 = pure prior
+    // (no votes yet), hand 2 folds in hand 1's argmax vote. Then normalized
+    // to the 5-simplex (mandated by `sharpening_math`).
     let model = SoftmaxModel::new(20, 4);
-    let mut rt = RouterRuntime::new(model.clone(), 0.7, 0.3, 0.5, -1.5);
+    let n0 = 8.0;
+    let mut rt = RouterRuntime::new(model.clone(), 0.7, n0, 0.5, -1.5);
     let mut features = [0f32; 20];
     features[0] = 5.0; // favor class 0
     let w1 = rt.weights_for_hand(&features, 0.0);
     let p = model.forward(&features);
     let inst: Vec<f64> = p.iter().take(4).map(|&x| x.powf(1.0 / 0.7)).collect();
     let total: f64 = inst.iter().sum();
-    // first hand: w = renorm(α·w_inst) = w_inst exactly (Σw_inst = 1)
+    let prior: Vec<f64> = inst.iter().map(|&x| x / total).collect();
+    // first hand: w = prior exactly (Σc = 0)
     for k in 0..4 {
-        let expected = inst[k] / total;
         assert!(
-            (w1[k] - expected).abs() < 1e-9,
-            "hand-1 hysteresis dim {k}: {} vs {}",
+            (w1[k] - prior[k]).abs() < 1e-9,
+            "hand-1 bayes dim {k}: {} vs {}",
             w1[k],
-            expected
+            prior[k]
         );
     }
-    // second hand: w = renorm(α·inst + (1−α)·w1)
+    // hand 1's vote went to argmax(prior)
+    let mut vote = 0usize;
+    for k in 1..4 {
+        if prior[k] > prior[vote] {
+            vote = k;
+        }
+    }
+    // second hand: w_k = (N0·prior_k + [k == vote]) / (N0 + 1)
     let w2 = rt.weights_for_hand(&features, 0.0);
-    let raw2: Vec<f64> = (0..4)
-        .map(|k| 0.3 * (inst[k] / total) + 0.7 * w1[k])
-        .collect();
-    let total2: f64 = raw2.iter().sum();
     for k in 0..4 {
-        let expected = raw2[k] / total2;
+        let expected = (n0 * prior[k] + if k == vote { 1.0 } else { 0.0 }) / (n0 + 1.0);
         assert!(
             (w2[k] - expected).abs() < 1e-9,
-            "hand-2 hysteresis dim {k}: {} vs {}",
+            "hand-2 bayes dim {k}: {} vs {}",
             w2[k],
             expected
         );
     }
-    // reset-per-session
+    // reset-per-session restores hand-1 weights
     rt.reset_session();
     let w3 = rt.weights_for_hand(&features, 0.0);
     assert!(
@@ -253,8 +257,49 @@ fn hysteresis_math() {
 }
 
 #[test]
+fn bayesian_concentration_and_variance_gate() {
+    // The property fixed-α hysteresis lacks: repeated consistent votes
+    // CONCENTRATE the posterior (asymptote 1.0, not a blend), while the
+    // posterior variance shrinks — the B2 gate signal. The model must be
+    // discriminative (zero weights vote class 0 on every input).
+    let mut model = SoftmaxModel::new(20, 4);
+    model.weights[0][0] = 5.0;
+    model.weights[1][1] = 5.0;
+    let mut features = [0f32; 20];
+    features[0] = 5.0; // class 0 wins every vote
+    let mut rt = RouterRuntime::new(model, 0.7, 8.0, 0.5, -1.5);
+    let w1 = rt.weights_for_hand(&features, 0.0);
+    let v1: f64 = rt.posterior_variance().iter().sum();
+    let mut w = w1;
+    for _ in 0..100 {
+        w = rt.weights_for_hand(&features, 0.0);
+    }
+    assert!(
+        w[0] > 0.9,
+        "100 consistent votes concentrate the posterior: {w:?}"
+    );
+    let v101: f64 = rt.posterior_variance().iter().sum();
+    assert!(
+        v101 < v1,
+        "variance shrinks with evidence: {v101} < {v1} (the B2 gate moves)"
+    );
+    // contradictory evidence moves the MEAN back (graceful degradation —
+    // the posterior listens to new votes instead of locking onto the past)
+    let mut features_b = [0f32; 20];
+    features_b[1] = 5.0; // now class 1 wins votes
+    let mut wb = w;
+    for _ in 0..20 {
+        wb = rt.weights_for_hand(&features_b, 0.0);
+    }
+    assert!(
+        wb[1] > w[1] && wb[0] < w[0],
+        "contradiction shifts mass 0→1: {wb:?} vs {w:?}"
+    );
+}
+
+#[test]
 fn shield_triggers() {
-    let mut rt = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
+    let mut rt = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5);
     let features = [0.5f32; 20];
     let w_healthy = rt.weights_for_hand(&features, 0.5);
     let w_drift = rt.weights_for_hand(&features, -3.0);
@@ -270,7 +315,7 @@ fn fallback_redistribution_contract() {
     // cham-agent with weights untouched next hand (SPECS/05 §5 fallback rule) —
     // the runtime side pins that weights_for_hand never mutates expert weights
     // based on coverage (coverage lives in the artifact, not the router).
-    let mut rt = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
+    let mut rt = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5);
     let features = [0.5f32; 20];
     let a = rt.weights_for_hand(&features, 0.0);
     let b = rt.weights_for_hand(&features, 0.0);
@@ -362,7 +407,7 @@ fn argmax_vs_mixture_vs_bayes_distinct() {
     // weight class 0's first feature)
     let mut model = SoftmaxModel::new(20, 4);
     model.weights[0][0] = 1.0;
-    let mut rt = RouterRuntime::new(model, 0.01, 1.0, 0.5, -1.5);
+    let mut rt = RouterRuntime::new(model, 0.01, 8.0, 0.5, -1.5);
     let mut features = [0f32; 20];
     features[0] = 3.0;
     let w = rt.weights_for_hand(&features, 0.0);
