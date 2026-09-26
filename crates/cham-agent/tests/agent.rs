@@ -37,6 +37,7 @@ fn trained_policy(dir: &Path, iters: u64, seed: u64) -> BlueprintPolicy {
         train_seed: seed,
         snapshot_every: iters,
         bayes_session_block: 100,
+        regret_discount: 1.0,
     };
     let (table, prov) = cham_blueprint::train(
         &tcfg,

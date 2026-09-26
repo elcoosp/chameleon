@@ -14,6 +14,7 @@ pub fn run(
     thread_mode: Option<&str>,
     config: Option<&str>,
     buckets: Option<&str>,
+    regret_discount: f32,
 ) -> i32 {
     if let Some(run_dir) = status {
         return print_status(run_dir);
@@ -66,6 +67,7 @@ pub fn run(
         train_seed: seed,
         snapshot_every: iters.max(10) / 10,
         bayes_session_block: 2000,
+        regret_discount,
     };
     let runs = std::path::Path::new(out).join(format!("{mode}-{seed}"));
     let thread_mode = match thread_mode.unwrap_or("deterministic") {

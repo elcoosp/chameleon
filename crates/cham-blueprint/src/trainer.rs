@@ -44,6 +44,16 @@ pub struct TrainerConfig {
     pub train_seed: u64,
     pub snapshot_every: u64,
     pub bayes_session_block: u64,
+    /// DCFR positive-regret discount (Brown & Sandholm 2019).
+    /// 1.0 = classic CFR+ (no discount). < 1.0 discounts accumulated
+    /// positive regret before adding the new delta. Serialized with a
+    /// default for backward compat with existing snapshots.
+    #[serde(default = "default_regret_discount")]
+    pub regret_discount: f32,
+}
+
+pub fn default_regret_discount() -> f32 {
+    1.0
 }
 
 impl TrainerConfig {
@@ -222,7 +232,7 @@ pub fn train_with_threads(
         };
 
         if thread_mode == ThreadMode::Snapbatch {
-            let mut sink = SnapBatchSink::new();
+            let mut sink = SnapBatchSink::with_discount(cfg.regret_discount);
             {
                 let mut walker = Traversal {
                     table: &mut table,
@@ -233,6 +243,7 @@ pub fn train_with_threads(
                     mode: mode.tag(),
                     hero_nodes: 0,
                     pruned_nodes: 0,
+                    regret_discount: cfg.regret_discount,
                 };
                 walker.walk_with_sink(
                     &mut state, hero_seat, w_t, &mut seq, enc, iter_rng, &mut sink,
@@ -249,6 +260,7 @@ pub fn train_with_threads(
                 mode: mode.tag(),
                 hero_nodes: 0,
                 pruned_nodes: 0,
+                regret_discount: cfg.regret_discount,
             };
             walker.walk(&mut state, hero_seat, w_t, &mut seq, enc, iter_rng);
         }

@@ -36,6 +36,7 @@ fn bench_mccfr_iter(c: &mut Criterion) {
                     mode: cham_blueprint::modes::TrainModeTag::Exploit,
                     hero_nodes: 0,
                     pruned_nodes: 0,
+                    regret_discount: 1.0,
                 };
                 acc += walker.walk(&mut state, (t % 2) as usize, 1.0, &mut seq, &mut enc, rng);
             }

@@ -55,6 +55,7 @@ fn build_world() -> BenchWorld {
         train_seed: 0xA6E,
         snapshot_every: 300,
         bayes_session_block: 100,
+        regret_discount: 1.0,
     };
     let (table, prov) = cham_blueprint::train(
         &tcfg,

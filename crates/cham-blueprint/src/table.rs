@@ -167,6 +167,56 @@ impl DeltaBuffer {
         self.clear();
     }
 
+    /// Same as [`flush`] but applies DCFR regret discount per merged slot
+    /// (`new = max(0, old*discount + sum)`). `discount == 1.0` reproduces
+    /// the exact CFR+ path.
+    pub fn flush_with_discount(&mut self, table: &RegretTable, discount: f32) {
+        if discount >= 1.0 {
+            return self.flush(table);
+        }
+        if self.regrets.is_empty()
+            && self.strats.is_empty()
+            && self.weights.is_empty()
+            && self.visits.is_empty()
+        {
+            self.traversals_since_flush = 0;
+            return;
+        }
+        self.regrets.sort_by_key(|&(k, _)| k);
+        let mut i = 0;
+        while i < self.regrets.len() {
+            let k = self.regrets[i].0;
+            let mut sum = 0.0f32;
+            while i < self.regrets.len() && self.regrets[i].0 == k {
+                sum += self.regrets[i].1;
+                i += 1;
+            }
+            let slot = (k >> 8) as usize + (k & 0xff) as usize;
+            table.regret_add_cfr_plus_discounted_slot(slot, sum, discount);
+        }
+        Self::flush_pairs(&mut self.strats, &mut |key, sum| {
+            let slot = (key >> 12) as usize + ((key >> 8) & 0xf) as usize + (key & 0xff) as usize;
+            table.add_f32_slot(slot, sum);
+        });
+        Self::flush_pairs(&mut self.weights, &mut |key, sum| {
+            let off = (key >> 8) as u32;
+            let w = (key & 0xff) as usize;
+            table.add_weight(off, w, sum);
+        });
+        self.visits.sort_unstable();
+        let mut j = 0;
+        while j < self.visits.len() {
+            let k = self.visits[j];
+            let mut n = 0u32;
+            while j < self.visits.len() && self.visits[j] == k {
+                n += 1;
+                j += 1;
+            }
+            table.add_visits((k >> 8) as u32, (k & 0xff) as usize, n);
+        }
+        self.clear();
+    }
+
     fn flush_pairs(lane: &mut [(u64, f32)], apply: &mut impl FnMut(u64, f32)) {
         lane.sort_by_key(|a| a.0);
         let mut i = 0;
@@ -439,6 +489,36 @@ impl RegretTable {
     }
 
     /// Batched CFR+ regret add at an absolute arena slot (snapbatch flush path).
+    /// DCFR-style discounting: `new = max(0, old * discount + delta)`.
+    /// Same CAS shape as `regret_add_cfr_plus`; `discount == 1.0` gives the
+    /// identical formula. Used only when the trainer is configured with
+    /// `regret_discount < 1.0`.
+    pub fn regret_add_cfr_plus_discounted(&self, off: u32, a: usize, delta: f32, discount: f32) {
+        use std::sync::atomic::Ordering::*;
+        let cell = &self.arena.cells[self.slot_of(off, a)];
+        let mut cur = cell.load(Relaxed);
+        loop {
+            let new_val = (f32::from_bits(cur) * discount + delta).max(0.0);
+            match cell.compare_exchange_weak(cur, new_val.to_bits(), Relaxed, Relaxed) {
+                Ok(_) => return,
+                Err(observed) => cur = observed,
+            }
+        }
+    }
+    /// Discounted slot-based variant used by `DeltaBuffer::flush_with_discount`.
+    pub fn regret_add_cfr_plus_discounted_slot(&self, slot: usize, delta: f32, discount: f32) {
+        use std::sync::atomic::Ordering::*;
+        let cell = &self.arena.cells[slot];
+        let mut cur = cell.load(Relaxed);
+        loop {
+            let new_val = (f32::from_bits(cur) * discount + delta).max(0.0);
+            match cell.compare_exchange_weak(cur, new_val.to_bits(), Relaxed, Relaxed) {
+                Ok(_) => return,
+                Err(observed) => cur = observed,
+            }
+        }
+    }
+
     pub fn regret_add_cfr_plus_slot(&self, slot: usize, delta: f32) {
         use std::sync::atomic::Ordering::*;
         let cell = &self.arena.cells[slot];

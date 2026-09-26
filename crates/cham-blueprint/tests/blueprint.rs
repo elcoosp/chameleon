@@ -158,6 +158,7 @@ fn exploit_enumeration_estimator() {
         mode: cham_blueprint::modes::TrainModeTag::Exploit,
         hero_nodes: 0,
         pruned_nodes: 0,
+        regret_discount: 1.0,
     };
     let v = walker.walk(&mut state, 1, 1.0, &mut seq, &mut enc, rng);
     let _ = v;
@@ -239,6 +240,7 @@ fn seat_randomized() {
         train_seed: 5,
         snapshot_every: 100,
         bayes_session_block: 100,
+        regret_discount: 1.0,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
@@ -272,6 +274,7 @@ fn rm_plus_floors() {
         train_seed: 9,
         snapshot_every: 300,
         bayes_session_block: 100,
+        regret_discount: 1.0,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
@@ -314,6 +317,7 @@ fn robust_two_sided_updates() {
         train_seed: 3,
         snapshot_every: 100,
         bayes_session_block: 100,
+        regret_discount: 1.0,
     };
     let mode = TrainMode::Robust;
     let (_t, prov) = cham_blueprint::train(
@@ -354,6 +358,7 @@ fn rbp_matches_full() {
                 mode: cham_blueprint::modes::TrainModeTag::Exploit,
                 hero_nodes: 0,
                 pruned_nodes: 0,
+                regret_discount: 1.0,
             };
             walker.walk(&mut state, (t % 2) as usize, 1.0, &mut seq, &mut enc, rng);
         }
@@ -426,6 +431,7 @@ fn delayed_averaging_monotone() {
             mode: cham_blueprint::modes::TrainModeTag::Exploit,
             hero_nodes: 0,
             pruned_nodes: 0,
+            regret_discount: 1.0,
         };
         walker.walk(&mut state, 0, w_t, &mut seq, &mut enc, rng);
         if (t + 1) % 400 == 0 {
@@ -488,6 +494,7 @@ fn determinism_same_seed_and_resume() {
             train_seed: 0x51EED,
             snapshot_every: 50,
             bayes_session_block: 100,
+            regret_discount: 1.0,
         };
         let mode = TrainMode::Exploit {
             opponent: cham_opponents::OpponentSpec::CallBot,
@@ -536,6 +543,7 @@ fn resume_continues_bitstream() {
             train_seed: 0x1234,
             snapshot_every: 50,
             bayes_session_block: 100,
+            regret_discount: 1.0,
         };
         let mode = TrainMode::Exploit {
             opponent: cham_opponents::OpponentSpec::CallBot,
@@ -728,6 +736,7 @@ fn exploit_vs_constant_callbot() {
         train_seed: 0xC0DE,
         snapshot_every: 30_000,
         bayes_session_block: 100,
+        regret_discount: 1.0,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
@@ -813,6 +822,7 @@ fn warmstart_exact_keys_and_beats_cold() {
         train_seed: 0x0B57,
         snapshot_every: 2_000,
         bayes_session_block: 100,
+        regret_discount: 1.0,
     };
     let (robust_table, _) = cham_blueprint::train(
         &robust_cfg,
@@ -867,6 +877,7 @@ fn warmstart_exact_keys_and_beats_cold() {
                 mode: cham_blueprint::modes::TrainModeTag::Exploit,
                 hero_nodes: 0,
                 pruned_nodes: 0,
+                regret_discount: 1.0,
             };
             walker.walk(&mut state, (t % 2) as usize, w_t, &mut seq, &mut enc, rng);
         }
@@ -926,6 +937,7 @@ fn snapbatch_train_smoke() {
         train_seed: 0x5BAB,
         snapshot_every: 30,
         bayes_session_block: 100,
+        regret_discount: 1.0,
     };
     let dir = Path::new("artifacts/runs/snap-test");
     let (t, prov) = cham_blueprint::train_with_threads(

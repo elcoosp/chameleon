@@ -76,6 +76,9 @@ enum Command {
         /// Bucket directory (default: artifacts/buckets-tiny)
         #[arg(long)]
         buckets: Option<String>,
+        /// DCFR positive-regret discount (1.0 = CFR+ classic; try 0.9)
+        #[arg(long, default_value = "1.0")]
+        regret_discount: f32,
     },
     /// Train the router on a .rbin dataset (SPECS/05)
     TrainRouter {
@@ -192,6 +195,7 @@ fn main() -> anyhow::Result<()> {
             thread_mode,
             config,
             buckets,
+            regret_discount,
         } => cmd::train_bp::run(
             &mode,
             opponent.as_deref(),
@@ -204,6 +208,7 @@ fn main() -> anyhow::Result<()> {
             thread_mode.as_deref(),
             config.as_deref(),
             buckets.as_deref(),
+            regret_discount,
         ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),

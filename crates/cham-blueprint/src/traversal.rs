@@ -34,11 +34,23 @@ pub trait RegretSink {
 }
 
 /// Direct atomic writes (existing behavior; `Deterministic` is bit-exact).
-pub struct DirectSink;
+pub struct DirectSink {
+    pub regret_discount: f32,
+}
+
+impl DirectSink {
+    pub fn new(regret_discount: f32) -> DirectSink {
+        DirectSink { regret_discount }
+    }
+}
 
 impl RegretSink for DirectSink {
     fn add_regret(&mut self, table: &RegretTable, off: u32, a: usize, delta: f32) {
-        table.regret_add_cfr_plus(off, a, delta);
+        if self.regret_discount < 1.0 {
+            table.regret_add_cfr_plus_discounted(off, a, delta, self.regret_discount);
+        } else {
+            table.regret_add_cfr_plus(off, a, delta);
+        }
     }
     fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f32) {
         table.strat_add(off, w, a, delta);
@@ -56,18 +68,30 @@ impl RegretSink for DirectSink {
 /// owner flushes leftovers every K traversals (or at iteration end).
 pub struct SnapBatchSink {
     pub buf: DeltaBuffer,
+    pub regret_discount: f32,
 }
 
 impl SnapBatchSink {
     pub fn new() -> SnapBatchSink {
         SnapBatchSink {
             buf: DeltaBuffer::new(),
+            regret_discount: 1.0,
+        }
+    }
+
+    pub fn with_discount(regret_discount: f32) -> SnapBatchSink {
+        SnapBatchSink {
+            buf: DeltaBuffer::new(),
+            regret_discount,
         }
     }
 
     /// Flush buffered deltas into the table (one atomic op per slot).
+    /// The regret discount is applied per merged slot at flush time, so the
+    /// effective number of discounts differs from DirectSink (which applies
+    /// per-call). Documented; only active when `regret_discount < 1.0`.
     pub fn flush(&mut self, table: &RegretTable) {
-        self.buf.flush(table);
+        self.buf.flush_with_discount(table, self.regret_discount);
     }
 
     pub fn pending(&self) -> usize {
@@ -85,7 +109,7 @@ impl RegretSink for SnapBatchSink {
     fn add_regret(&mut self, table: &RegretTable, off: u32, a: usize, delta: f32) {
         self.buf.push_regret(off, a, delta);
         if self.buf.regrets_full() {
-            self.buf.flush(table);
+            self.flush(table);
         }
     }
     fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f32) {
@@ -135,6 +159,8 @@ pub struct Traversal<'a> {
     /// counters for the seat histogram / pruning stats (printed by the trainer)
     pub hero_nodes: u64,
     pub pruned_nodes: u64,
+    /// DCFR regret discount (1.0 = pure CFR+). Applied at add_regret.
+    pub regret_discount: f32,
 }
 
 impl<'a> Traversal<'a> {
@@ -150,7 +176,7 @@ impl<'a> Traversal<'a> {
         enc: &mut cham_engine::Encoder,
         rng: &mut Rng,
     ) -> f64 {
-        let mut sink = DirectSink;
+        let mut sink = DirectSink::new(self.regret_discount);
         self.walk_with_sink(state, hero_seat, w_t, seq, enc, rng, &mut sink)
     }
 
