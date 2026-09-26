@@ -13,6 +13,7 @@ pub mod baselines;
 pub mod drift;
 pub mod factory;
 pub mod family_b;
+pub mod frozen;
 pub mod noisy;
 pub mod params;
 pub mod percentile;
@@ -21,6 +22,7 @@ pub mod session;
 
 pub use archetype::ArchetypeAgent;
 pub use factory::OpponentSpec;
+pub use frozen::{FrozenAgent, FrozenRows};
 pub use params::ArchetypeId;
 pub use params::{ArchetypeParams, JitterSpec};
 pub use percentile::PercentileChart;
