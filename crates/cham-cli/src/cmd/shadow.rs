@@ -40,7 +40,10 @@ pub fn snapshot(policy_dir: &str, out_dir: &str) -> i32 {
                 match cham_blueprint::BlueprintPolicy::load(tier, 0) {
                     Ok(p) => p.export_rows().into_iter().collect(),
                     Err(e) => {
-                        eprintln!("shadow snapshot: cannot load tier '{}': {e}", tier.display());
+                        eprintln!(
+                            "shadow snapshot: cannot load tier '{}': {e}",
+                            tier.display()
+                        );
                         return crate::cmd::EXIT_BUDGET;
                     }
                 };
@@ -52,7 +55,11 @@ pub fn snapshot(policy_dir: &str, out_dir: &str) -> i32 {
                     fresh += 1;
                 }
             }
-            println!("shadow snapshot: tier '{}': {} new rows", tier.display(), fresh);
+            println!(
+                "shadow snapshot: tier '{}': {} new rows",
+                tier.display(),
+                fresh
+            );
             sources += 1;
         }
     }
@@ -195,9 +202,8 @@ pub fn run_gauntlet(
     // infallible by `MatchRunner::run`'s contract, and construction is
     // deterministic (same bundle every deal), so a single pre-check rules
     // out mid-run surprises.
-    crate::cmd::hero::build_hero(candidate, 100).map_err(|e| {
-        format!("gauntlet: candidate '{candidate}' needs trained artifacts ({e})")
-    })?;
+    crate::cmd::hero::build_hero(candidate, 100)
+        .map_err(|e| format!("gauntlet: candidate '{candidate}' needs trained artifacts ({e})"))?;
     let mut per_shadow: Vec<(String, f64)> = Vec::new();
     for snap in snaps.iter().rev().take(3) {
         let id = snap

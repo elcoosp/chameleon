@@ -136,9 +136,7 @@ pub fn run(
                 // No shadows yet (first-ever promotion) is not a failure —
                 // there's nothing to regress against. Any other error IS.
                 if e.contains("no shadow snapshots") {
-                    println!(
-                        "shadow gauntlet: no prior shadows — first promotion, skipping gate."
-                    );
+                    println!("shadow gauntlet: no prior shadows — first promotion, skipping gate.");
                 } else {
                     eprintln!(
                         "shadow gauntlet: error ({e}) — treating as a hard stop, not a silent pass."
@@ -187,7 +185,9 @@ pub fn run(
         if crate::cmd::shadow::snapshot("artifacts/agent", "artifacts/shadow")
             != crate::cmd::EXIT_OK
         {
-            eprintln!("shadow snapshot: warning, failed to snapshot new champion — next gauntlet run will be missing this baseline");
+            eprintln!(
+                "shadow snapshot: warning, failed to snapshot new champion — next gauntlet run will be missing this baseline"
+            );
             // non-fatal: the promotion itself already succeeded; don't roll it back over a snapshot failure
         }
     }

@@ -236,9 +236,11 @@ pub fn build_registered(label: String, entry: &ShadowEntry) -> FrozenAgent {
         .ok()
         .and_then(|t| cham_engine::config::parse_config(&t).ok())
         .unwrap_or_else(cham_engine::config::AbstractionConfig::tiny);
-    let encoder =
-        cham_engine::Encoder::from_artifacts_dir(std::path::Path::new(&entry.buckets_dir), cfg.clone())
-            .or_else(|_| cham_engine::Encoder::cfg_only(cfg))
-            .expect("tiny encoder");
+    let encoder = cham_engine::Encoder::from_artifacts_dir(
+        std::path::Path::new(&entry.buckets_dir),
+        cfg.clone(),
+    )
+    .or_else(|_| cham_engine::Encoder::cfg_only(cfg))
+    .expect("tiny encoder");
     FrozenAgent::new(label, encoder, entry.rows.clone())
 }
