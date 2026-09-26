@@ -91,6 +91,7 @@ pub fn run(perf: bool, count_infosets: bool, proofs: bool, gpu: bool, tables: Op
     //    or feature-off, prints SKIP and returns — the CI path.
     if gpu {
         check_gpu_gates(tables, &mut failures);
+        check_bucket_artifacts(&mut failures);
     }
 
     if failures.is_empty() {
@@ -573,4 +574,125 @@ fn nth_board4(i: u64) -> [cham_core::card::Card; 4] {
         }
     }
     [Card(0), Card(1), Card(2), Card(3)]
+}
+
+/// `verify --gpu` extension: structural sanity on bucket artifacts.
+///
+/// Scans `artifacts/buckets*/meta.json`, validates the shared schema
+/// (version 2, `river_eq_edges` non-empty, per-street `k`/`orbits` fields),
+/// and confirms the companion `.bin` files exist and are non-trivial.
+///
+/// During a full build, `turn` may be `null` in meta.json — that is a valid
+/// "still in progress" state and reported as INFO, not a failure. Once the
+/// build writes turn.bin + updates meta.json, the field is present.
+///
+/// Never asserts exact byte counts: the row width is not part of the
+/// public contract, and pinning it here would break the moment the format
+/// legitimately changes.
+fn check_bucket_artifacts(failures: &mut Vec<String>) {
+    let root = std::path::Path::new("artifacts");
+    if !root.is_dir() {
+        return;
+    }
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for e in entries.flatten() {
+            let p = e.path();
+            let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if p.is_dir() && name.starts_with("buckets") {
+                dirs.push(p);
+            }
+        }
+    }
+    if dirs.is_empty() {
+        println!("verify --gpu: no buckets* dirs under artifacts/ (OK)");
+        return;
+    }
+    dirs.sort();
+
+    for dir in &dirs {
+        let label = dir.file_name().and_then(|s| s.to_str()).unwrap_or("?");
+        let meta_path = dir.join("meta.json");
+        if !meta_path.is_file() {
+            failures.push(format!("verify --gpu: {label}/meta.json missing"));
+            continue;
+        }
+        let raw = match std::fs::read_to_string(&meta_path) {
+            Ok(r) => r,
+            Err(e) => {
+                failures.push(format!("verify --gpu: {label}/meta.json unreadable: {e}"));
+                continue;
+            }
+        };
+        let m: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(e) => {
+                failures.push(format!("verify --gpu: {label}/meta.json not JSON: {e}"));
+                continue;
+            }
+        };
+        let version = m.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
+        if version != 2 {
+            failures.push(format!("verify --gpu: {label} version {version} != 2"));
+        }
+        let edges = m
+            .get("river_eq_edges")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        if edges < 2 {
+            failures.push(format!(
+                "verify --gpu: {label} river_eq_edges len {edges} < 2"
+            ));
+        }
+
+        // Per-street checks
+        let mut per_street_ok = true;
+        for street in ["flop", "turn"] {
+            let field = m.get(street);
+            match field {
+                None | Some(serde_json::Value::Null) => {
+                    if street == "turn" {
+                        println!("  buckets {label:<12} turn: still building (meta.json null)");
+                    } else {
+                        failures.push(format!("verify --gpu: {label} has no {street} block"));
+                        per_street_ok = false;
+                    }
+                }
+                Some(v) => {
+                    let k = v.get("k").and_then(|x| x.as_u64()).unwrap_or(0);
+                    let orbits = v.get("orbits").and_then(|x| x.as_u64()).unwrap_or(0);
+                    if k == 0 {
+                        failures.push(format!("verify --gpu: {label} {street}.k == 0"));
+                        per_street_ok = false;
+                    }
+                    if orbits == 0 {
+                        failures.push(format!("verify --gpu: {label} {street}.orbits == 0"));
+                        per_street_ok = false;
+                    }
+                    let bin = dir.join(format!("{street}.bin"));
+                    if !bin.is_file() {
+                        if street == "turn" {
+                            // Freshly-resumed build may not have written turn.bin yet.
+                            println!("  buckets {label:<12} {street}: meta present, .bin not yet");
+                        } else {
+                            failures.push(format!("verify --gpu: {label}/{street}.bin missing"));
+                            per_street_ok = false;
+                        }
+                    } else {
+                        let sz = std::fs::metadata(&bin).map(|x| x.len()).unwrap_or(0);
+                        if sz < 1024 {
+                            failures.push(format!(
+                                "verify --gpu: {label}/{street}.bin suspiciously small ({sz} B)"
+                            ));
+                            per_street_ok = false;
+                        }
+                    }
+                    if per_street_ok {
+                        println!("  buckets {label:<12} {street}: k={k} orbits={orbits}");
+                    }
+                }
+            }
+        }
+    }
 }
