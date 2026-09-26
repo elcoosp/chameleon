@@ -1,0 +1,8 @@
+# PREREG-EXP-016 — pre-registered gate for EXP-016 (v4 brainstorm).
+[gate]
+run_prefix = "exp-016-shadow-ladder"
+kind = "report"
+min_seatings = 0
+require_promote = false
+# expect: every candidate CI lower vs last-3 shadows > -10.0 mb/seating; gate on --promote path
+# gate = "G-shadow"
