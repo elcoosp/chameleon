@@ -18,12 +18,13 @@ pub mod trainer;
 pub mod traversal;
 pub mod warmstart;
 
-pub use modes::{BeliefBins, TrainMode};
+pub use modes::{BeliefBins, FrozenOracle, TrainMode};
 pub use policy::{BlueprintPolicy, ProvenanceRecord};
 pub use table::RegretTable;
 pub use table::{DeltaBuffer, ThreadMode};
 pub use trainer::{
-    RunProvenance, TrainerConfig, averaging_weight, default_threads, train, train_with_threads,
+    RunProvenance, TrainerConfig, averaging_weight, averaging_weight_gamma, default_avg_gamma,
+    default_threads, train, train_with_threads,
 };
 
 use thiserror::Error;
