@@ -1,0 +1,8 @@
+# PREREG-EXP-017 — pre-registered gate for EXP-017 (v4 brainstorm).
+[gate]
+run_prefix = "exp-017-emd-bucket-audit"
+kind = "report"
+min_seatings = 0
+require_promote = false
+# expect: a_ge_b ladder + >=10pct exploitability delta + positive bucket-audit ratio delta
+# gate = "G-A2"
