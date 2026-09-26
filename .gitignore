@@ -53,3 +53,8 @@ artifacts/agent/agent-tiny-backup/
 # cargo-mutants run logs
 artifacts/mutants-traversal*.log
 artifacts/mutants-traversal*.pid
+
+# EXP-014 widened-rotation outputs (regenerable; large)
+artifacts/agent-widened-*/
+artifacts/blueprints-widened-*/
+artifacts/exp-*-run.log
