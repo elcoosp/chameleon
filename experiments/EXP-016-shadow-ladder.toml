@@ -1,0 +1,13 @@
+# EXP-016 (v4 brainstorm).
+id = "EXP-016"
+slug = "shadow-ladder"
+gate = "G-shadow"
+tier = "ab"
+pool = "LAST_3_PROMOTED_SHADOWS"
+deals_per_opp = 10000
+seeds = [1, 2, 3]
+margin_mb = 0.0
+sprt = true
+[expect]
+direction = "a_ge_b"
+primary_ci_lower_mb = -10.0
