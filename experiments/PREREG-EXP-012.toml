@@ -1,0 +1,8 @@
+# PREREG-EXP-012 — pre-registered gate for EXP-012 (v4 brainstorm).
+[gate]
+run_prefix = "exp-012-fallback-r3-decision-path"
+kind = "report"
+min_seatings = 0
+require_promote = false
+# expect: robust-only fallback rate strictly decreases vs pre-R3; full unchanged (regression check); nextest pass count unchanged
+# gate = "G-fallback"
