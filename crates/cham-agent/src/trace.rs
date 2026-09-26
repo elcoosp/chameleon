@@ -18,6 +18,16 @@ pub struct DecisionTrace {
     pub expert_visits: [u32; 4],
     pub fallback_used: bool,
     pub abstraction_hash: u64,
+    /// Diagnostic (P1): expert k's `strategy()` returned `None` at this
+    /// decision. Distinct from `fallback_used`, which also fires on robust
+    /// miss, reach-mass zero, and mix-zero paths.
+    pub expert_missed: [bool; 4],
+    /// Diagnostic (P1): robust's `strategy()` returned `None`.
+    pub robust_missed: bool,
+    /// Diagnostic (P1): Σ w_k·π_k hit zero → plain weighted-average fallback.
+    pub reach_mass_zero: bool,
+    /// Diagnostic (P1): mix total hit zero → uniform fallback.
+    pub mix_zero: bool,
 }
 
 pub fn record(rec: Option<&mut Recorder>, run: &str, t: &DecisionTrace) -> Result<(), AgentError> {
@@ -31,6 +41,10 @@ pub fn record(rec: Option<&mut Recorder>, run: &str, t: &DecisionTrace) -> Resul
             "expert_visits": t.expert_visits,
             "fallback_used": t.fallback_used,
             "abstraction_hash": format!("{:x}", t.abstraction_hash),
+            "expert_missed": t.expert_missed,
+            "robust_missed": t.robust_missed,
+            "reach_mass_zero": t.reach_mass_zero,
+            "mix_zero": t.mix_zero,
         });
         if let Some(k) = t.argmax_k {
             data["argmax_k"] = serde_json::json!(k);
