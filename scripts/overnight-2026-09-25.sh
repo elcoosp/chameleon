@@ -247,14 +247,11 @@ log "driver done; total wall ${total}s"
   echo "--- per-phase JSONL ---"
   cat "$OUT/phases.jsonl" 2>/dev/null || true
   echo
-  echo "--- phase results ---"
-  cat "$SUMMARY"
-  echo
   echo "--- turn manifest ---"
   python3 -c "import json; m=json.load(open('artifacts/gpu-tables/turn.json')); print(json.dumps({k:m[k] for k in ('kind','boards','blake3','boards_per_s','throughput_evals_per_s','complete')}, indent=2))" 2>/dev/null || echo "(missing)"
   echo
   echo "--- flop manifest ---"
   python3 -c "import json; m=json.load(open('artifacts/gpu-tables/flop.json')); print(json.dumps({k:m[k] for k in ('kind','boards','blake3','boards_per_s','throughput_evals_per_s','complete')}, indent=2))" 2>/dev/null || echo "(missing)"
-} >> "$SUMMARY"
+} >> "$OUT/final-report.txt"
 kill "$WATCH_PID" 2>/dev/null || true
 exit 0
