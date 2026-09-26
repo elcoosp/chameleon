@@ -151,6 +151,12 @@ pub trait Agent: Send {
     /// PRE-action observables) so agents that need the canonical action sequence
     /// (infoset keys) can maintain it. Default no-op.
     fn on_public_action(&mut self, _obs: &Observables<'_>, _player: Player, _action: Action) {}
+    /// Downcast hook for stateful opponents (v3 §6, M6): the trainer syncs the
+    /// current-path action history into sequence-aware opponents before each
+    /// `action_probs` query. Default `None` (stateless agents ignore it).
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
+    }
 }
 
 /// Rule-based legality over the observable geometry (mirrors the engine's
