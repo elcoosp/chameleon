@@ -424,3 +424,72 @@ The tiny agent is 0%. Root cause has not been diagnosed; the plan's Phase 2
 attack it. Immediate next step: add per-expert fallback reporting to
 `crates/cham-cli/src/cmd/probe.rs` so we can see which of the 4 experts is
 falling below the confidence gate and on which opponents.
+
+## v3-execution-roadmap implementation (2026-09-26)
+
+Implemented `docs/plans/v3-execution-roadmap.md` §1–§6 in sequencing order.
+Workspace check + clippy (benches+tests) clean, 0 warnings. Full test suite
+green (router 17, search 19, eval 15, engine 9+12, blueprint 25+6+3+1, core
+naive-gated incl. 50k-hand `eval_bitmask_vs_naive`, agent, cli, proofs, rec).
+
+- §1.1 `AbRunner::run_shared` → parallel factory-generic, per-opponent
+  session isolation, 250-deal `run_shared_range` chunks; `cmd/ab.rs` passes
+  `build_hero` closures. Smoke: `ab callbot vs callbot deals=4` → +0.0,
+  vr=1.00, exit 0.
+- §1.2 river cache 256/full-clear → 2048-entry LRU (`order` deque, hydrate
+  syncs via `note_inserted`); `warm-cache` subcommand (90-fixture grid).
+  Smoke: 2nd warm run 90/90 hits; persist round-trip v2 file OK.
+- §2.1 `vr_factor` first-class on `AbVerdict`/`PerOppDelta` + `ab` printout
+  (with cache hit-rate = §1.2 kill telemetry); preflop all-ins now adjusted
+  via memoized exact `vr::preflop_equity` (C(48,5) once per pair, HashMap
+  after); full-AIVAT scoped as `docs/plans/aivat-baseline-spec.md` (spec
+  only — changes ledger `mb/seating` semantics, needs gate re-derivation).
+- §2.2 `LedgerEntry::artifact_hash` (was [VERIFY]: field did not exist) +
+  `guard::artifact_identity` (blake3 bundle / `baseline:<mode>`); ab+ladder
+  fill it; `lint-ledger` subcommand + `experiments/PREREG-EXP-001.toml`.
+  Smoke: satisfied→0, missing-run→2, old-format entries still parse.
+- §2.3 `cham-blueprint/benches/exploitability.rs` (LBR gap per depth per
+  seat + criterion timing). Measured: depth20 ≈ +7–8k, depth100 ≈ +35–40k
+  mb/hand vs uniform (20 deals; ceiling anchor, not a gate).
+- §3.3 `evaluate7` non-flush path → `seven_multiset_ranks[NCK-table rank]`
+  (prime product + splitmix + probe chain gone); bit-exact via existing
+  50k-hand naive test + P7 GPU consistency (unchanged).
+- §3.2 slot table linear probe → double-hash probe (odd full-cycle step);
+  `hashbrown` NOT whitelisted (SPECS/00 §2 needs human decision) so the
+  RawTable swap stays a documented escalation behind the mccfr kill gate.
+  New `probe_tests` (step odd/nonzero, 5000-key grow survival).
+- §3.1 alternating updates VERIFIED present (`t%2` seating + one-sided
+  ES-MCCFR); α/γ split shipped (`regret_discount` + new `avg_gamma`,
+  `--avg-gamma`, cache-keyed) + `experiments/EXP-011-dcfr-alpha-gamma.toml`.
+- §4.1 A2: `BuildParams::exact()` + `next_street_cdf_exact` (exhaustive
+  47/46-card potential-aware histograms, same CDF convention → `kmeans_l1`
+  unchanged); `train-buckets --profile exact`; GPU ranking
+  `docs/plans/gpu-jobs-v3.md`; bet-size audit `docs/plans/bet-size-audit.md`.
+- §5.1 `prior::leaf_variants` (base/call-heavy/fold-heavy by Action
+  semantics + `LeafSet::blend` combinator) with unit tests.
+- §5.2 router fixed-α smoother REPLACED by Dirichlet-multinomial fusion
+  (prior = sharpened softmax, N0=8 default, vote=argmax informs next hand)
+  + `posterior_variance()` B2 gate input; `hysteresis_math` rewritten as
+  `bayesian_fusion_math` + concentration/variance tests (all 17 pass).
+  [VERIFY] resolved: per-decision confidence gate is visit-based
+  (`c=v/(v+64)` in cham-agent), untouched — Bayes variance feeds B2's
+  router gate, a different threshold.
+- §6 M6: `FrozenAgent`/`FrozenRows` (cham-opponents+engine dep, hook-contract
+  seq maintenance, analytic `action_probs`), `OpponentSpec::Frozen`
+  (`frozen:<label>`, family SELF), `Any`-downcast path-seq sync in
+  traversal, `TrainMode::Exploit{frozen: Option<FrozenOracle>}` (missing
+  oracle = loud refusal), `BlueprintPolicy::export_rows`,
+  `self-exploit` command (static LBR G-SELF w/ CI + adaptive
+  switch-manipulator match + optional exploiter training + ledger).
+  Smoke: missing snapshot → exit 2.
+- Incidental: repaired pre-existing breakage in the in-progress
+  `probe.rs` diag work (`build(&OpponentSpecDto…)` → parse-then-build;
+  was failing `cargo check --workspace` on arrival). Untouched otherwise:
+  pipeline.rs/trace.rs/probe.rs diag dirt is someone else's (2026-09-26).
+
+- Follow-up fix: `cache_persist::roundtrip_three_spots` flaked under parallel
+  threads (pre-existing race: process-global cache + concurrent
+  `cache_clear_for_tests`; the LRU bookkeeping widened the window enough to
+  manifest every run). Fixed with a std-only `cache::test_serial_lock`
+  held by all cache-mutating tests (lib + integration). Verified: parallel
+  lib suite green 3×, full workspace 41 suites ok / 0 failed, clippy 0 warns.
