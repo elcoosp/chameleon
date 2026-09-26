@@ -38,6 +38,7 @@ fn trained_policy(dir: &Path, iters: u64, seed: u64) -> BlueprintPolicy {
         snapshot_every: iters,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let (table, prov) = cham_blueprint::train(
         &tcfg,
@@ -73,7 +74,7 @@ fn trained_policy(dir: &Path, iters: u64, seed: u64) -> BlueprintPolicy {
 fn make_agent(mode: AgentMode) -> ChameleonAgent {
     let cfg = AbstractionConfig::tiny();
     let enc = Encoder::cfg_only(cfg).expect("enc");
-    let router = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
+    let router = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5);
     // Unique scratch dir per call: parallel test processes share
     // `artifacts/runs/`, and `build_artifact` writes policy.bin directly
     // (no tmp+rename) while `trained_policy` loads it back — a shared dir
@@ -296,7 +297,7 @@ fn fallback_paths() {
     // using an EMPTY artifact (no rows) — all lookups miss.
     let cfg = AbstractionConfig::tiny();
     let enc = Encoder::cfg_only(cfg).expect("enc");
-    let router = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5);
+    let router = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5);
     let mut empty_table = RegretTable::new(ThreadMode::Deterministic);
     // insert one row so build_artifact succeeds, but with a key that never occurs
     empty_table.entry_or_insert(u64::MAX, 2);
