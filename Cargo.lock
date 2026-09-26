@@ -406,6 +406,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "cham-core",
+ "cham-engine",
  "proptest",
  "rand 0.8.8",
  "serde",
