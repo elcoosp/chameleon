@@ -16,6 +16,17 @@ pub struct SearchCfg {
 pub struct AgentMode {
     pub routing: String, // "mixture" | "argmax" | "robust-only" | "bayes"
     pub search: SearchCfg,
+    /// EXP-013: mixture composition on strategy miss.
+    /// "renorm" (default, R2: drop missed tier + renormalize, fallback only
+    /// on genuinely-empty mixture) vs "substitute" (legacy: missed expert →
+    /// robust σ, missed robust → uniform). Deserialization default keeps
+    /// existing configs/TOMLs working.
+    #[serde(default = "default_fallback_mode")]
+    pub fallback_mode: String,
+}
+
+fn default_fallback_mode() -> String {
+    "renorm".into()
 }
 
 impl AgentMode {
@@ -45,6 +56,7 @@ impl AgentMode {
                 solver: "Rnr".into(),
                 g4_ledger_ref: String::new(),
             },
+            fallback_mode: "renorm".into(),
         }
     }
     pub fn argmax() -> AgentMode {
@@ -55,6 +67,7 @@ impl AgentMode {
                 solver: "Rnr".into(),
                 g4_ledger_ref: String::new(),
             },
+            fallback_mode: "renorm".into(),
         }
     }
     pub fn robust_only() -> AgentMode {
@@ -65,6 +78,7 @@ impl AgentMode {
                 solver: "Rnr".into(),
                 g4_ledger_ref: String::new(),
             },
+            fallback_mode: "renorm".into(),
         }
     }
 }
