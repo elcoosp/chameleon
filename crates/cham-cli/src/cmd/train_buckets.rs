@@ -17,6 +17,9 @@ pub fn run(config: &str, out: &str, profile: &str) -> i32 {
     };
     let params = match profile {
         "full" => cham_engine::build::BuildParams::full(),
+        // v3 §4.1 (A2): sampled orbits, exhaustive next-street features —
+        // validation scale for the GPU bulk-fill. Gated on the §2.3 bench.
+        "exact" => cham_engine::build::BuildParams::exact(),
         _ => cham_engine::build::BuildParams::tiny(),
     };
     let out_dir = std::path::Path::new(out);
