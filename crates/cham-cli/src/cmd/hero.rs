@@ -50,7 +50,7 @@ pub fn build_chameleon(agent: &str, depth_bb: i64) -> Result<ChameleonAgent, Str
         Ok(bytes) => cham_router::runtime::RouterRuntime::from_model_bytes(&bytes)
             .map_err(|e| format!("router model: {e}"))?,
         Err(_) => {
-            cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5)
+            cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5)
         }
     };
     ChameleonAgent::new(
