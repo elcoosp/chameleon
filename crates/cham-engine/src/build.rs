@@ -477,46 +477,50 @@ pub fn kmeans_l1(data: &[[f32; CDF_BINS]], k: usize, seed: u64, max_iters: u32) 
     let mut rng = child(seed, "kmeans");
     let mut seeds = Vec::new();
     // ---- k-means++ init on L2-ish surrogate (squared L1) ----
+    // Incremental D²: d2[i] = min over existing centroids of l1²(data[i], c).
+    // Same values as the naive O(k²n) form (min is exact for f64), same RNG
+    // pulls, same centroid choices — deterministic. O(kn) instead of O(k²n):
+    // for full-abstraction (k=300, n~1M+) this is the difference between
+    // ~2 h and ~1 s on the init phase.
     let mut centroids: Vec<[f32; CDF_BINS]> = Vec::with_capacity(k);
     let first = (next_f64(&mut rng) * data.len() as f64) as usize % data.len();
     centroids.push(data[first]);
     seeds.push(first as u64);
+    let mut d2: Vec<f64> = data
+        .par_iter()
+        .map(|d| {
+            let dist = l1(d, &centroids[0]) as f64;
+            dist * dist
+        })
+        .collect();
     while centroids.len() < k.min(data.len()) {
-        // D(x) = min dist to existing centroids
-        let mut weights: Vec<f64> = data
-            .iter()
-            .map(|d| {
-                let mut best = f64::MAX;
-                for c in &centroids {
-                    let dist = l1(d, c) as f64;
-                    if dist < best {
-                        best = dist;
-                    }
-                }
-                best * best
-            })
-            .collect();
-        let total: f64 = weights.iter().sum();
+        let total: f64 = d2.iter().sum();
         if total <= 1e-12 {
             let idx = (next_f64(&mut rng) * data.len() as f64) as usize % data.len();
             centroids.push(data[idx]);
             seeds.push(idx as u64);
             continue;
         }
-        for w in weights.iter_mut() {
-            *w /= total;
-        }
         let mut u = next_f64(&mut rng);
         let mut idx = data.len() - 1;
-        for (i, w) in weights.iter().enumerate() {
-            u -= w;
+        for (i, &w) in d2.iter().enumerate() {
+            u -= w / total;
             if u <= 0.0 {
                 idx = i;
                 break;
             }
         }
-        centroids.push(data[idx]);
+        let new_c = data[idx];
+        centroids.push(new_c);
         seeds.push(idx as u64);
+        // incremental D² update: d2[i] = min(d2[i], l1²(data[i], new_c))
+        d2.par_iter_mut().zip(data.par_iter()).for_each(|(d2i, d)| {
+            let dist = l1(d, &new_c) as f64;
+            let nd = dist * dist;
+            if nd < *d2i {
+                *d2i = nd;
+            }
+        });
     }
     // ---- Lloyd iterations (assignment = L1 nearest; update = component median) ----
     let mut inertia_curve: Vec<f64> = Vec::new();
