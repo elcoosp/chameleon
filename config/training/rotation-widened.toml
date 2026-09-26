@@ -1,0 +1,19 @@
+# EXP-014 `curriculum-widen` — widened specialist training rotation (R1).
+# Same DEVIATION SHAPE as the eval pool's Cause-A witnesses, at different
+# seeds/parameters (never train on the exact eval archetype):
+#  - shove-heavy preflop trees (jamfix SHAPE, via jittered arch:lag + jamfix)
+#  - overfolding postflop (pnash:overfold at 0.05/0.10 — eval uses 0.15)
+# Specialists rotate through these opponents per training block; robust stays
+# self-play. Drive with: train-bp --opponent <id> per specialist, or sweep
+# this file's ids in a shell loop (see experiments/EXP-014-curriculum-widen.toml).
+rotation = [
+  "jamfix",
+  "pnash:overfold:0.05",
+  "pnash:overfold:0.10",
+  "arch:lag",
+  "arch:station",
+  "callbot",
+]
+# Eval pool keeps pnash:overfold:0.15 + jamfix at eval seeds — disjoint params
+# from the 0.05/0.10 training tilts above by construction.
+eval_holdout = ["jamfix", "pnash:overfold:0.15"]
