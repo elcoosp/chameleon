@@ -34,6 +34,17 @@ pub fn build_hero(agent: &str, depth_bb: i64) -> Result<Box<dyn cham_core::obs::
 
 /// Build a concrete `ChameleonAgent` (trained path of [`build_hero`]).
 pub fn build_chameleon(agent: &str, depth_bb: i64) -> Result<ChameleonAgent, String> {
+    build_chameleon_with_router(agent, depth_bb, None)
+}
+
+/// EXP-015: same as [`build_chameleon`] but the `full` victim's
+/// `RouterRuntime` is built from override hyperparameters instead of the
+/// checked-in defaults. `overrides = (temp, n0, shield_beta, shield_z)`.
+pub fn build_chameleon_with_router(
+    agent: &str,
+    depth_bb: i64,
+    overrides: Option<(f64, f64, f64, f64)>,
+) -> Result<ChameleonAgent, String> {
     let bundle = std::path::Path::new("artifacts/agent");
     let routing = routing_for(agent);
     let loaded = cham_agent::loader::load_agent(bundle, routing, depth_bb)
@@ -45,12 +56,26 @@ pub fn build_chameleon(agent: &str, depth_bb: i64) -> Result<ChameleonAgent, Str
             solver: "Rnr".into(),
             g4_ledger_ref: String::new(),
         },
+        fallback_mode: std::env::var("CHAM_FALLBACK_MODE").unwrap_or_else(|_| "renorm".into()),
     };
     let router = match std::fs::read(bundle.join("router.bin")) {
-        Ok(bytes) => cham_router::runtime::RouterRuntime::from_model_bytes(&bytes)
-            .map_err(|e| format!("router model: {e}"))?,
+        Ok(bytes) => {
+            let base = cham_router::runtime::RouterRuntime::from_model_bytes(&bytes)
+                .map_err(|e| format!("router model: {e}"))?;
+            match overrides {
+                Some((temp, n0, beta, z)) => cham_router::runtime::RouterRuntime::new(
+                    base.model.clone(),
+                    temp,
+                    n0,
+                    beta,
+                    z,
+                ),
+                None => base,
+            }
+        }
         Err(_) => {
-            cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5)
+            let (temp, n0, beta, z) = overrides.unwrap_or((0.7, 8.0, 0.5, -1.5));
+            cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), temp, n0, beta, z)
         }
     };
     ChameleonAgent::new(
