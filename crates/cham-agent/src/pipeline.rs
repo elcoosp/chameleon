@@ -146,6 +146,9 @@ impl ChameleonAgent {
         let mut weight_mass = 0.0;
         let mut fallback_used = false;
         let mut expert_visits = [0u32; 4];
+        // P1 diagnostic: distinguish the four fallback sources.
+        let mut expert_missed = [false; 4];
+        let mut robust_missed = false;
 
         for k in 0..4 {
             if w[k] <= 1e-9 {
@@ -153,13 +156,20 @@ impl ChameleonAgent {
             }
             let sigma = match experts[k].strategy(obs, encoder, seq) {
                 Some(s) => s,
-                None => match robust.strategy(obs, encoder, seq) {
-                    Some(s) => {
-                        fallback_used = true;
-                        s
+                None => {
+                    expert_missed[k] = true;
+                    match robust.strategy(obs, encoder, seq) {
+                        Some(s) => {
+                            fallback_used = true;
+                            s
+                        }
+                        None => {
+                            robust_missed = true;
+                            fallback_used = true;
+                            vec![1.0 / n as f64; n]
+                        }
                     }
-                    None => vec![1.0 / n as f64; n],
-                },
+                }
             };
             let pi = reach[k];
             weight_mass += w[k] * pi;
@@ -174,6 +184,7 @@ impl ChameleonAgent {
             let sigma = match robust.strategy(obs, encoder, seq) {
                 Some(s) => s,
                 None => {
+                    robust_missed = true;
                     fallback_used = true;
                     vec![1.0 / n as f64; n]
                 }
@@ -185,7 +196,8 @@ impl ChameleonAgent {
             }
         }
         // reach-weighted fallback: Σ w_k π_k = 0 → plain weighted average of σ_k
-        if weight_mass <= 1e-12 {
+        let reach_mass_zero = weight_mass <= 1e-12;
+        if reach_mass_zero {
             fallback_used = true;
             mix = vec![0.0; n];
             // re-derive plain σ averages without reach
@@ -203,7 +215,8 @@ impl ChameleonAgent {
             }
         }
         let mix_total: f64 = mix.iter().sum();
-        if mix_total <= 1e-12 {
+        let mix_zero = mix_total <= 1e-12;
+        if mix_zero {
             fallback_used = true;
             mix = vec![1.0 / n as f64; n];
         } else {
@@ -276,6 +289,10 @@ impl ChameleonAgent {
             expert_visits,
             fallback_used,
             abstraction_hash: encoder.abstraction_hash(),
+            expert_missed,
+            robust_missed,
+            reach_mass_zero,
+            mix_zero,
         };
         let _ = trace_record(self.recorder.as_mut(), "agent", &t);
         self.last_trace = Some(t);
