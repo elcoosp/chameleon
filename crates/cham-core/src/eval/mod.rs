@@ -279,6 +279,47 @@ fn multiset_rank(counts: &[u8; 13]) -> u32 {
     rank
 }
 
+/// Pascal's triangle for `C(n, k)`, `n < 20`, `k < 8` (v3 §3.3). Covers every
+/// `C(i+n, n+1)` query `multiset_rank` can issue (`i+n ≤ 18`, `n+1 ≤ 7`).
+/// 152 u32s — trivial vs the 50,388-entry table it feeds. Const-evaluated,
+/// so there is zero init cost at first `evaluate7`.
+const fn build_nck_table() -> [[u32; 8]; 20] {
+    let mut t = [[0u32; 8]; 20];
+    let mut n = 0usize;
+    while n < 20 {
+        t[n][0] = 1;
+        let mut k = 1usize;
+        while k < 8 && k <= n {
+            // n ≥ 1 here (k ≥ 1 and k ≤ n), so t[n-1] is in bounds.
+            let a = t[n - 1][k - 1];
+            let b = if k < n { t[n - 1][k] } else { 0 };
+            t[n][k] = a + b;
+            k += 1;
+        }
+        n += 1;
+    }
+    t
+}
+
+const NCK: [[u32; 8]; 20] = build_nck_table();
+
+/// Table-driven multiset rank (v3 §3.3): identical bijection to
+/// [`multiset_rank`], but every `n_choose_k_u32` multiply/divide chain
+/// becomes one array lookup + add. Bit-exact by construction — same rank,
+/// different arithmetic.
+#[inline]
+fn multiset_rank_fast(counts: &[u8; 13]) -> u32 {
+    let mut rank: u32 = 0;
+    let mut n: u32 = 0;
+    for i in 0..13u32 {
+        for _ in 0..counts[i as usize] {
+            rank += NCK[(i + n) as usize][(n + 1) as usize];
+            n += 1;
+        }
+    }
+    rank
+}
+
 /// Canonical index of a 2-card hole (0..=1325). Ascending card ids; the
 /// combinadic rank of the pair `(lo, hi)` is `C(hi, 2) + lo`.
 #[inline]
@@ -469,16 +510,23 @@ fn dense_rank(packed: u32) -> u16 {
 
 /// Evaluate a 7-card hand → dense rank 1..=7462 (1 weakest, 7462 royal flush).
 ///
-/// Hot path (P1 gate): ONE pass over the 7 cards builds rank-prime product,
-/// per-suit rank bitmasks and per-suit counts together (no re-iteration). Flush
-/// detection is a straight-line suit-count select (no per-suit loop with
-/// early returns), so the common non-flush path is branch-predictor friendly.
+/// Hot path (P1 gate): ONE pass over the 7 cards builds per-rank counts,
+/// per-suit rank bitmasks and per-suit counts together (no re-iteration).
+/// The common non-flush path (~97% of calls) indexes the precomputed
+/// `seven_multiset_ranks` table by table-driven combinadic rank (v3 §3.3) —
+/// ~7 lookups + adds and one guaranteed array index instead of the old
+/// 7-multiply prime product + splitmix hash + linear-probe chain. Bit-exact
+/// by construction: the table is asserted at build time to be a pure
+/// reindexing of `seven_map` (the same equivalence the GPU/CPU `P7`
+/// consistency gate already relies on). Flush detection is a straight-line
+/// suit-count select (no per-suit loop with early returns), so the common
+/// path stays branch-predictor friendly.
 #[inline]
 pub fn evaluate7(c: &[Card; 7]) -> u16 {
     let t = tables();
     let mut suit_mask = [0u16; 4];
     let mut suit_count = [0u8; 4];
-    let mut prod: u64 = 1;
+    let mut counts = [0u8; 13];
     // Fixed-size array: lengths asserted by the type; no bounds checks needed.
     for i in 0..7 {
         let idx = c[i].0;
@@ -486,7 +534,7 @@ pub fn evaluate7(c: &[Card; 7]) -> u16 {
         let suit = (idx & 3) as usize; // suit = idx%4 (power of two: mask)
         suit_mask[suit] |= 1u16 << rank;
         suit_count[suit] += 1;
-        prod = prod.wrapping_mul(PRIMES[rank as usize]);
+        counts[rank as usize] += 1;
     }
     // flush path (at most one suit can hold ≥ 5 of 7 cards): straight-line
     // select over the counts built above.
@@ -499,7 +547,7 @@ pub fn evaluate7(c: &[Card; 7]) -> u16 {
     } else if suit_count[3] >= 5 {
         3
     } else {
-        return t.seven_map.get(prod);
+        return t.seven_multiset_ranks[multiset_rank_fast(&counts) as usize] as u16;
     };
     let m = suit_mask[flush_suit];
     let st = t.straight[m as usize];
