@@ -27,28 +27,27 @@ Clippy green: `cargo clippy --workspace --all-targets -- -D warnings`.
 
 ## Handoff priorities (highest first)
 
-### P1 — Get the full-abstraction agent to eliminate fallback
+### P1 — [RESOLVED this cycle] Full-abstraction fallback
 
-The full-abstraction ladder from this session produced **26.7% fallback**
-decisions (vs 0% for the tiny abstraction the previous day). This means
-the router is allocating weight poorly at the fuller scale: the mixture
-collapses to something the confidence gate rejects, and the numbers
-below are therefore "diagnostic only."
+Was 26.7% (full) / 17.3% (tiny). Root cause diagnosed and fixed:
+`docs/reports/p1-fallback-diagnosis-20260926.md` found two distinct
+classes (Cause A: training-reachability gap on `jamfix`/`pnash`; Cause B:
+fallback-order over-report). EXP-012 (R3: report `fallback_used` from the
+decision path) and EXP-013 (R2: drop-missed-tier + renormalize instead of
+substitute-with-robust) fixed Cause B — **full-abstraction fallback is now
+3.3%** (was 26.7%), meeting the < 5% acceptance bar. EXP-014 (widened
+training curriculum) closes most of remaining Cause A at tiny scale but
+regressed arch-opponent coverage at full scale (3.3% → 3.7%) — see
+`docs/reports/v5-deepdive-audit.md` §B for the recommended follow-up
+(re-run EXP-014 at full scale with higher `iters` before concluding
+widening doesn't work at scale — capacity, not coverage, is the open
+question). Current status and every other item's state: `docs/BOARD.md`
+is the canonical source — read it, not this section, for anything not
+covered above.
 
-**What to do:** this is the V2 Phase 2 (`Cold-start mixture LBR`) or
-Phase 7 (`Ensemble-disagreement shield`) job. Neither has started. The
-immediate question is: which of the 4 experts is falling below the
-confidence gate, and on which opponents?
-
-**Files:**
-- `crates/cham-agent/src/pipeline.rs` — the mixture + fallback path
-- `crates/cham-agent/src/tracker.rs` — the feature source feeding the router
-- `crates/cham-cli/src/cmd/probe.rs` — the diagnostic harness (add a
-  per-expert fallback report here)
-
-**Acceptance:** rerun `scripts/run-full-agent.sh` after a fix and see
-fallback < 5% (the tiny agent achieves 0%; a full agent should not be
-worse than the tiny on this metric).
+**Files that changed:** `crates/cham-agent/src/pipeline.rs`
+(`AgentMode.fallback_mode`, mixture composition), `crates/cham-agent/src/modes.rs`,
+`crates/cham-cli/src/cmd/probe.rs` (`--diag-fallback --bundle`).
 
 ### P2 — V2 Phase 1.3 (ExploitBayes memory probe)
 

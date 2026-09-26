@@ -119,9 +119,20 @@ pub fn cached_build(
         abstraction_hash,
     );
     let cache = global();
-    if let Some(hit) = cache.map.lock().expect("cache").get(&key) {
+    // PERF (v5-deepdive-audit item 3): the previous `if let Some(hit) =
+    // cache.map.lock()...get(&key) { ... touch(key); ... }` form holds the
+    // `map` mutex's temporary guard for the WHOLE if-let block (Rust's
+    // temporary-scope rule for `if let` scrutinees), so every cache HIT
+    // held the process-global map lock through touch()'s O(n) reorder on
+    // a second mutex. Scope the guard explicitly and drop it before
+    // touch() so concurrent readers (now parallel via AbRunner, v3 §1.1)
+    // aren't serialized on an unrelated bookkeeping step.
+    let hit_opt: Option<Arc<Subgame>> = {
+        let map = cache.map.lock().expect("cache");
+        map.get(&key).cloned()
+    }; // map guard dropped HERE, before touch()
+    if let Some(hit) = hit_opt {
         cache.hits.fetch_add(1, Ordering::Relaxed);
-        let hit = Arc::clone(hit);
         touch(key);
         return Ok(hit);
     }

@@ -136,9 +136,8 @@ impl ChameleonAgent {
             seq,
             ..
         } = self;
-        let n_slots_at_decision = encoder.slots(obs, seq).len();
         let slots = encoder.slots(obs, seq);
-        let n = n_slots_at_decision.max(slots.len());
+        let n = slots.len();
         let w = *weights;
 
         // per-expert strategies + reach products (disjoint field borrows)
@@ -385,23 +384,24 @@ impl ChameleonAgent {
         let fallback_used = tier_missed;
 
         // per-expert reach update: π_k *= σ_k(a_chosen | i)
+        // PERF (v5-deepdive-audit item 1): reuse expert_sigma/robust_sigma
+        // computed above instead of recomputing — obs/encoder/seq are
+        // unchanged since those were computed (encoder.record happens
+        // below, after this block), so the values are byte-identical;
+        // this removes 5 redundant enc.key() + policy-decode + Vec<f64>
+        // allocations per decision.
         let chosen_slot = slots.iter().position(|s| s.action == action).unwrap_or(0);
         for k in 0..4 {
             if w[k] <= 1e-9 {
                 continue;
             }
-            let sigma = match experts[k].strategy(obs, encoder, seq) {
-                Some(s) => s,
-                None => continue,
-            };
-            let p = sigma.get(chosen_slot).copied().unwrap_or(0.0);
-            reach[k] *= p;
+            if let Some(sigma) = expert_sigma[k].as_ref() {
+                reach[k] *= sigma.get(chosen_slot).copied().unwrap_or(0.0);
+            }
         }
-        let robust_p = robust
-            .strategy(obs, encoder, seq)
-            .and_then(|s| s.get(chosen_slot).copied())
-            .unwrap_or(0.0);
-        reach[4] *= robust_p;
+        if let Some(sigma) = robust_sigma.as_ref() {
+            reach[4] *= sigma.get(chosen_slot).copied().unwrap_or(0.0);
+        }
 
         // record our own action into the canonical seq
         encoder.record(obs, obs.player, action, seq);

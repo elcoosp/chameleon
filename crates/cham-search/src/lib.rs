@@ -12,6 +12,7 @@
 //! The combo-level expansion (≤ 64×128 leaf paths) is the M4 stretch.
 
 #![forbid(unsafe_code)]
+#![warn(clippy::significant_drop_in_scrutinee)]
 
 pub mod budget;
 pub mod cache;
