@@ -1,0 +1,4 @@
+self-exploit: victim snapshot 'artifacts/blueprints-tiny/robust-7' (5156 rows, depth 100)
+self-exploit static G-SELF: BR earns +39716.6 ± 5509.5 mb/hand vs frozen (4 batches × 500 deals, miss_rate=0.618)
+self-exploit adaptive: manipulator earns +1236.5 ± 1024.0 mb/seating vs live full (2000 deals, vr×1.00)
+self-exploit: G-SELF → artifacts/ledger/ledger.jsonl

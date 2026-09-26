@@ -23,8 +23,6 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
   improves ≥10 % vs tiny (`benches/exploitability.rs`), else stop.
 - **EXP-011** α/γ DCFR sweep (`experiments/EXP-011-dcfr-alpha-gamma.toml`) —
   bench-only on `benches/exploitability.rs`, cheap to kill.
-- **EXP-015** 60-cell router-manipulation grid — CLI + hooks shipped, grid not run.
-- **EXP-016** shadow gauntlet wiring to `--promote` (report → gate).
 - **EXP-018** meta-solve re-run once clean A/B rows land (currently 0 covered cells).
 - **Slumbot 20k-seating baseline** — external anchor (SPECS/08 §3, SPECS/10 §2).
 - **BOARD/main housekeeping** — `renovate/configure` branch, PR #1 (renovate).
@@ -33,6 +31,28 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
 ---
 
 ## DONE (recent first)
+
+### v5-deepdive-audit fixes (v6 runbook, 2026-09-26 session)
+- **[DONE]** Item 1 — `docs/HANDOFF.md` P1 synced (fallback fixed this cycle).
+- **[DONE]** Items 2+3 — `pipeline.rs`: reach update reuses `expert_sigma`/
+  `robust_sigma` (probe before/after byte-identical), duplicate `slots()`
+  dropped. `cargo test -p cham-agent` green (15 passed), clippy clean.
+- **[DONE]** Item 4 — `cache.rs`: map guard scoped + dropped before `touch()`;
+  crate-scoped `clippy::significant_drop_in_scrutinee` added. `cargo test
+  -p cham-search` green (9+12 passed), clippy clean. Contention bench gap
+  noted (no MT scenario in `trigger_cache`).
+- **[DONE]** Item 5 — EXP-016 shadow gate on `--promote` (see entry below).
+- **[WIP]** Item 6 — EMD full-orbit GPU bulk-fill: flop running in background
+  (`artifacts/gpu-tables/flop-full`, ~3.5 h projected, `--resume`); turn
+  (55M orbits) queued after. CPU validation scale (`buckets-exact`,
+  `agent-exact`) already landed previously.
+- **[WIP]** Item 7 — EXP-014 hi-iters (2M, 4×) full retraining in background
+  (`scripts/exp-014-hi-iters.sh` → `artifacts/agent-widened-full-hi-iters`);
+  ledger + verdict on completion.
+- **[DONE]** Item 8 — EXP-015 60-cell grid (see entry below).
+- **[SKIP]** Item 9 — O(1) LRU: Item 4's fix was sufficient. Measured
+  `cache_hit_rate=0.00` at 200 deals/arm/opp (0 subgames cached) — `touch()`'s
+  O(n) hit path never executes in current workloads; nothing to optimize.
 
 ### V4 fallback-measurement closure (v4-experiment-brainstorm Tier 0) — measured
 - **[DONE]** EXP-012 R3 decision-path fallback telemetry (`pipeline.rs` routing
@@ -49,9 +69,19 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
   - Headline: both full baselines are now 3.3 % not 26.7 % — EXP-013 is the
     dominant fix; EXP-014's specific contribution is eliminating Cause A.
 - **[DONE]** EXP-015 router-manipulation sweep hooks (`self-exploit --switch-at/
-  --router-temp/--router-n0`, `build_chameleon_with_router`); 60-cell grid still to run.
-- **[DONE]** EXP-016 shadow snapshot/gauntlet CLI (`shadow snapshot/gauntlet`,
-  prune-at-5); gate wiring on `--promote` still open.
+  --router-temp/--router-n0`, `build_chameleon_with_router`); 60-cell grid RUN
+  (v6 runbook item 8, `docs/reports/exp-015-router-manipulation-grid.md`):
+  manipulator earns +1171…+1476 everywhere, default near-optimal, no
+  promotion, no ladder follow-up.
+- **[DONE]** EXP-016 shadow gauntlet gate on `--promote` (v6 runbook item 5).
+  `run_gauntlet` faces the candidate against the last-3 shadows in real
+  duplicate matches (`MatchRunner::run`, rows via the opponents-crate shadow
+  registry under each shadow's own encoder); snapshots now persist KEYED rows
+  (v2) + bundle-root merge (robust + 4 experts, first-wins). Dry runs: first
+  promotion skips cleanly ("no prior shadows"), auto-snapshots (15,986 rows);
+  second promotion runs the gate and BLOCKED (worst -337.7 mb/seating vs -10.0
+  tolerance — the live full bundle loses to its own frozen snapshot, consistent
+  with the known router mis-allocation; gate is honest, not spurious).
 - **[DONE]** EXP-017 bucket-quality audit + producer. `audit-buckets --generate`
   now drives a short match and writes the JSON. Baseline ratio on tiny
   (artifacts/agent, 60 deals/opponent, 294 flop+turn pairs):
