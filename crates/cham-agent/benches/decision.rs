@@ -56,6 +56,7 @@ fn build_world() -> BenchWorld {
         snapshot_every: 300,
         bayes_session_block: 100,
         regret_discount: 1.0,
+        avg_gamma: 0.9,
     };
     let (table, prov) = cham_blueprint::train(
         &tcfg,
@@ -88,7 +89,7 @@ fn build_world() -> BenchWorld {
     let hero = ChameleonAgent::new(
         AgentMode::full_search_off(),
         Encoder::cfg_only(AbstractionConfig::tiny()).expect("enc"),
-        RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 0.3, 0.5, -1.5),
+        RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5),
         vec![
             policy.clone(),
             policy.clone(),
