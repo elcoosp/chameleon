@@ -60,27 +60,23 @@ pub fn run(
     let needs_real = crate::cmd::guard::requires_trained_artifacts(a)
         || crate::cmd::guard::requires_trained_artifacts(b);
     let verdict = if needs_real {
-        let mut hero_a = match crate::cmd::hero::build_hero(a, 100) {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("ab: arm '{a}': {e}");
-                return crate::cmd::EXIT_BUDGET;
-            }
-        };
-        let mut hero_b = match crate::cmd::hero::build_hero(b, 100) {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("ab: arm '{b}': {e}");
-                return crate::cmd::EXIT_BUDGET;
-            }
-        };
+        // v3 §1.1: pass hero FACTORIES (one fresh, session-isolated hero per
+        // opponent per arm, built on its own thread) instead of two shared
+        // instances. Blueprint artifacts are mmap-loaded (~µs/load), so N
+        // independent instances cost microseconds, not seconds.
+        let factory_a = || crate::cmd::hero::build_hero(a, 100);
+        let factory_b = || crate::cmd::hero::build_hero(b, 100);
+        // Fail fast if either arm can't build (preserves the old error path).
+        if let Err(e) = factory_a() {
+            eprintln!("ab: arm '{a}': {e}");
+            return crate::cmd::EXIT_BUDGET;
+        }
+        if let Err(e) = factory_b() {
+            eprintln!("ab: arm '{b}': {e}");
+            return crate::cmd::EXIT_BUDGET;
+        }
         match cham_eval::AbRunner::run_shared(
-            &spec,
-            &pool,
-            hero_a.as_mut(),
-            hero_b.as_mut(),
-            100,
-            None,
+            &spec, &pool, &factory_a, &factory_b, 100, None,
         ) {
             Ok(v) => v,
             Err(e) => {
@@ -97,12 +93,30 @@ pub fn run(
             }
         }
     };
+    // v3 §2.1 step 1: vr_factor is first-class on every gate printout —
+    // "how much did variance reduction already buy us" before deciding
+    // whether full AIVAT is worth building. Cache hit-rate alongside it is
+    // the §1.2 LRU kill-criterion telemetry (before/after across sweeps).
+    let (chits, cmiss) = cham_search::cache::cache_stats();
+    let chit_rate = if chits + cmiss > 0 {
+        chits as f64 / (chits + cmiss) as f64
+    } else {
+        0.0
+    };
     println!(
-        "ab {a} vs {b}: delta {:+.1} mb/seating CI {:?} sprt={:?} rule={}",
-        verdict.delta_mb, verdict.ci, verdict.sprt, verdict.rule
+        "ab {a} vs {b}: delta {:+.1} mb/seating CI {:?} sprt={:?} vr_factor={:.2} cache_hit_rate={:.2} rule={}",
+        verdict.delta_mb,
+        verdict.ci,
+        verdict.sprt,
+        verdict.vr_factor,
+        chit_rate,
+        verdict.rule
     );
     for po in &verdict.per_opp {
-        println!("  {}: {:+.1} mb CI {:?}", po.opponent, po.delta_mb, po.ci);
+        println!(
+            "  {}: {:+.1} mb CI {:?} vr={:.2}",
+            po.opponent, po.delta_mb, po.ci, po.vr_factor
+        );
     }
     if verdict.promote && promote {
         let mut ledger = match cham_eval::Ledger::open(ledger_dir) {
@@ -126,6 +140,12 @@ pub fn run(
             sprt: verdict.sprt.map(|s| format!("{s:?}")),
             promote: true,
             seatings: pool.len() as u64 * deals * 2,
+            // v3 §2.2: bind both arms' artifact identities (auditable gate).
+            artifact_hash: Some(format!(
+                "a={} b={}",
+                crate::cmd::guard::artifact_identity(a).unwrap_or("missing".into()),
+                crate::cmd::guard::artifact_identity(b).unwrap_or("missing".into()),
+            )),
             notes: Some("promotion".into()),
         };
         if let Err(e) = ledger.append(&entry) {
