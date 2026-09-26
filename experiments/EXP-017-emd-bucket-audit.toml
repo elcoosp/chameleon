@@ -1,0 +1,15 @@
+# EXP-017 (v4 brainstorm).
+id = "EXP-017"
+slug = "emd-bucket-audit"
+gate = "G-A2"
+tier = "ab"
+a = "full-emd"
+b = "full"
+pool = ["arch:nit", "arch:tag", "arch:lag", "arch:station"]
+deals_per_opp = 10000
+seeds = [1, 2, 3]
+margin_mb = 0.0
+sprt = false
+[expect]
+direction = "a_ge_b"
+primary_ci_lower_mb = 0.0
