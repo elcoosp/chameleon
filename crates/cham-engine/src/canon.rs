@@ -177,12 +177,23 @@ impl<'a> TableView<'a> {
 /// Enumerate canonical orbit representatives for hands against boards of
 /// `board_len` cards. A pair (hand, board) is an orbit REPRESENTATIVE iff it equals
 /// its own canonicalization. Returns sorted keys.
+/// Full orbit enumeration for `board_len` ∈ {3, 4}.
+///
+/// Parallelized over the outer (c1, c2) hole-card pairs (1326 independent
+/// jobs). Each worker builds its own key vector in the same order the
+/// sequential loop would; the final concatenation preserves chunk order,
+/// so the pre-sort sequence is bit-identical to the previous version.
+/// `sort_unstable` + `dedup` then give the same canonical output.
 pub fn enumerate_orbits(board_len: usize) -> Vec<u64> {
-    let mut keys = Vec::new();
-    for c1 in 0..52usize {
-        for c2 in (c1 + 1)..52usize {
+    use rayon::prelude::*;
+    let pairs: Vec<(usize, usize)> = (0..52usize)
+        .flat_map(|c1| ((c1 + 1)..52usize).map(move |c2| (c1, c2)))
+        .collect();
+    let chunks: Vec<Vec<u64>> = pairs
+        .par_iter()
+        .map(|&(c1, c2)| {
+            let mut keys = Vec::new();
             let hand = Hand2::new(Card(c1 as u8), Card(c2 as u8));
-            // iterate boards excluding the hole cards
             let mut board = [Card(0); 4];
             match board_len {
                 3 => {
@@ -236,8 +247,11 @@ pub fn enumerate_orbits(board_len: usize) -> Vec<u64> {
                 }
                 _ => panic!("board_len must be 3 or 4"),
             }
-        }
-    }
+            keys
+        })
+        .collect();
+    // Flatten in chunk order: identical to the sequential vector pre-sort.
+    let mut keys: Vec<u64> = chunks.into_iter().flatten().collect();
     keys.sort_unstable();
     keys.dedup();
     keys
