@@ -522,12 +522,20 @@ pub fn kmeans_l1(data: &[[f32; CDF_BINS]], k: usize, seed: u64, max_iters: u32) 
     let mut inertia_curve: Vec<f64> = Vec::new();
     let mut assign = vec![0usize; data.len()];
     let mut prev_centroids = centroids.clone();
+    use rayon::prelude::*;
     for it in 0..max_iters {
+        // parallel assignment (the dominant cost: O(n*k*CDF_BINS) nearest scans)
+        // inertia is re-accumulated in a fixed data-index order below so the
+        // f64 sum is bit-identical to the previous serial code (see
+        // `kmeans_emd_determinism`).
+        let new_assign: Vec<usize> = data
+            .par_iter()
+            .map(|d| nearest_centroid(d, &centroids))
+            .collect();
+        assign.copy_from_slice(&new_assign);
         let mut inertia = 0f64;
         for (i, d) in data.iter().enumerate() {
-            let c = nearest_centroid(d, &centroids);
-            assign[i] = c;
-            inertia += l1(d, &centroids[c]) as f64;
+            inertia += l1(d, &centroids[assign[i]]) as f64;
         }
         inertia_curve.push(inertia);
         // update: per-cluster coordinate-wise mean (median on CDFs is noisy; the
