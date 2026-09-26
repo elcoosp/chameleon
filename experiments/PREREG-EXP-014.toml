@@ -1,0 +1,8 @@
+# PREREG-EXP-014 — pre-registered gate for EXP-014 (v4 brainstorm).
+[gate]
+run_prefix = "exp-014-curriculum-widen"
+kind = "report"
+min_seatings = 0
+require_promote = false
+# expect: jamfix/pnash fallback shrinks by >=half on widened bundle; else escalate to adversarial sequence sampling
+# gate = "G-fallback"
