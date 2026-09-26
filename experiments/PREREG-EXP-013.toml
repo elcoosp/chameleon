@@ -1,0 +1,8 @@
+# PREREG-EXP-013 — pre-registered gate for EXP-013 (v4 brainstorm).
+[gate]
+run_prefix = "exp-013-fallback-renorm"
+kind = "report"
+min_seatings = 0
+require_promote = false
+# expect: callbot/arch:station fallback drops; jamfix/pnash unchanged; miss-detection counts identical; renorm unit test green
+# gate = "G-fallback"
