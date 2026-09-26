@@ -360,6 +360,7 @@ fn ab_verdict_rule_and_ledger() {
         sprt: None,
         promote: true,
         seatings: 800_000,
+        artifact_hash: Some("baseline:full".into()),
         notes: Some("EXP-001".into()),
     };
     ledger.append(&entry).expect("append");
