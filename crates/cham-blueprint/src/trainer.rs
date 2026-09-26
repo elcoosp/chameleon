@@ -44,16 +44,28 @@ pub struct TrainerConfig {
     pub train_seed: u64,
     pub snapshot_every: u64,
     pub bayes_session_block: u64,
-    /// DCFR positive-regret discount (Brown & Sandholm 2019).
+    /// DCFR positive-regret discount α (Brown & Sandholm 2019).
     /// 1.0 = classic CFR+ (no discount). < 1.0 discounts accumulated
     /// positive regret before adding the new delta. Serialized with a
     /// default for backward compat with existing snapshots.
     #[serde(default = "default_regret_discount")]
     pub regret_discount: f32,
+    /// DCFR strategy-sum weight discount γ (v3 §3.1: the α/γ split).
+    /// Robust mode multiplies the delayed-linear averaging weight by
+    /// `γ^(T−t)`; previously hard-coded to 0.9 inside `averaging_weight`,
+    /// now independently tunable so EXP-011 can sweep {α, γ} on a grid.
+    /// Default 0.9 reproduces the historical behavior exactly; serialized
+    /// with a default so old snapshots/configs keep parsing.
+    #[serde(default = "default_avg_gamma")]
+    pub avg_gamma: f32,
 }
 
 pub fn default_regret_discount() -> f32 {
     1.0
+}
+
+pub fn default_avg_gamma() -> f32 {
+    0.9
 }
 
 impl TrainerConfig {
@@ -94,16 +106,52 @@ pub struct RunProvenance {
 }
 
 /// Delayed linear averaging weight (SPECS/04 §4): `w_t = max(0, t − D)`, `D = iters/4`;
-/// Robust mode multiplies by `γ^{T−t}` (γ = 0.9, Linear CFR).
+/// Robust mode multiplies by `γ^{T−t}` (Linear CFR). The 3-arg form keeps the
+/// historical γ = 0.9; [`averaging_weight_gamma`] exposes γ for the v3 §3.1
+/// EXP-011 {α, γ} sweep.
 pub fn averaging_weight(t: u64, total: u64, robust: bool) -> f64 {
+    averaging_weight_gamma(t, total, robust, 0.9)
+}
+
+/// [`averaging_weight`] with an explicit strategy-sum discount γ (v3 §3.1).
+/// `gamma = 1.0` is pure delayed-linear averaging (no recency tilt).
+pub fn averaging_weight_gamma(t: u64, total: u64, robust: bool, gamma: f32) -> f64 {
     let d = total / 4;
     let base = if t > d { (t - d) as f64 } else { 0.0 };
     if robust {
-        let gamma = 0.9f64;
-        base * gamma.powi((total.saturating_sub(t)).min(1 << 20) as i32)
+        base * (gamma as f64).powi((total.saturating_sub(t)).min(1 << 20) as i32)
     } else {
         base
     }
+}
+
+/// Build the M6 frozen victim opponent (v3 §6): victim encoder rebuilt from
+/// the oracle's buckets dir + config (keys are encoder-content-addressed, so
+/// this must match the snapshot's build exactly), rows materialized from the
+/// snapshot export. Any failure is a loud training refusal, never a silent
+/// uniform fallback.
+fn build_frozen_opponent(
+    spec: &cham_opponents::OpponentSpec,
+    oracle: &crate::modes::FrozenOracle,
+) -> Result<Box<dyn Agent>, BlueprintError> {
+    let text = std::fs::read_to_string(&oracle.config_path).map_err(|e| {
+        BlueprintError::Training(format!("frozen oracle config {}: {e}", oracle.config_path))
+    })?;
+    let cfg: cham_engine::config::AbstractionConfig =
+        cham_engine::config::parse_config(&text).map_err(|e| {
+            BlueprintError::Training(format!("frozen oracle config parse: {e}"))
+        })?;
+    let encoder = cham_engine::Encoder::from_artifacts_dir(
+        std::path::Path::new(&oracle.buckets_dir),
+        cfg,
+    )
+    .map_err(|e| BlueprintError::Training(format!("frozen oracle encoder: {e}")))?;
+    Ok(cham_opponents::factory::build_frozen(
+        spec,
+        cham_opponents::PercentileChart::global(),
+        encoder,
+        cham_opponents::FrozenRows(oracle.rows.clone()),
+    ))
 }
 
 /// Train per the config. Returns the table + provenance; writes snapshots into
@@ -192,7 +240,7 @@ pub fn train_with_threads(
             cham_core::rng::pick(iter_rng, 2)
         };
         seat_histogram[hero_seat] += 1;
-        let w_t = averaging_weight(t, cfg.iters, robust);
+        let w_t = averaging_weight_gamma(t, cfg.iters, robust, cfg.avg_gamma);
 
         // ---- per-iteration opponent (jitter redraw: `jitter_seed ^ iter`) ----
         // materialize a concrete agent each iteration when the spec is an archetype
@@ -200,6 +248,7 @@ pub fn train_with_threads(
             TrainMode::Exploit {
                 opponent,
                 jitter_seed,
+                frozen,
             } => match opponent {
                 cham_opponents::OpponentSpec::Arch(a)
                 | cham_opponents::OpponentSpec::Jitter(a, _) => {
@@ -212,6 +261,19 @@ pub fn train_with_threads(
                             cham_opponents::PercentileChart::global(),
                         ),
                     ))
+                }
+                // v3 §6 (M6): the frozen victim — real snapshot rows, victim
+                // encoder rebuilt from the oracle's buckets/config. Missing
+                // oracle = loud refusal (a uniform "frozen" opponent would
+                // train an exploiter against nothing and report a lie).
+                cham_opponents::OpponentSpec::Frozen { .. } => {
+                    let oracle = frozen.as_ref().ok_or_else(|| {
+                        BlueprintError::Training(
+                            "Exploit vs frozen: no FrozenOracle (rows/encoder) — refusing to train against a uniform fallback"
+                                .into(),
+                        )
+                    })?;
+                    Some(build_frozen_opponent(opponent, oracle)?)
                 }
                 other => Some(cham_opponents::factory::build(
                     other,
