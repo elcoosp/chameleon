@@ -69,3 +69,6 @@ artifacts/agent-exact/
 artifacts/exp-emd-retrain.log
 artifacts/blueprints-exp-011/
 artifacts/exp-011-sweep.log
+
+# Overnight LBR convergence sweeps (regenerable)
+artifacts/overnight-lbr-*/
