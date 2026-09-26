@@ -35,6 +35,11 @@ pub struct PerOppDelta {
     pub opponent: String,
     pub delta_mb: f64,
     pub ci: (f64, f64),
+    /// Mean all-in-EV variance-reduction factor across both arms on this
+    /// opponent (v3 §2.1 step 1: first-class VR telemetry — 1.0 means no
+    /// all-in runout fired, >1.0 means runout luck was removed).
+    #[serde(default)]
+    pub vr_factor: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,6 +50,9 @@ pub struct AbVerdict {
     pub sprt: Option<SprtState>,
     pub promote: bool,
     pub rule: String,
+    /// Mean `vr_factor` over opponents (v3 §2.1 step 1).
+    #[serde(default)]
+    pub vr_factor: f64,
 }
 
 /// Run one A/B arm over the pool; returns per-deal paired diffs vs the OTHER arm.
@@ -92,11 +100,13 @@ impl AbRunner {
                             let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0] ^ 0xAB);
                             let ci = paired_ci(&diffs, spec.conf, rng);
                             let delta = crate::stats::mean(&diffs);
+                            let vr = (ra.vr_factor + rb.vr_factor) / 2.0;
                             Ok((
                                 PerOppDelta {
                                     opponent: opp.id(),
                                     delta_mb: delta,
                                     ci,
+                                    vr_factor: vr,
                                 },
                                 diffs,
                             ))
@@ -137,6 +147,7 @@ impl AbRunner {
                 .as_ref()
                 .map(|s| !matches!(s, SprtState::AcceptH0))
                 .unwrap_or(true);
+        let vr_factor = mean_vr(&per_opp);
         if let Some(r) = rec {
             use cham_rec::schema::RecordKind;
             r.record(
@@ -148,6 +159,7 @@ impl AbRunner {
                     "b": spec.b,
                     "delta_mb": delta,
                     "ci": ci,
+                    "vr_factor": vr_factor,
                     "rule": "paired CI lower > margin",
                 }),
             )
@@ -160,44 +172,124 @@ impl AbRunner {
             sprt,
             promote,
             rule: "paired CI lower > margin_mb".into(),
+            vr_factor,
         })
     }
 
-    /// Shared-hero variant (B1): one instance per arm plays the whole pool
-    /// (per-hand lifecycle via `on_hand_end`, as in live `play`). Stateless
-    /// baselines behave identically to `run`.
-    pub fn run_shared(
+    /// Parallel, per-opponent-isolated shared-hero A/B (v3 §1.1: replaces the
+    /// old sequential `run_shared` body). Each opponent gets its OWN hero
+    /// instances (session isolation, matching `ladder.rs::run_opponent`'s
+    /// contract — tracker/router belief state never leaks across opponent
+    /// identities) and its own thread; seeds derive exactly as in `ladder.rs`
+    /// / the old `run` (factory) path, so results are deterministic
+    /// regardless of thread scheduling. Chunked in 250-deal SPRT ranges via
+    /// `MatchRunner::run_shared_range` (same early-stop shape as `ladder`).
+    pub fn run_shared<FA, FB>(
         spec: &AbSpec,
         pool: &[cham_opponents::OpponentSpec],
-        hero_a: &mut dyn Agent,
-        hero_b: &mut dyn Agent,
+        hero_factory_a: &FA,
+        hero_factory_b: &FB,
         depth_bb: i64,
         rec: Option<&mut Recorder>,
-    ) -> Result<AbVerdict, EvalError> {
-        let mut per_opp = Vec::new();
-        let mut all_diffs: Vec<f64> = Vec::new();
-        for (i, opp) in pool.iter().enumerate() {
-            let mk = |arm_seed: u64| MatchSpec {
-                opponent: OpponentSpecDto(opp.id()),
-                deals: spec.deals_per_opp,
-                depth_bb,
-                base_seed: arm_seed ^ ((i as u64) << 32),
-                label: format!("ab:{}/{}/{}", spec.a, spec.b, opp.id()),
-            };
-            let ra = MatchRunner::run_shared(&mk(spec.seeds[0]), hero_a, None)?;
-            let rb = MatchRunner::run_shared(&mk(spec.seeds[0]), hero_b, None)?;
-            // paired diffs per deal (identical opponent streams)
-            let da = ra.per_deal_profits.clone().unwrap_or_default();
-            let db = rb.per_deal_profits.clone().unwrap_or_default();
-            let diffs: Vec<f64> = da.iter().zip(db.iter()).map(|(x, y)| x - y).collect();
-            let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0] ^ 0xAB);
-            let ci = paired_ci(&diffs, spec.conf, rng);
-            let delta = crate::stats::mean(&diffs);
-            per_opp.push(PerOppDelta {
-                opponent: opp.id(),
-                delta_mb: delta,
-                ci,
+    ) -> Result<AbVerdict, EvalError>
+    where
+        FA: Fn() -> Result<Box<dyn Agent>, String> + Sync,
+        FB: Fn() -> Result<Box<dyn Agent>, String> + Sync,
+    {
+        /// Deals per shared-hero chunk (mirrors `ladder.rs::CHUNK_DEALS`).
+        const CHUNK_DEALS: u64 = 250;
+        let per_opp_results: Vec<Result<(PerOppDelta, Vec<f64>), EvalError>> =
+            std::thread::scope(|s| {
+                let handles: Vec<_> = pool
+                    .iter()
+                    .enumerate()
+                    .map(|(i, opp)| {
+                        s.spawn(move || -> Result<(PerOppDelta, Vec<f64>), EvalError> {
+                            // Fresh, session-isolated heroes per opponent —
+                            // same contract as ladder.rs::run_opponent.
+                            let mut hero_a = hero_factory_a()
+                                .map_err(|e| EvalError::Match(format!("arm a: {e}")))?;
+                            let mut hero_b = hero_factory_b()
+                                .map_err(|e| EvalError::Match(format!("arm b: {e}")))?;
+                            let mk = |arm_seed: u64| MatchSpec {
+                                opponent: OpponentSpecDto(opp.id()),
+                                deals: spec.deals_per_opp,
+                                depth_bb,
+                                base_seed: arm_seed ^ ((i as u64) << 32),
+                                label: format!("ab:{}/{}/{}", spec.a, spec.b, opp.id()),
+                            };
+                            // 250-deal chunked ranges: identical per-deal
+                            // streams to the unchunked call (seeds derive
+                            // from the global deal index), same as ladder.
+                            let mut da_all: Vec<f64> = Vec::new();
+                            let mut db_all: Vec<f64> = Vec::new();
+                            let mut done = 0u64;
+                            let mut vr_sum = 0.0;
+                            let mut n_chunks = 0u64;
+                            while done < spec.deals_per_opp {
+                                let take = (spec.deals_per_opp - done).min(CHUNK_DEALS);
+                                let range = done..done + take;
+                                let ra = MatchRunner::run_shared_range(
+                                    &mk(spec.seeds[0]),
+                                    hero_a.as_mut(),
+                                    None,
+                                    range.clone(),
+                                )?;
+                                let rb = MatchRunner::run_shared_range(
+                                    &mk(spec.seeds[0]),
+                                    hero_b.as_mut(),
+                                    None,
+                                    range,
+                                )?;
+                                da_all.extend(
+                                    ra.per_deal_profits.clone().unwrap_or_default(),
+                                );
+                                db_all.extend(
+                                    rb.per_deal_profits.clone().unwrap_or_default(),
+                                );
+                                vr_sum += (ra.vr_factor + rb.vr_factor) / 2.0;
+                                n_chunks += 1;
+                                done += take;
+                            }
+                            // paired diffs per deal (identical opponent streams)
+                            let diffs: Vec<f64> = da_all
+                                .iter()
+                                .zip(db_all.iter())
+                                .map(|(x, y)| x - y)
+                                .collect();
+                            let rng =
+                                &mut cham_core::rng::rng_from_seed(spec.seeds[0] ^ 0xAB);
+                            let ci = paired_ci(&diffs, spec.conf, rng);
+                            let delta = crate::stats::mean(&diffs);
+                            let vr = if n_chunks > 0 {
+                                vr_sum / n_chunks as f64
+                            } else {
+                                1.0
+                            };
+                            Ok((
+                                PerOppDelta {
+                                    opponent: opp.id(),
+                                    delta_mb: delta,
+                                    ci,
+                                    vr_factor: vr,
+                                },
+                                diffs,
+                            ))
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().expect("ab thread"))
+                    .collect()
             });
+
+        // Reassemble in pool order.
+        let mut per_opp = Vec::with_capacity(per_opp_results.len());
+        let mut all_diffs: Vec<f64> = Vec::new();
+        for r in per_opp_results {
+            let (d, diffs) = r?;
+            per_opp.push(d);
             all_diffs.extend(diffs);
         }
         let rng = &mut cham_core::rng::rng_from_seed(spec.seeds[0]);
@@ -220,6 +312,7 @@ impl AbRunner {
                 .as_ref()
                 .map(|s| !matches!(s, SprtState::AcceptH0))
                 .unwrap_or(true);
+        let vr_factor = mean_vr(&per_opp);
         if let Some(r) = rec {
             use cham_rec::schema::RecordKind;
             r.record(
@@ -231,6 +324,7 @@ impl AbRunner {
                     "b": spec.b,
                     "delta_mb": delta,
                     "ci": ci,
+                    "vr_factor": vr_factor,
                     "rule": "paired CI lower > margin",
                 }),
             )
@@ -243,6 +337,7 @@ impl AbRunner {
             sprt,
             promote,
             rule: "paired CI lower > margin_mb".into(),
+            vr_factor,
         })
     }
 
@@ -253,3 +348,12 @@ impl AbRunner {
 }
 
 use cham_core::obs::Agent;
+
+/// Mean variance-reduction factor over per-opponent deltas (v3 §2.1 step 1:
+/// the "how much did VR already buy us" number on every gate printout).
+fn mean_vr(per_opp: &[PerOppDelta]) -> f64 {
+    if per_opp.is_empty() {
+        return 1.0;
+    }
+    per_opp.iter().map(|d| d.vr_factor).sum::<f64>() / per_opp.len() as f64
+}
