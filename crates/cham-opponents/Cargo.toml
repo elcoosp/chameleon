@@ -13,6 +13,7 @@ rand = { workspace = true }
 arrayvec = { workspace = true }
 thiserror = { workspace = true }
 cham-core = { path = "../cham-core" }
+cham-engine = { path = "../cham-engine" }
 
 [dev-dependencies]
 proptest = { workspace = true }
