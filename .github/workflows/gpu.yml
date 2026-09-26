@@ -8,7 +8,7 @@ name: gpu
 # correctness gate (P7) runs automatically on Linux against llvmpipe
 # (software Vulkan) with no workflow churn.
 #
-# Per docs/GPU-PLAN-AMENDMENTS.md:
+# Per docs/gpu/amendments.md:
 #   - Correctness (P7) runs here on Linux.
 #   - Throughput gates (G_enum, G_warm) run only on a GPU-equipped runner
 #     or an explicitly quiet local session — never on this job.
@@ -29,7 +29,7 @@ on:
       - "Cargo.lock"
       - ".cargo/**"
       - ".github/workflows/gpu.yml"
-      - "docs/GPU-PLAN-AMENDMENTS.md"
+      - "docs/gpu/amendments.md"
   pull_request:
     branches: [main]
     paths:
@@ -116,7 +116,7 @@ jobs:
     # Manual only — macOS runners cost 10x Linux minutes. This job is the
     # stable-bench slot the amendment calls for: a quiet, un-contended
     # Apple Silicon runner on which the amended gates (G_enum >= 3x,
-    # G_warm >= 2x) can be certified. See docs/GPU-PLAN-AMENDMENTS.md
+    # G_warm >= 2x) can be certified. See docs/gpu/amendments.md
     # Amendment 001.
     name: GPU bench (macos-14, Apple Silicon, manual)
     if: github.event_name == 'workflow_dispatch' && inputs.run_gpu_bench

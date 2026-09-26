@@ -28,4 +28,4 @@ Summary: **median 9.70×, min 5.66×, max 11.85×, 4/5 NO-GO.**
    on builder-shaped enum under contention" — which is a real speedup, but
    not one this machine can *certify* at 10×.
 
-See `docs/GPU-PLAN-AMENDMENTS.md` Amendment 001 for the response.
+See `docs/gpu/amendments.md` Amendment 001 for the response.

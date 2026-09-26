@@ -174,7 +174,7 @@ DoD — <crate>
 ## Appendix — whitelist amendments
 
 Beyond the closed dependency set in §2, two additions were sanctioned
-by docs/GPU-PLAN-AMENDMENTS.md (Amendment 002) and are feature-gated so
+by docs/gpu/amendments.md (Amendment 002) and are feature-gated so
 they never ship in a default build:
 
 - **`metal`** (macOS-only, `cham-gpu`'s `metal` feature): Apple Metal FFI

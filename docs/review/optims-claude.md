@@ -1,4 +1,4 @@
-I read through the core crates (evaluator, blueprint/MCCFR, search, router, GPU kernels) rather than just the brainstorm doc. You already have `docs/V3-BRAINSTORM.md` — a strong, well-grounded roadmap — so I won't repeat it. Below are engineering ideas it *doesn't* cover, each tied to specific code I read, aimed at squeezing more performance/quality out of the existing architecture without breaking your constitution (no unsafe, no inference-time NN, bit-exact determinism, 16GB fence).
+I read through the core crates (evaluator, blueprint/MCCFR, search, router, GPU kernels) rather than just the brainstorm doc. You already have `docs/plans/v3-brainstorm.md` — a strong, well-grounded roadmap — so I won't repeat it. Below are engineering ideas it *doesn't* cover, each tied to specific code I read, aimed at squeezing more performance/quality out of the existing architecture without breaking your constitution (no unsafe, no inference-time NN, bit-exact determinism, 16GB fence).
 
 ## 1. You already built a faster evaluator path — and aren't using it on CPU
 

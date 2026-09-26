@@ -20,7 +20,7 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
 - Re-run A/B chains at correct iters (10k / 100k / 1M). Driver ready in `scripts/overnight-2026-09-25.sh`.
 - Slumbot 20k-seating baseline — external anchor (`SPECS/08 §3`, `SPECS/10 §2`).
 - Wire turn EHS into the runtime (v3 prerequisite; G2.x SKIP stands for v2).
-- `docs/PERF-BACKLOG.md` items marked **[TODO]**.
+- `docs/backlog/perf.md` items marked **[TODO]**.
 
 ---
 
@@ -83,16 +83,17 @@ None.
 | Doc | Purpose | Status header |
 |---|---|---|
 | `SPECS/*.md` | reference (frozen) | — |
-| `GPU-PLAN.md` | GPU track runbook | **[DONE]** |
-| `GPU-PLAN-AMENDMENTS.md` | amendments 001/002 | **[DONE]** |
-| `GPU-G3.0-VERIFY-GPU-DESIGN.md` | design | **[DONE]** |
-| `GPU-G5.0-WGPU-PORT-DESIGN.md` | design | **[DONE]** |
-| `OVERNIGHT-PLAN-2026-09-25.md` | overnight runbook | **[DONE]** |
-| `PERF-BACKLOG.md` | perf items | per-item tokens |
-| `V2-DEV-PLAN.md` | next major phase | **[TODO]** |
-| `CHAMELEON-v2-ROADMAP.md` | v2 rationale | context |
-| `V3-BRAINSTORM.md` | v3 draft | draft |
-| `COMPETITIVENESS-AND-SPEED-REPORT.md` | measurement report | snapshot |
-| `bench-status-*.md` | measurement snapshots | snapshot |
-| `optims-claude.md` | external review notes | input |
-| `worklog.md` | chronological log | living |
+| `gpu/plan.md` | GPU track runbook | **[DONE]** |
+| `gpu/amendments.md` | amendments 001/002 | **[DONE]** |
+| `gpu/g3-verify-design.md` | verify --gpu design | **[DONE]** |
+| `gpu/g5-wgpu-design.md` | wgpu port design | **[DONE]** |
+| `plans/overnight-2026-09-25.md` | overnight runbook | **[DONE]** |
+| `plans/v2-dev-plan.md` | next major phase | **[TODO]** |
+| `plans/v2-roadmap.md` | v2 rationale | context |
+| `plans/v3-brainstorm.md` | v3 draft | draft |
+| `backlog/perf.md` | perf items | per-item tokens |
+| `reports/competitiveness.md` | measurement report | snapshot |
+| `reports/bench-20260925.md` | bench snapshot | snapshot |
+| `reports/bench-gpu-trials.md` | bench snapshot | snapshot |
+| `review/optims-claude.md` | external review notes | input |
+| `../worklog.md` | chronological log | living |

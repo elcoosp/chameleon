@@ -2,7 +2,7 @@
 
 **Play the opponent, not the game.** A routed mixture of archetype-specialist blueprints for HUNL, trained and benchmarked on an M1 (16 GB, pure Rust).
 
-Spec set v2: hardened after a hard external review that found ten fatal/thesis-level issues in v1's poker core (invalid MCCFR estimator, MC noise inside infoset keys, board-less river keys, circular router features, self-defeating mixture math, circular evaluation, self-referential solver validation, invented Slumbot dialect, inconsistent statistics). All resolved — see [`REVIEW-RESOLUTIONS.md`](docs/REVIEW-RESOLUTIONS.md) for the point-by-point map.
+Spec set v2: hardened after a hard external review that found ten fatal/thesis-level issues in v1's poker core (invalid MCCFR estimator, MC noise inside infoset keys, board-less river keys, circular router features, self-defeating mixture math, circular evaluation, self-referential solver validation, invented Slumbot dialect, inconsistent statistics). All resolved — see [`REVIEW-RESOLUTIONS.md`](docs/BOARD.md) for the point-by-point map.
 
 ## What it is
 
@@ -15,8 +15,8 @@ Spec set v2: hardened after a hard external review that found ten fatal/thesis-l
 
 | File | Read when |
 |---|---|
-| [`PLAN.md`](docs/PLAN.md) | Vision, v1 architecture, risks, legacy-pkr annex |
-| [`REVIEW-RESOLUTIONS.md`](docs/REVIEW-RESOLUTIONS.md) | What the review demanded and where each fix landed |
+| [`PLAN.md`](docs/BOARD.md) | Vision, v1 architecture, risks, legacy-pkr annex |
+| [`REVIEW-RESOLUTIONS.md`](docs/BOARD.md) | What the review demanded and where each fix landed |
 | [`SPECS/00-conventions.md`](docs/SPECS/00-conventions.md) | **Always, first** |
 | [`SPECS/01`–`09`, `12`](docs/SPECS/) | Building that crate (order: core → engine → opponents → blueprint → router → search → agent → eval → cli; rec anytime) |
 | [`SPECS/10-experiment-protocol.md`](docs/SPECS/10-experiment-protocol.md) | Any benchmark/A-B interpretation |
@@ -84,7 +84,7 @@ Correctness (P7 core, `crates/cham-gpu/tests/consistency_eval7.rs`):
   (software), gated in `.github/workflows/gpu.yml`.
 
 Performance decision: the earlier "NO-GO" verdict from one-shot
-measurements was **superseded by `docs/GPU-PLAN-AMENDMENTS.md` Amendment
+measurements was **superseded by `docs/gpu/amendments.md` Amendment
 001** — the original 10x bar was drawn against a CPU baseline ~13x
 optimistic, and the local M1 Mini runs a concurrent GTO solver training
 loop, producing a 5.66-11.85x spread across five identical trials. The

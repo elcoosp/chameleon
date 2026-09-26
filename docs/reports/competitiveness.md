@@ -19,7 +19,7 @@ This report evaluates the **competitiveness** and **speed/efficiency** of the CH
 
 ## 1. Engine & Algorithmic Speed: Actual Measurements
 
-All measurements below are drawn directly from the repository's Criterion benchmark harness (`target/criterion/*/new/estimates.json`, `bench-before-gpu.txt`, and `docs/bench-status-20260925.md`) on an Apple M1 Mini (`target-cpu=native`, 16 GB RAM).
+All measurements below are drawn directly from the repository's Criterion benchmark harness (`target/criterion/*/new/estimates.json`, `bench-before-gpu.txt`, and `docs/reports/bench-20260925.md`) on an Apple M1 Mini (`target-cpu=native`, 16 GB RAM).
 
 ### 1.1 Micro-benchmarks & Throughput
 
@@ -114,7 +114,7 @@ In the recorded ledger (`artifacts/ledger/ledger.jsonl`), a 40,000-seating scree
 
 The GPU accelerator track (`cham-gpu`, targeting Apple Metal and portable `wgpu`) shows substantial bulk enumeration speedups:
 
-* **5-Trial Contended M1 Benchmark Spread (`docs/bench-status-gpu-trials.md`)**:
+* **5-Trial Contended M1 Benchmark Spread (`docs/reports/bench-gpu-trials.md`)**:
   * CPU reference rate: $2.42 \times 10^7$ to $5.30 \times 10^7\text{ evals/s}$.
   * GPU enumeration rate: **$2.54 \times 10^8$ to $3.39 \times 10^8\text{ evals/s}$**.
   * Median speedup: **$9.70\times$** (min $5.66\times$, max $11.85\times$).

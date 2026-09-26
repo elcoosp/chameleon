@@ -1,7 +1,7 @@
 # worklog
 
 Chronological engineering log. One section per task; include gates run and
-numbers observed. Required by docs/GPU-PLAN.md Part I step 7.
+numbers observed. Required by docs/gpu/plan.md Part I step 7.
 
 ## G0.0 Machine preflight + baseline capture
 
@@ -69,7 +69,7 @@ Baseline bench capture: see bench-before-gpu.txt (run separately, long).
 - Hand packing: 6 bits/card × 7 = 42 bits in u64 (was u32 in plan text).
 - Table packing: straight bytes || seven entries*16 || flush entries*16, where
   each entry is (u64 key LE || u16 val LE || 6 pad) — mirrors Rust Vec<(u64,u16)>.
-- SAFETY DEVIATION from plan: docs/GPU-PLAN.md Part II says cham-gpu "stays
+- SAFETY DEVIATION from plan: docs/gpu/plan.md Part II says cham-gpu "stays
   #![forbid(unsafe_code)]"; impossible with `metal` FFI. Downgraded to
   #![deny(unsafe_code)]; #[allow(unsafe_code)] scoped to src/mtl.rs only.
   Same pattern as D-001/memmap2.
@@ -83,7 +83,7 @@ Baseline bench capture: see bench-before-gpu.txt (run separately, long).
 - Fix: cham-gpu replaces `[lints] workspace = true` with an explicit block that
   mirrors the workspace lints but sets `unsafe_code = "deny"` (deny IS
   relaxable). All other crates keep forbid; cham-gpu remains deny + scoped allow.
-- Deviation from docs/GPU-PLAN.md Part II ("stays #![forbid(unsafe_code)]") is
+- Deviation from docs/gpu/plan.md Part II ("stays #![forbid(unsafe_code)]") is
   therefore minimal — one crate opted into deny, one module has one unsafe fn.
 
 ## G0.3 EXP-020 probe results (the GO/NO-GO gate)
@@ -121,7 +121,7 @@ G1 builders but the MSL must stay WGSL-portable).
   ~13x optimistic; the local M1 Mini is under solver-training load and
   produced a 5.66-11.85x spread across five identical-code trials
   (median 9.70x). The 5-trial table is preserved in
-  docs/bench-status-gpu-trials.md.
+  docs/reports/bench-gpu-trials.md.
 - Cross-platform amendment 002: wgpu is the final target (Vulkan / Metal
   / DX12; single WGSL source); metal-native is a stepping stone; a new
   G5 phase (wgpu port) is added; CI slot .github/workflows/gpu.yml runs
@@ -140,7 +140,7 @@ Two follow-ups to Path B:
    runner where G_enum >= 3x and G_warm >= 2x can be certified. Not
    enabled on push/PR because macOS minutes cost 10x Linux.
 
-2. `docs/GPU-G5.0-WGPU-PORT-DESIGN.md` — the concrete design for the
+2. `docs/gpu/g5-wgpu-design.md` — the concrete design for the
    wgpu port. Key finding while drafting it: WGSL has no scalar u8/u16
    in storage buffers, so the table layout must be u32-native; and the
    seven_map's u64 keys should be *reindexed to u32* at pack time
@@ -243,7 +243,7 @@ complete board index) is a small, useful addition for the next pass.
 
 ## G2.0 Consumer discovery — the honest answer is: no current pure-acceleration consumer
 
-Per docs/GPU-PLAN.md G2.0, the search for consumers of the turn EHS table
+Per docs/gpu/plan.md G2.0, the search for consumers of the turn EHS table
 turned up four candidates. Analyzed by whether they can be accelerated
 *without changing behavior* (the plan's bar):
 
@@ -277,7 +277,7 @@ wasted work:
 - `docs/v3-brainstorm.md` names **turn subgame solving in live play** as
   v3's flagship: "The GPU turn-EHS table removes the last technical
   excuse". The table is a v3 dependency.
-- `docs/GPU-PLAN.md` itself gates G1.2's spend on "a consumer anchor"
+- `docs/gpu/plan.md` itself gates G1.2's spend on "a consumer anchor"
   being identified. That gate is loose for the turn table (it is needed
   by v3), tight for the flop table (also v3).
 - The river table (G1.4, 6.9 GB) is different: no v3 anchor either, so
@@ -374,4 +374,4 @@ the v2 workspace).
   once — the cache is a speed optimization, not correctness input.
 - 5 cache_persist tests pass; cham-search test suite green.
 - Stages 2–6 (table.snap, policy.bin, recorder, ledger, router dataset)
-  are recorded in docs/PERF-BACKLOG.md §B-10 with per-file plan.
+  are recorded in docs/backlog/perf.md §B-10 with per-file plan.

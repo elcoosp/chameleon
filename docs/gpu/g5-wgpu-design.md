@@ -2,7 +2,7 @@
 
 > **Status:** [DONE] — wgpu backend landed (G5.0a/b); Metal-native still available
 
-Companion to `docs/GPU-PLAN-AMENDMENTS.md` Amendment 002. This document
+Companion to `docs/gpu/amendments.md` Amendment 002. This document
 is a concrete design for the wgpu port, not an implementation. It exists
 so the WGSL kernel is written once, correctly, rather than iterated on
 by trial and error against a moving target.
