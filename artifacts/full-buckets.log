@@ -1,2 +1,6 @@
 train-buckets: flop (k=300, sampled=0)…
 train-buckets: turn (k=200)…
+flop.bin: 12867944 bytes blake3 f3ea5e156733b14d
+turn.bin: 139600524 bytes blake3 d6352d12326eda31
+meta.json: 10898 bytes blake3 b40a8530a91d1cb3
+train-buckets: done → artifacts/buckets-full

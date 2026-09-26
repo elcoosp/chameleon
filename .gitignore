@@ -46,3 +46,10 @@ mutants.out/
 
 # cargo-mutants output
 mutants.out.old/
+# full-abstraction agent bundle (154 MB, regenerable)
+artifacts/agent-full/
+artifacts/blueprints-full/
+artifacts/agent/agent-tiny-backup/
+# cargo-mutants run logs
+artifacts/mutants-traversal*.log
+artifacts/mutants-traversal*.pid

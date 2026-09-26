@@ -1,1 +1,32 @@
-[12:59:37] watching artifacts/buckets-full/ for turn.bin...
+[14:40:22] watching artifacts/buckets-full/ for turn.bin...
+[14:40:22] buckets ready
+[14:40:22] train robust full-abstraction bp (500k iters)...
+train-bp: robust iters=500000 depth=100 seed=7 infosets=123026 wall=747.0s artifact=artifacts/blueprints-full/robust-7/policy
+policy.bin: 2232577 bytes blake3 e8efa829e536df79
+[14:52:50] train nit (500k iters)...
+train-bp: exploit iters=500000 depth=100 seed=7 infosets=85733 wall=357.0s artifact=artifacts/blueprints-full/nit/exploit-7/policy
+policy.bin: 1580578 bytes blake3 434bb1387ad371df
+[14:59:10] train tag (500k iters)...
+train-bp: exploit iters=500000 depth=100 seed=7 infosets=94441 wall=729.1s artifact=artifacts/blueprints-full/tag/exploit-7/policy
+policy.bin: 1741554 bytes blake3 f28681d0112dd5c3
+[15:12:34] train lag (500k iters)...
+train-bp: exploit iters=500000 depth=100 seed=7 infosets=92969 wall=367.3s artifact=artifacts/blueprints-full/lag/exploit-7/policy
+policy.bin: 1704383 bytes blake3 107f1875e1dfe146
+[15:19:02] train station (500k iters)...
+train-bp: exploit iters=500000 depth=100 seed=7 infosets=101085 wall=465.0s artifact=artifacts/blueprints-full/station/exploit-7/policy
+policy.bin: 1890070 bytes blake3 c6281307bb1a976e
+[15:26:48] assemble artifacts/agent-full
+[15:26:48] ladder full-abstraction agent (keeping tiny as agent-tiny)
+ladder[fast] agent=full opponents=9 deals/deal-pair=2500
+  arch:nit: -396.1 ± 815.4 mb/seating (1000 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:tag: -1737.6 ± 1180.9 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:lag: -2240.8 ± 1428.0 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  arch:station: -2844.6 ± 1831.4 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  callbot: -3180.4 ± 1843.7 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  jamfix: -540.0 ± 2139.2 mb/seating (1000 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  pnash:overfold:0.15: +3483.3 ± 1809.2 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH1)
+  famB:tag: -3047.9 ± 1659.1 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH0)
+  noisy:0.1:arch:lag: +1881.7 ± 1466.6 mb/seating (500 seatings, VR ×1.00) sprt-stop(AcceptH1)
+WARNING: ladder[fast]:full fell back on 2010/7540 decisions (26.7%) — artifacts missing or stale, strength numbers are meaningless
+ladder[fast]: 5500 seatings total (ledger entry written)
+[15:26:50] DONE — full-abstraction ladder above

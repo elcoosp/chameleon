@@ -274,7 +274,7 @@ Met, trivially: the stage has no implementation.
 The turn EHS table has **no current home** in the workspace. This is not
 wasted work:
 
-- `docs/v3-brainstorm.md` names **turn subgame solving in live play** as
+- `docs/plans/v3-brainstorm.md` names **turn subgame solving in live play** as
   v3's flagship: "The GPU turn-EHS table removes the last technical
   excuse". The table is a v3 dependency.
 - `docs/gpu/plan.md` itself gates G1.2's spend on "a consumer anchor"
