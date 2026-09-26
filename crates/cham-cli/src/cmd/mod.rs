@@ -1,6 +1,7 @@
 //! Command implementations: thin orchestration over the workspace crates.
 
 pub mod ab;
+pub mod audit_buckets;
 pub mod cache_guard;
 pub mod collect;
 pub mod dashboard;
@@ -9,7 +10,9 @@ pub mod guard;
 pub mod hero;
 pub mod ladder;
 pub mod lint_ledger;
+pub mod meta_solve;
 pub mod self_exploit;
+pub mod shadow;
 pub mod play;
 pub mod probe;
 pub mod slumbot;
