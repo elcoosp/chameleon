@@ -64,3 +64,8 @@ artifacts/audit.json
 
 # EXP-017 EMD exact-profile bucket build (regenerable)
 artifacts/buckets-exact/
+artifacts/blueprints-exact/
+artifacts/agent-exact/
+artifacts/exp-emd-retrain.log
+artifacts/blueprints-exp-011/
+artifacts/exp-011-sweep.log
