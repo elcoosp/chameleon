@@ -130,7 +130,6 @@ pub struct State {
     pub(crate) committed: [i32; 2],
     pub(crate) street_bet: [i32; 2],
     pub(crate) current_bet: i32,
-    pub(crate) min_raise_to: i32,
     pub(crate) last_full_raise: i32,
     pub(crate) stacks: [i32; 2],
     pub(crate) sb: i32,
@@ -172,7 +171,6 @@ impl State {
             committed: [sb_post, bb_post],
             street_bet: [sb_post, bb_post],
             current_bet: bb_post.max(sb_post),
-            min_raise_to: bb,
             last_full_raise: bb,
             stacks: [start - sb_post, start - bb_post],
             sb,
@@ -206,8 +204,15 @@ impl State {
     pub fn current_bet(&self) -> i64 {
         self.current_bet as i64
     }
+    /// Minimum legal destination for a bet/raise: `current_bet + last_full_raise`.
+    ///
+    /// Computed rather than cached: the engine's own `legal_actions` uses
+    /// `min_full_level()` (identical formula), so keeping a second cached
+    /// field in sync was the source of a class of bugs — preflop BB posting
+    /// left the cached value at `bb` while the correct min bet was `2*bb`,
+    /// which made the abstract action ladder emit an illegal `Bet { to: bb }`.
     pub fn min_raise_to(&self) -> i64 {
-        self.min_raise_to as i64
+        (self.current_bet + self.last_full_raise) as i64
     }
     pub fn max_raise_to(&self) -> i64 {
         (self.street_bet[self.to_act as usize] + self.stacks[self.to_act as usize]) as i64
@@ -436,7 +441,6 @@ impl State {
                 if increment >= self.last_full_raise {
                     self.last_full_raise = increment;
                 }
-                self.min_raise_to = to + self.last_full_raise;
                 self.acted = 1 << p; // opponent must respond
             }
         }
@@ -496,7 +500,6 @@ impl State {
         self.street = next as u8;
         self.street_bet = [0, 0];
         self.current_bet = 0;
-        self.min_raise_to = self.bb;
         self.last_full_raise = self.bb;
         self.acted = 0;
         self.to_act = 1; // postflop BB acts first, every street

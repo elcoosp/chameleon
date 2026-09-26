@@ -62,9 +62,13 @@ impl ActionLadder {
                 frac: 0.0,
             });
             let max_to = obs.current_bet + obs.stack; // = stack (facing 0)
+            // Short-stack: when stack < min bet, only an all-in for less is
+            // legal. Mirror the engine's `min_full_level().min(max_to)` so
+            // the ladder's lower bound is <= max_to (clamp() panics otherwise).
+            let lower = obs.min_raise_to.min(max_to).max(1);
             for &f in self.fracs(obs.street) {
                 let to = (f * pot_after_call as f64).floor() as i64;
-                let to = to.clamp(obs.min_raise_to.max(1), max_to);
+                let to = to.clamp(lower, max_to);
                 if !out.iter().any(|s| s.action == (Action::Bet { to })) {
                     out.push(AbstractAction {
                         action: Action::Bet { to },
