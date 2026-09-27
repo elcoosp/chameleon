@@ -83,6 +83,62 @@ fn uniform(n: usize) -> Vec<f64> {
     vec![1.0 / n as f64; n]
 }
 
+/// Multi-leaf continuation blend, wired into the LIVE solve path (v7 Item
+/// 5.3 / B-7, DeepStack): a single fixed leaf continuation is itself
+/// exploitable, so villain priors are blended across {base, call-heavy,
+/// fold-heavy} with LEAF_BLEND_WEIGHTS before the RNR p-blend.
+///
+/// Action labels here are tree strings ("check"/"bet*"/"jam"/"fold"/
+/// "call"/"raise*"), not `cham_core::Action` — semantics are by label:
+/// passive = "call" else "check"; weak = "fold" else passive. Tilt shifts
+/// LEAF_TILT of donor mass onto the target (donors: aggressive labels for
+/// call-heavy, everything-but-target for fold-heavy), exactly renormalized.
+/// Unknown/mismatched shapes fall back to the base prior (never a lie).
+pub fn blended_villain_prior(base: &[f64], actions: &[String]) -> Vec<f64> {
+    const TILT: f64 = 0.25;
+    const W: [f64; 3] = [0.6, 0.2, 0.2];
+    let n = base.len();
+    if n != actions.len() || n == 0 {
+        return base.to_vec();
+    }
+    let lower: Vec<String> = actions.iter().map(|a| a.to_lowercase()).collect();
+    let passive = lower
+        .iter()
+        .position(|a| a.starts_with("call"))
+        .or_else(|| lower.iter().position(|a| a.starts_with("check")));
+    let weak = lower
+        .iter()
+        .position(|a| a.starts_with("fold"))
+        .or(passive);
+    let tilt = |target: Option<usize>, aggressive_only: bool| -> Vec<f64> {
+        let mut out = base.to_vec();
+        let Some(t) = target else { return out };
+        let is_aggr = |a: &str| a.starts_with("bet") || a.starts_with("raise") || a == "jam";
+        let mut movable = 0.0;
+        for (i, p) in base.iter().enumerate() {
+            if i == t { continue; }
+            if !aggressive_only || is_aggr(&lower[i]) { movable += p; }
+        }
+        let shift = movable * TILT;
+        if shift <= 0.0 { return out; }
+        for (i, p) in base.iter().enumerate() {
+            if i == t { continue; }
+            if !aggressive_only || is_aggr(&lower[i]) { out[i] = p - shift * (p / movable); }
+        }
+        out[t] = base[t] + shift;
+        let total: f64 = out.iter().sum();
+        if total > 0.0 { for v in out.iter_mut() { *v /= total; } }
+        out
+    };
+    let ch = tilt(passive, true);
+    let fh = tilt(weak, false);
+    let mut out = vec![0.0; n];
+    for i in 0..n { out[i] = W[0] * base[i] + W[1] * ch[i] + W[2] * fh[i]; }
+    let total: f64 = out.iter().sum();
+    if total > 1e-12 { for v in out.iter_mut() { *v /= total; } }
+    out
+}
+
 /// Collect decision nodes with their paths.
 fn collect<'a>(node: &'a Node, path: &str, out: &mut Vec<(String, u8, Vec<String>, &'a Node)>) {
     match node {
@@ -467,6 +523,19 @@ pub fn solve_with_warmkey(
     let tree = sg.tree();
     let mut nodes: Vec<(String, u8, Vec<String>, &Node)> = Vec::new();
     collect(&tree, "", &mut nodes);
+    // v7 Item 5.3 / B-7: blend the villain leaf continuation prior across
+    // {base, call-heavy, fold-heavy} BEFORE any solver branch sees it, so
+    // the live path (not just prior.rs unit tests) solves robust against
+    // the leaves. Hero paths keep the raw prior (our strategy is solved).
+    let mut blended: Strats = prior.strat.clone();
+    for (path, player, actions, _n) in nodes.iter() {
+        if *player != 1 { continue; }
+        if let Some(base) = prior.strat.get(path) {
+            if base.len() == actions.len() {
+                blended.insert(path.clone(), blended_villain_prior(base, actions));
+            }
+        }
+    }
     // B6: fetch the warmed strategy (cheap clone of small tables; a miss
     // behaves exactly like the flag-off path).
     let warmed: Option<Strats> = match (warm_key, warm_start_enabled()) {
@@ -502,7 +571,7 @@ pub fn solve_with_warmkey(
                             }
                             _ => unreachable!("cham-search: invariant I2"),
                         };
-                        let v = avg_ev_child(child, 0, &next, &prior.strat, sg);
+                        let v = avg_ev_child(child, 0, &next, &blended, sg);
                         if v > best_v {
                             best_v = v;
                             best = ai;
@@ -511,7 +580,7 @@ pub fn solve_with_warmkey(
                     our.insert(path.clone(), one_hot(best, actions.len()));
                 }
             }
-            let their = prior.strat.clone();
+            let their = blended.clone();
             let both = merge(our.clone(), their.clone());
             let our_gap = avg_br(&tree, 1, 0, &our, sg) - avg_ev(&tree, 1, "", &both, sg);
             let their_gap = avg_br(&tree, 0, 1, &their, sg) - avg_ev(&tree, 0, "", &both, sg);
@@ -530,7 +599,7 @@ pub fn solve_with_warmkey(
                 &nodes,
                 iters,
                 &guard,
-                Some(&prior.strat),
+                Some(&blended),
                 *p,
                 warmed.as_ref(),
             );
@@ -554,8 +623,7 @@ pub fn solve_with_warmkey(
                 if *player != 1 {
                     continue;
                 }
-                let prior_s = prior
-                    .strat
+                let prior_s = blended
                     .get(path)
                     .cloned()
                     .unwrap_or_else(|| uniform(actions.len()));
