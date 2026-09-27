@@ -72,7 +72,11 @@ pub fn run(agent: &str, diag_fallback: bool, bundle: Option<&str>) -> i32 {
     // print the coverage/acc as "n/a" rather than the fake constants. If a
     // later change adds a real router metrics endpoint, wire it here.
     let lbr_gate_mb = 60_000.0f64;
-    let verdict = if lbr_mb.abs() < lbr_gate_mb { "PASS" } else { "FAIL" };
+    let verdict = if lbr_mb.abs() < lbr_gate_mb {
+        "PASS"
+    } else {
+        "FAIL"
+    };
     println!(
         "probe: {verdict} (lbr {lbr_mb:.0} mb/hand, gate |lbr| < {lbr_gate_mb:.0}; \
          cov/acc_b_dev are NOT measured by this subcommand — see router's own \

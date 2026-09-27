@@ -235,7 +235,10 @@ fn solver_matches_independent_oracles() {
     // Pure matrix [[1,1],[1,-1]]: row 0 weakly dominates, value 1.0.
     let b = reference_matrix_2x2_pure();
     let (vb, _, _) = solve_matrix(&b).expect("pure matrix solvable");
-    assert!((vb - 1.0).abs() < 1e-9, "pure-matrix value must be 1.0, got {vb}");
+    assert!(
+        (vb - 1.0).abs() < 1e-9,
+        "pure-matrix value must be 1.0, got {vb}"
+    );
 
     // RPS 3×3: value 0.0 (uniform mix both sides).
     let rps = reference_matrix_3x3_rps();
@@ -245,7 +248,10 @@ fn solver_matches_independent_oracles() {
     // Constant matrix: every cell 3.0 → value is 3.0, p = q = uniform.
     let c = vec![vec![3.0, 3.0], vec![3.0, 3.0]];
     let (vc, _, _) = solve_matrix(&c).expect("constant matrix solvable");
-    assert!((vc - 3.0).abs() < 1e-9, "constant matrix value must be 3.0, got {vc}");
+    assert!(
+        (vc - 3.0).abs() < 1e-9,
+        "constant matrix value must be 3.0, got {vc}"
+    );
 
     // Determinism: same input → same output.
     let (v2, _, _) = solve_matrix(&a).expect("determinism");

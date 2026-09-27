@@ -195,14 +195,10 @@ impl Tracker {
         //      the river (previously omitted, H-5).
         let opp_is_pfa = pfr || opp_3bet;
         let opp_called_bet_this_hand = ph.actions.iter().any(|(s, p, a)| {
-            s.as_u8() >= 1
-                && p.as_usize() == opp
-                && matches!(a, cham_core::engine::Action::Call)
+            s.as_u8() >= 1 && p.as_usize() == opp && matches!(a, cham_core::engine::Action::Call)
         });
         let opp_folded_preflop = ph.actions.iter().any(|(s, p, a)| {
-            s.as_u8() == 0
-                && p.as_usize() == opp
-                && matches!(a, cham_core::engine::Action::Fold)
+            s.as_u8() == 0 && p.as_usize() == opp && matches!(a, cham_core::engine::Action::Fold)
         });
         let reached_flop = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 1);
         let reached_turn = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 2);
@@ -210,8 +206,7 @@ impl Tracker {
             .actions
             .iter()
             .any(|(_, _, a)| matches!(a, cham_core::engine::Action::Fold));
-        let reached_showdown =
-            !any_fold && ph.showdown_holes.iter().all(|h| h.is_some());
+        let reached_showdown = !any_fold && ph.showdown_holes.iter().all(|h| h.is_some());
         let opp_aggressive = opp_3bet
             || opp_cbet
             || opp_barreled_turn
@@ -269,10 +264,7 @@ impl Tracker {
             // when opp 3bets us), on a LIFETIME counter, and always wrote
             // 0.0 (a fold was never recorded). Now: 1.0 if opp folds
             // preflop, 0.0 if opp calls/raises.
-            self.ewm_update(
-                EWM_FOLD_TO_3BET,
-                if opp_folded_preflop { 1.0 } else { 0.0 },
-            );
+            self.ewm_update(EWM_FOLD_TO_3BET, if opp_folded_preflop { 1.0 } else { 0.0 });
             self.ewm_update(
                 EWM_CALL_3BET,
                 if opp_called_3bet(&ph.actions, opp) {

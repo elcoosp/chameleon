@@ -192,15 +192,47 @@ mod tests {
 
     #[test]
     fn same_inputs_same_key() {
-        let a = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4, false);
-        let b = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4, false);
+        let a = train_cache_key(
+            &cfg(1000),
+            "Robust",
+            None,
+            0xCAFE,
+            "Deterministic",
+            4,
+            false,
+        );
+        let b = train_cache_key(
+            &cfg(1000),
+            "Robust",
+            None,
+            0xCAFE,
+            "Deterministic",
+            4,
+            false,
+        );
         assert_eq!(a, b);
     }
 
     #[test]
     fn different_iters_different_key() {
-        let a = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4, false);
-        let b = train_cache_key(&cfg(2000), "Robust", None, 0xCAFE, "Deterministic", 4, false);
+        let a = train_cache_key(
+            &cfg(1000),
+            "Robust",
+            None,
+            0xCAFE,
+            "Deterministic",
+            4,
+            false,
+        );
+        let b = train_cache_key(
+            &cfg(2000),
+            "Robust",
+            None,
+            0xCAFE,
+            "Deterministic",
+            4,
+            false,
+        );
         assert_ne!(a, b);
     }
 

@@ -122,8 +122,7 @@ impl BlueprintPolicy {
         }
 
         let payload_hash = blake3::hash(&payload);
-        let artifact_hash =
-            u64::from_le_bytes(payload_hash.as_bytes()[..8].try_into().expect("8"));
+        let artifact_hash = u64::from_le_bytes(payload_hash.as_bytes()[..8].try_into().expect("8"));
 
         // Stamp the hash into the provenance that ships INSIDE policy.bin.
         let mut prov_embedded = prov.clone();

@@ -196,11 +196,7 @@ impl OpponentSpec {
             OpponentSpec::Switcher { a, b, .. } => {
                 let fa = a.family();
                 let fb = b.family();
-                if fa == fb {
-                    fa
-                } else {
-                    "mixed"
-                }
+                if fa == fb { fa } else { "mixed" }
             }
             // SELF: our own frozen snapshot — excluded from router training,
             // tuning, and promotion gates (diagnostic self-measurement only).

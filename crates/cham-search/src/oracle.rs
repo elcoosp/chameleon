@@ -78,11 +78,7 @@ fn support_sets(n: usize) -> Vec<Vec<usize>> {
 /// Standard support enumeration restricts to |rs| == |cs|; unequal sizes
 /// are skipped (the enumeration still finds at least one equilibrium of
 /// any finite game within the equal-size support pairs).
-fn solve_support(
-    a: &[Vec<f64>],
-    rs: &[usize],
-    cs: &[usize],
-) -> Option<(f64, Vec<f64>, Vec<f64>)> {
+fn solve_support(a: &[Vec<f64>], rs: &[usize], cs: &[usize]) -> Option<(f64, Vec<f64>, Vec<f64>)> {
     let rows = a.len();
     let cols = a.first()?.len();
     let r = rs.len();

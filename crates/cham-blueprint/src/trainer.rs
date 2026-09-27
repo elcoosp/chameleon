@@ -261,8 +261,7 @@ pub fn train_with_threads(
         {
             if t % cfg.bayes_session_block == 0 {
                 let block_idx = t / cfg.bayes_session_block;
-                let mut block_rng =
-                    child(cfg.train_seed, &format!("block{block_idx}"));
+                let mut block_rng = child(cfg.train_seed, &format!("block{block_idx}"));
                 let chosen = cham_core::rng::pick(&mut block_rng, families.len().max(1));
                 let mut freq = vec![0f64; families.len().max(1)];
                 freq[chosen] = 1.0;
@@ -284,17 +283,13 @@ pub fn train_with_threads(
                 let built: Box<dyn Agent> = match spec {
                     cham_opponents::OpponentSpec::Arch(a)
                     | cham_opponents::OpponentSpec::Jitter(a, _) => {
-                        let mut jd =
-                            child(cfg.train_seed, &format!("bayes-opp{block_idx}"));
-                        let seed =
-                            (cham_core::rng::next_u32(&mut jd) as u64) << 32 | block_idx;
-                        Box::new(
-                            cham_opponents::archetype::ArchetypeAgent::jittered(
-                                *a,
-                                seed,
-                                cham_opponents::PercentileChart::global(),
-                            ),
-                        )
+                        let mut jd = child(cfg.train_seed, &format!("bayes-opp{block_idx}"));
+                        let seed = (cham_core::rng::next_u32(&mut jd) as u64) << 32 | block_idx;
+                        Box::new(cham_opponents::archetype::ArchetypeAgent::jittered(
+                            *a,
+                            seed,
+                            cham_opponents::PercentileChart::global(),
+                        ))
                     }
                     cham_opponents::OpponentSpec::Frozen { .. } => {
                         // A frozen victim needs a FrozenOracle (rows +
