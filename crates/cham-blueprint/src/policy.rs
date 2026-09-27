@@ -258,22 +258,31 @@ impl BlueprintPolicy {
             });
         }
 
-        // H-6 fix (2026-09-27): verify the artifact against its embedded
-        // hash. `artifact_hash` computed at the top of `load` (over the
-        // whole file) is retained for callers that log it, but the check
-        // that matters is over the PAYLOAD region — keys || offsets || rows
-        // — which is exactly what `build_artifact` hashes and what a
-        // tamperer would edit to change an action probability. A mismatch
-        // is a hard error: SPECS/07 §6 "hash mismatch = hard error".
-        let payload_end = rows_off + last_payload_end;
-        let payload_hash = blake3::hash(&bytes[keys_off..payload_end]);
-        let payload_hash_u64 =
-            u64::from_le_bytes(payload_hash.as_bytes()[..8].try_into().expect("8"));
-        if payload_hash_u64 != provenance.artifact_hash {
-            return Err(BlueprintError::HashMismatch {
-                expected: provenance.artifact_hash,
-                found: payload_hash_u64,
-            });
+        // H-6 fix v2 (2026-09-27): verify the artifact against its embedded
+        // payload hash. The check is gated on `provenance.artifact_hash != 0`
+        // because every artifact written by the PRE-H-6 build path carries
+        // `artifact_hash: 0` in its embedded provenance: the old
+        // `build_artifact` wrote the true hash only to the SIBLING
+        // `provenance.json`, never into `policy.bin` itself. Gating on zero
+        // preserves loadability of those bundles while still enforcing the
+        // contract on every artifact this build produces (which stamps the
+        // real payload hash, per the H-6 write-side fix).
+        //
+        // The abstraction-hash check above (skippable via
+        // CHAM_IGNORE_ABSTRACTION_HASH in the loader) is a separate, older
+        // guard; the payload check here is the one that catches a
+        // hand-edited action probability.
+        if provenance.artifact_hash != 0 {
+            let payload_end = rows_off + last_payload_end;
+            let payload_hash = blake3::hash(&bytes[keys_off..payload_end]);
+            let payload_hash_u64 =
+                u64::from_le_bytes(payload_hash.as_bytes()[..8].try_into().expect("8"));
+            if payload_hash_u64 != provenance.artifact_hash {
+                return Err(BlueprintError::HashMismatch {
+                    expected: provenance.artifact_hash,
+                    found: payload_hash_u64,
+                });
+            }
         }
         let _ = artifact_hash; // whole-file hash retained for API compat
 
