@@ -206,6 +206,23 @@ pub fn train_with_threads(
 ) -> Result<(RegretTable, RunProvenance), BlueprintError> {
     cfg.validate()?;
     std::fs::create_dir_all(out_dir)?;
+
+    // M-6 fix (2026-09-27): the trainer is single-threaded. `Hogwild` and
+    // `Snapbatch` are implemented as storage strategies (relaxed CAS-adds,
+    // buffered writes) — they do NOT spawn worker threads, and `--threads`
+    // is only serialized into provenance. Recording the REQUESTED count
+    // without the workers existing is an auditability lie. Emit a loud
+    // warning and record the EFFECTIVE worker count (1).
+    let effective_threads: u32 = 1;
+    if threads > 1 || thread_mode != ThreadMode::Deterministic {
+        eprintln!(
+            "cham-blueprint: WARNING — trainer is single-threaded; \
+             requested threads={threads} mode={thread_mode:?} but no worker \
+             pool is implemented. Recording effective_threads=1 in \
+             provenance (M-6). Artifact correctness is unaffected."
+        );
+    }
+
     let mut table = match resume_from {
         Some(p) => RegretTable::load_from(p)?,
         None => RegretTable::new(thread_mode),
@@ -447,7 +464,8 @@ pub fn train_with_threads(
                     "bytes": std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0),
                     "wall_s": t0.elapsed().as_secs_f64(),
                     "thread_mode": format!("{thread_mode:?}"),
-                    "threads": threads,
+                    "threads": effective_threads,
+                    "threads_requested": threads,
                 });
                 let _ = r.record(RecordKind::BpSnapshot, prov);
             }
@@ -495,7 +513,9 @@ pub fn train_with_threads(
         iters: total_iters,
         train_seed: cfg.train_seed,
         thread_mode,
-        threads,
+        // M-6: record the effective (actual) worker count, not the
+        // requested one, so the provenance is truthful about what ran.
+        threads: effective_threads,
         abstraction_hash: enc.abstraction_hash(),
         infosets: table.len(),
         wall_s: t0.elapsed().as_secs_f64(),

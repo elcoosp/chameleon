@@ -26,7 +26,15 @@ use std::path::{Path, PathBuf};
 use crate::TrainerConfig;
 
 /// Bump on any change to trainer semantics or cache layout.
-pub const TRAIN_CACHE_VERSION: u32 = 1;
+///
+/// M-5 fix (2026-09-27): v1 → v2. The v1 key omitted `bayes_session_block`,
+/// the four environment overrides that silently change training
+/// (`CHAM_RBP_THETA0`, `CHAM_EXPLORE_EPS`, `CHAM_FORCE_SEAT`,
+/// `CHAM_AVG_UNIFORM`), and whether the run was a `--resume-from` (a resumed
+/// table differs from a fresh one yet was stored under the fresh-train key).
+/// Same key → silently reused wrong artifact in A/B flows. Any older
+/// cache entry is now orphaned; re-train once.
+pub const TRAIN_CACHE_VERSION: u32 = 2;
 
 /// Default cache root (git-ignored).
 pub fn default_cache_dir() -> PathBuf {
@@ -39,6 +47,18 @@ pub fn default_cache_dir() -> PathBuf {
 /// `thread_mode`, and `threads` are the inputs that change the trained
 /// artifact but are not in `TrainerConfig`. `cfg` contributes depth, iters,
 /// seed.
+/// Compute the cache key for one training run.
+///
+/// M-5 fix (2026-09-27): the key now also covers
+///   * `cfg.bayes_session_block` — it changes belief-bin sampling cadence
+///     and (via the H-8 fix) the concrete family agent rebuild rate;
+///   * the four training-relevant env overrides that change the produced
+///     artifact but were silently invisible to the cache:
+///     `CHAM_RBP_THETA0`, `CHAM_EXPLORE_EPS`, `CHAM_FORCE_SEAT`,
+///     `CHAM_AVG_UNIFORM`;
+///   * whether the run was a `--resume-from` (a resumed table is a
+///     different function of its inputs than a fresh one — same
+///     abstraction/mode/seed but a different starting point).
 #[allow(clippy::too_many_arguments)]
 pub fn train_cache_key(
     cfg: &TrainerConfig,
@@ -47,25 +67,39 @@ pub fn train_cache_key(
     abstraction_hash: u64,
     thread_mode: &str,
     threads: u32,
+    is_resume: bool,
 ) -> String {
     use std::hash::{Hash, Hasher};
-    // Use FxHasher then hex the u64. blake3 would also work; FxHasher is
-    // already a workspace dep and a full 64-bit hash is plenty here.
     let mut h = rustc_hash::FxHasher::default();
     TRAIN_CACHE_VERSION.hash(&mut h);
     cfg.depth_bb.hash(&mut h);
     cfg.iters.hash(&mut h);
     cfg.train_seed.hash(&mut h);
-    // regret_discount / avg_gamma are f32; hash their bits so 1.0 vs 0.99
-    // collide only if bit-identical (they must). γ is keyed too: different
-    // averaging weights produce different artifacts (v3 §3.1 α/γ split).
     cfg.regret_discount.to_bits().hash(&mut h);
     cfg.avg_gamma.to_bits().hash(&mut h);
+    // M-5: previously omitted.
+    cfg.bayes_session_block.hash(&mut h);
+    cfg.snapshot_every.hash(&mut h);
+    cfg.checkpoint_every.hash(&mut h);
     mode_tag.hash(&mut h);
     opponent_id.unwrap_or("").hash(&mut h);
     abstraction_hash.hash(&mut h);
     thread_mode.hash(&mut h);
     threads.hash(&mut h);
+    // M-5: resume is a distinct training path.
+    is_resume.hash(&mut h);
+    // M-5: environment overrides that change the trained artifact. Hash the
+    // raw string (empty when unset), never the parsed number — a malformed
+    // value that falls back to a default is a distinct input from unset.
+    for var in [
+        "CHAM_RBP_THETA0",
+        "CHAM_EXPLORE_EPS",
+        "CHAM_FORCE_SEAT",
+        "CHAM_AVG_UNIFORM",
+    ] {
+        var.hash(&mut h);
+        std::env::var(var).unwrap_or_default().hash(&mut h);
+    }
     format!("{:016x}", h.finish())
 }
 
@@ -158,15 +192,15 @@ mod tests {
 
     #[test]
     fn same_inputs_same_key() {
-        let a = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4);
-        let b = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4);
+        let a = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4, false);
+        let b = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4, false);
         assert_eq!(a, b);
     }
 
     #[test]
     fn different_iters_different_key() {
-        let a = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4);
-        let b = train_cache_key(&cfg(2000), "Robust", None, 0xCAFE, "Deterministic", 4);
+        let a = train_cache_key(&cfg(1000), "Robust", None, 0xCAFE, "Deterministic", 4, false);
+        let b = train_cache_key(&cfg(2000), "Robust", None, 0xCAFE, "Deterministic", 4, false);
         assert_ne!(a, b);
     }
 
@@ -176,9 +210,35 @@ mod tests {
         let mut c2 = cfg(1000);
         c1.regret_discount = 0.9;
         c2.regret_discount = 1.0;
-        let a = train_cache_key(&c1, "Robust", None, 0xCAFE, "Deterministic", 4);
-        let b = train_cache_key(&c2, "Robust", None, 0xCAFE, "Deterministic", 4);
+        let a = train_cache_key(&c1, "Robust", None, 0xCAFE, "Deterministic", 4, false);
+        let b = train_cache_key(&c2, "Robust", None, 0xCAFE, "Deterministic", 4, false);
         assert_ne!(a, b);
+    }
+
+    /// M-5 fix (2026-09-27): these cases were the actual bug. Each of the
+    /// inputs below changes the trained artifact but was absent from the v1
+    /// cache key, so two DIFFERENT runs were stored under the same key and
+    /// the second silently reused the first.
+    #[test]
+    fn m5_semantic_inputs_change_key() {
+        let base = cfg(1000);
+        let k = |c: &TrainerConfig, resume: bool| {
+            train_cache_key(c, "Robust", None, 0xCAFE, "Deterministic", 4, resume)
+        };
+        // bayes_session_block
+        let mut other = base.clone();
+        other.bayes_session_block = base.bayes_session_block * 2;
+        assert_ne!(
+            k(&base, false),
+            k(&other, false),
+            "bayes_session_block must be keyed"
+        );
+        // resume flag
+        assert_ne!(
+            k(&base, false),
+            k(&base, true),
+            "resume-vs-fresh must be keyed"
+        );
     }
 
     #[test]

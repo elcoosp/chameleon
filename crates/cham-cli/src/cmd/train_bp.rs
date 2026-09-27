@@ -151,6 +151,7 @@ pub fn run(
             enc.abstraction_hash(),
             &format!("{:?}", thread_mode),
             threads,
+            resume_from.is_some(),
         );
         if let Some(cached) = cham_blueprint::train_cache::lookup(&cache_root, &key) {
             println!(
@@ -202,7 +203,11 @@ pub fn run(
         depth_bb: depth,
         iters,
         train_seed: seed,
-        thread_mode: "Deterministic".into(),
+        // L-9 fix (2026-09-27): previously hardcoded "Deterministic"
+        // regardless of the actual `--thread-mode`. The artifact provenance
+        // is bound into the ledger; recording the wrong mode made the
+        // ledger an auditability lie. Write the ACTUAL mode.
+        thread_mode: format!("{thread_mode:?}"),
         threads,
         parent: None,
         wall_s: prov.wall_s,
@@ -260,6 +265,7 @@ pub fn run(
             enc.abstraction_hash(),
             &format!("{:?}", thread_mode),
             threads,
+            resume_from.is_some(),
         );
         if let Err(e) = cham_blueprint::train_cache::store(&cache_root, &key, &runs) {
             eprintln!("train-bp: cache store skipped: {e}");
