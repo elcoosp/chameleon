@@ -431,11 +431,23 @@ pub fn proof_one_sided_br() -> ProofResult {
     // deals where hero wins: (0,1)? pairs: (0,1) L, (0,2) L, (1,0) W, (1,2) L,
     // (2,0) W, (2,1) W → 3W 3L → EV 0 with equal bets... plus the ante dynamics:
     // with pot 2 already matched, betting 1 vs a caller: win +1 / lose −1 → 0.
+    // M-15 fix (2026-09-27): the previous code hardcoded `passed: true` and
+    // never checked the enumerated EV. The gate "one-sided exploit training
+    // hits exact BR value" therefore green-lit unconditionally. The closed
+    // form for this fixture is 0 (the enumerated deals split 3 wins / 3
+    // losses, so betting 1 vs a pure caller is EV-neutral). Assert that
+    // the enumeration actually equals the closed form.
+    let closed_form = 0.0;
+    let ok = (ev - closed_form).abs() < 1e-9;
     ProofResult {
         id: "P-2",
-        passed: true,
+        passed: ok,
         value: ev,
-        detail: format!("one-sided BR vs pure caller: exact EV {ev:+} chips/hand (enumeration)"),
+        detail: format!(
+            "one-sided BR vs pure caller: enumerated EV {ev:+} chips/hand equals \
+             closed form {closed_form:+}; {} deals",
+            deals.len()
+        ),
     }
 }
 
@@ -458,7 +470,14 @@ pub fn proof_bayes_mixture() -> ProofResult {
     };
     let mut bayes_value = 0.0;
     let mut mixture_value = 0.0;
-    let mut best_single = f64::NEG_INFINITY;
+    // M-15 fix (2026-09-27): the previous best_single was
+    //     max over (x, k) of px · v_k(x), then ÷ 2.
+    // That is NOT "the best single expert's expected value". A single
+    // expert must commit to one k INDEPENDENT of the signal x (the whole
+    // point of "no routing"); its value is E_x[v_k(x)]. The old formula
+    // mixed over x, inflating or deflating the number depending on the
+    // payoff signs. Correct: sum over x per expert, then max over k.
+    let mut single_ev = [0.0f64; 2];
     let temp = 0.1; // sharpened router: w ∝ posterior^(1/T) → ≈ argmax
     for x in 0..2usize {
         let px = 0.5 * 0.25 + 0.5 * 0.75; // P(x) — signals are equiprobable
@@ -476,15 +495,14 @@ pub fn proof_bayes_mixture() -> ProofResult {
         let w_total = w_raw[0] + w_raw[1];
         let ws = [w_raw[0] / w_total, w_raw[1] / w_total];
         mixture_value += px * (values[0] * ws[0] + values[1] * ws[1]);
-        // single experts (no routing)
+        // accumulate per-expert EV across signals
         for k in 0..2 {
-            let single = px * (post0 * pay[k][0] + post1 * pay[k][1]);
-            best_single = best_single.max(single);
+            single_ev[k] += px * values[k];
         }
     }
     bayes_value /= px_total();
     mixture_value /= px_total();
-    best_single /= 2.0;
+    let best_single = single_ev[0].max(single_ev[1]);
     let mixture_ok = mixture_value >= best_single;
     let bayes_frac = if bayes_value > 1e-9 {
         mixture_value / bayes_value
@@ -528,14 +546,27 @@ pub fn proof_solver_matches_lp() -> ProofResult {
     // hero bluffs with p making villain indifferent: call EV vs bet = ...
     // exact value via support enumeration:
     let (v, p, q) = solve_2x2(&m).expect("2x2 solvable");
+    // M-15 fix (2026-09-27): the previous assertion checked only the VALUE
+    // (`|v − 0| < 1e-6`), which is satisfied by any number of wrong
+    // answers (including the trivial degenerate pair the solver returns
+    // when d ≈ 0 or when p/q fall outside [0,1]). The matrix above has a
+    // well-defined equilibrium: villain is indifferent between fold and
+    // call when the hero-bet row reads `q·2 + (1−q)·(−0.5) = 0`, i.e.
+    // q = 0.2 (fold 20%, call 80%); the value is 0 (hero's check row
+    // guarantees it). Assert the MIX, not just the value — that is what
+    // "matches enumerative LP" actually means.
     let closed_form_v = 0.0;
-    let ok = (v - closed_form_v).abs() < 1e-6;
+    let closed_form_q = 0.2; // villain's fold frequency
+    let value_ok = (v - closed_form_v).abs() < 1e-6;
+    let mix_ok = (q[0] - closed_form_q).abs() < 1e-6;
+    let ok = value_ok && mix_ok;
     ProofResult {
         id: "P-4",
         passed: ok,
         value: v,
         detail: format!(
-            "LP value {v} (hero {p:?}, villain {q:?}) matches closed form {closed_form_v}"
+            "LP value {v} (hero {p:?}, villain {q:?}) matches closed form \
+             (v={closed_form_v}, q={closed_form_q}); value_ok={value_ok} mix_ok={mix_ok}"
         ),
     }
 }
