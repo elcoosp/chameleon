@@ -799,8 +799,8 @@ fn key_format_is_pinned() {
 
     // COMMITTED GOLDEN.  Update ONLY when you also rebuild all artifacts.
     // Recorded 2026-09-27 AFTER the L-1 fix (overflow byte in stream).
-    const GOLDEN_EMPTY: u64 = 0;
-    const GOLDEN_FLOP: u64 = 0;
+    const GOLDEN_EMPTY: u64 = 0xfa8af2d5b6eff668;
+    const GOLDEN_FLOP: u64 = 0xe1d2992adb8e6fe6;
     if GOLDEN_EMPTY == 0 || GOLDEN_FLOP == 0 {
         eprintln!(
             "KEY-FORMAT GOLDEN: empty = {:#018x}, flop = {:#018x}",
