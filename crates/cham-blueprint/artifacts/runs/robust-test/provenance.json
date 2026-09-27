@@ -7,8 +7,8 @@
   "thread_mode": "Deterministic",
   "threads": 1,
   "abstraction_hash": 0,
-  "infosets": 428,
-  "wall_s": 0.033931833,
+  "infosets": 440,
+  "wall_s": 0.033482458,
   "parent": null,
   "seat_histogram": [
     50,

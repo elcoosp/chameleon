@@ -1,6 +1,6 @@
 {
   "abstraction_hash": 0,
-  "artifact_hash": 15811373324847118444,
+  "artifact_hash": 12807053794864348523,
   "mode": "Robust",
   "opponent_id": null,
   "depth_bb": 100,
@@ -10,6 +10,6 @@
   "threads": 1,
   "parent": null,
   "wall_s": 0.0,
-  "infosets": 194,
+  "infosets": 195,
   "created_unix": 0
 }

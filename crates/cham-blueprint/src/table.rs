@@ -705,8 +705,17 @@ impl RegretTable {
             mode: self.mode,
             rows,
         };
-        let raw = postcard::to_allocvec(&snap).unwrap_or_default();
-        let body = zstd::bulk::compress(&raw, 3).unwrap_or_default();
+        // M-9 fix (2026-09-27): the previous code silently replaced a
+        // serialization or compression failure with an empty body, producing
+        // a snapshot file whose corrupt payload would then be reported as a
+        // confusing "postcard:" or "zstd:" error at restore time. Panic here
+        // instead — a failed snapshot is a hard invariant violation (the
+        // table is serializable by construction; if it's not, the bug is
+        // here, not at the reader).
+        let raw = postcard::to_allocvec(&snap)
+            .expect("cham-blueprint: table snapshot postcard-serialize");
+        let body =
+            zstd::bulk::compress(&raw, 3).expect("cham-blueprint: table snapshot zstd-compress");
         let mut out = Vec::with_capacity(body.len() + 1);
         out.push(SNAP_VERSION);
         out.extend_from_slice(&body);

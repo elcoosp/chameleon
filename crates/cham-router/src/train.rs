@@ -38,11 +38,16 @@ pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), Rout
             a.len()
         )));
     }
-    // class balance check: any class < 2k rows in A → refuse (spec: trainer refuses)
+    // class balance check: any class < 2k rows in A → refuse (SPECS/05 §3).
+    // M-3 fix (2026-09-27): the code was checking `n < 2` — a class with 3
+    // rows in a 2M-row dataset passed the "2k rows" gate silently.
+    const MIN_CLASS_ROWS: usize = 2_000;
     for c in 0..4u8 {
         let n = a.iter().filter(|r| r.label == c).count();
-        if n < 2 {
-            return Err(RouterError::Dataset(format!("class {c} has {n} rows in A")));
+        if n < MIN_CLASS_ROWS {
+            return Err(RouterError::Dataset(format!(
+                "class {c} has {n} rows in A (min {MIN_CLASS_ROWS})"
+            )));
         }
     }
     let mut model = SoftmaxModel::new(20, 4);
@@ -102,8 +107,13 @@ pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), Rout
     let ece_b_test = ece(&model, &btest);
     let ece_family_c = ece(&model, &c);
     let per_class_recall = recall(&model, &bdev);
-    // G3 gates (SPECS/10 §6): top-1 ≥ 0.80 B-dev; ECE ≤ 0.15 on B-test and family-C
-    let gates_passed = top1_b_dev >= 0.80 && ece_b_test <= 0.15 && ece_family_c <= 0.15;
+    // G3 gates (SPECS/10 §6): top-1 ≥ 0.80 B-dev; ECE ≤ 0.15 on B-test and
+    // family-C; per-class recall B-dev ≥ 0.70 (was computed but never
+    // enforced — M-4 fix 2026-09-27). Without the recall gate, a model that
+    // ignores one archetype entirely ships as "passing".
+    let recall_ok = per_class_recall.iter().all(|&r| r >= 0.70);
+    let gates_passed =
+        top1_b_dev >= 0.80 && ece_b_test <= 0.15 && ece_family_c <= 0.15 && recall_ok;
     Ok((
         model,
         TrainReport {

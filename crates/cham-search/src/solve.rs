@@ -2,7 +2,7 @@
 //! All solvers are deterministic under a fixed iteration count (Iterations budget).
 
 use crate::budget::WallClockGuard;
-use crate::subgame::{Node, Subgame};
+use crate::subgame::{Node, Subgame, TerminalKind};
 use crate::trigger::SolverChoice;
 
 use crate::SearchError;
@@ -191,15 +191,26 @@ fn ev(
 ) -> f64 {
     match node {
         Node::Terminal {
+            kind,
             hero_invested,
             villain_invested,
         } => {
-            let hero_v = sg.showdown_value(
-                &sg.hero_classes[hero_c],
-                &sg.villain_classes[vill_c],
-                *hero_invested,
-                *villain_invested,
-            );
+            // C-3 / C-4 fix (2026-09-27): a fold terminal is a
+            // class-INDEPENDENT payoff, so it must not go through
+            // `showdown_value` (which branches on hole strength). And a
+            // showdown terminal must credit the pre-river pot — that lives
+            // inside `showdown_value` now.
+            let hero_v = match kind {
+                TerminalKind::Showdown => sg.showdown_value(
+                    &sg.hero_classes[hero_c],
+                    &sg.villain_classes[vill_c],
+                    *hero_invested,
+                    *villain_invested,
+                ),
+                TerminalKind::VillainFolds | TerminalKind::HeroFolds => {
+                    sg.fold_value(*kind, *hero_invested)
+                }
+            };
             if seat == 0 { hero_v } else { -hero_v }
         }
         Node::Decision {
@@ -270,15 +281,26 @@ fn br_value(
 ) -> f64 {
     match node {
         Node::Terminal {
+            kind,
             hero_invested,
             villain_invested,
         } => {
-            let hero_v = sg.showdown_value(
-                &sg.hero_classes[hero_c],
-                &sg.villain_classes[vill_c],
-                *hero_invested,
-                *villain_invested,
-            );
+            // C-3 / C-4 fix (2026-09-27): a fold terminal is a
+            // class-INDEPENDENT payoff, so it must not go through
+            // `showdown_value` (which branches on hole strength). And a
+            // showdown terminal must credit the pre-river pot — that lives
+            // inside `showdown_value` now.
+            let hero_v = match kind {
+                TerminalKind::Showdown => sg.showdown_value(
+                    &sg.hero_classes[hero_c],
+                    &sg.villain_classes[vill_c],
+                    *hero_invested,
+                    *villain_invested,
+                ),
+                TerminalKind::VillainFolds | TerminalKind::HeroFolds => {
+                    sg.fold_value(*kind, *hero_invested)
+                }
+            };
             if seat == 0 { hero_v } else { -hero_v }
         }
         Node::Decision {

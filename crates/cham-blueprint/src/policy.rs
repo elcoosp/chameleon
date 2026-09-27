@@ -189,13 +189,56 @@ impl BlueprintPolicy {
             o += 8 - o % 8;
         }
         let keys_off = o;
-        let offsets_off = keys_off + n * 8;
-        let rows_off = offsets_off + (n + 1) * 4;
-        let need = rows_off + (bytes.len() - rows_off);
-        if bytes.len() < need {
+        // M-8 fix (2026-09-27): the previous check was
+        //   let need = rows_off + (bytes.len() - rows_off);
+        //   if bytes.len() < need { ... }
+        // which is algebraically `bytes.len() < bytes.len()` — vacuously
+        // false, and when `rows_off > bytes.len()` the subtraction underflows
+        // (wraps) making `need` equal to `bytes.len()` again. Either way the
+        // "truncated" branch is dead. A truncated `policy.bin` then panics on
+        // a later slice instead of returning a clean error. Check `rows_off`
+        // directly, and use `checked_*` to guard the u64 arithmetic.
+        let offsets_off = match keys_off.checked_add(n.saturating_mul(8)) {
+            Some(v) => v,
+            None => {
+                return Err(BlueprintError::Artifact {
+                    path,
+                    reason: "row count overflow".into(),
+                });
+            }
+        };
+        let rows_off = match offsets_off.checked_add((n + 1).saturating_mul(4)) {
+            Some(v) => v,
+            None => {
+                return Err(BlueprintError::Artifact {
+                    path,
+                    reason: "row count overflow".into(),
+                });
+            }
+        };
+        if bytes.len() < rows_off {
             return Err(BlueprintError::Artifact {
                 path,
-                reason: "truncated".into(),
+                reason: format!(
+                    "truncated: need at least {rows_off} bytes for {n} rows, file has {}",
+                    bytes.len()
+                ),
+            });
+        }
+        // Row payloads must also fit: the last row's `offset_at(n)` gives the
+        // final payload end within the rows region.
+        let last_payload_end = {
+            let o = offsets_off + n * 4;
+            u32::from_le_bytes(bytes[o..o + 4].try_into().expect("4")) as usize
+        };
+        if rows_off + last_payload_end > bytes.len() {
+            return Err(BlueprintError::Artifact {
+                path,
+                reason: format!(
+                    "truncated rows: offset table reaches {}, file has {}",
+                    rows_off + last_payload_end,
+                    bytes.len()
+                ),
             });
         }
         Ok(BlueprintPolicy {

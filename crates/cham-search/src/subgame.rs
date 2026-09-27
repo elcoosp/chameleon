@@ -30,12 +30,32 @@ pub struct Subgame {
     pub bet_fracs: Vec<f64>,
 }
 
+/// How a terminal was reached. C-3 fix (2026-09-27): a fold must be a
+/// distinct outcome — its payoff is CLASS-INDEPENDENT. Before this fix,
+/// both fold and showdown terminals went through `showdown_value`, so a
+/// successful bluff with the weaker class LOST money and folding to a
+/// raise could pay positive EV. That is a different game, not just a
+/// rounding error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalKind {
+    /// Reached showdown; strength ordering decides.
+    Showdown,
+    /// Hero forfeited (villain raised and hero folded).
+    HeroFolds,
+    /// Villain forfeited (hero bet and villain folded).
+    VillainFolds,
+}
+
 /// A node of the action tree. Infosets are identified by the ACTION SEQUENCE
 /// (public information); strategies are shared across classes (abstraction).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Node {
-    /// terminal: (hero_wins_bb if hero class stronger, pot already inside stacks)
+    /// Terminal outcome. `hero_invested` / `villain_invested` are RIVER
+    /// money only (bb), starting from 0 at the root; the pre-river pot
+    /// lives on `Subgame::pot_bb` and is accounted for in the payoff
+    /// functions (`showdown_value`, `fold_value`), never in these fields.
     Terminal {
+        kind: TerminalKind,
         hero_invested: f64,
         villain_invested: f64,
     },
@@ -116,25 +136,43 @@ impl Subgame {
         if !facing_bet {
             // checked through → showdown
             return Node::Terminal {
+                kind: TerminalKind::Showdown,
                 hero_invested,
                 villain_invested,
             };
         }
+        // C-3 fix (2026-09-27): fold is a distinct terminal kind. Villain
+        // folds: hero wins by forfeit — a class-independent payoff of
+        // +pot_bb/2, never `showdown_value`.
+        // C-2 fix (2026-09-27): villain's CALL invests to match hero's bet.
+        // Before, the call child passed `villain_invested` through unchanged
+        // (0 at the root), so getting called paid the same as checking —
+        // value-betting the nuts yielded exactly what checking through
+        // yielded. `showdown_value` reads the investments, so the fix is to
+        // record villain's matched investment: `self.showdown(hero_invested,
+        // hero_invested)`.
         let mut actions = vec!["fold".to_string(), "call".to_string()];
         let mut children = vec![
             Node::Terminal {
+                kind: TerminalKind::VillainFolds,
                 hero_invested,
-                villain_invested: hero_invested,
-            }, // fold: hero takes invested
-            self.showdown(hero_invested, villain_invested),
+                villain_invested, // villain's pre-call river money (0 at root)
+            },
+            self.showdown(hero_invested, hero_invested), // C-2: call matches bet
         ];
-        // villain raise = 2.2× the bet (capped by jam)
+        // M-1 fix (2026-09-27): villain's raise is capped by VILLAIN's
+        // remaining stack, not hero's. When hero bet more than stack/3.2 the
+        // old cap (`stack_bb - hero_invested`) made `raise` smaller than the
+        // bet and silently DROPPED the raise action instead of clamping to
+        // a jam. Cap by villain's remaining; keep the action whenever the
+        // raise-to exceeds hero's current investment (i.e., it is a legal
+        // raise or a jam).
         let hero_bet = hero_invested - villain_invested;
-        let raise = (hero_bet * 2.2).min(self.stack_bb - hero_invested);
-        let _ = hero_invested;
-        if raise > hero_bet && villain_invested + raise <= self.stack_bb {
+        let raise_amount = (hero_bet * 2.2).min(self.stack_bb - villain_invested);
+        let raise_to = villain_invested + raise_amount;
+        if raise_to > hero_invested && raise_amount > 0.0 {
             actions.push("raise".to_string());
-            children.push(self.hero_face_raise(hero_invested, villain_invested + raise));
+            children.push(self.hero_face_raise(hero_invested, raise_to));
         }
         Node::Decision {
             player: 1,
@@ -144,13 +182,21 @@ impl Subgame {
     }
 
     fn hero_face_raise(&self, hero_invested: f64, villain_invested: f64) -> Node {
+        // C-3 fix (2026-09-27): hero fold is a distinct terminal kind with a
+        // class-independent payoff of -(pot_bb/2 + hero's committed river
+        // money). The previous code set `hero_invested: villain_invested` on
+        // the fold child — falsely recording hero as having matched the
+        // raise — and then routed through `showdown_value`, which could even
+        // return a POSITIVE value for the fold. Both bugs are gone.
         let actions = vec!["fold".to_string(), "call".to_string()];
         let children = vec![
             Node::Terminal {
-                hero_invested: villain_invested,
+                kind: TerminalKind::HeroFolds,
+                hero_invested, // what hero actually committed on the river
                 villain_invested,
             },
-            self.showdown(hero_invested, villain_invested),
+            // On call, hero matches the raise: hero_invested → villain_invested
+            self.showdown(villain_invested, villain_invested),
         ];
         Node::Decision {
             player: 0,
@@ -161,12 +207,22 @@ impl Subgame {
 
     fn showdown(&self, hero_invested: f64, villain_invested: f64) -> Node {
         Node::Terminal {
+            kind: TerminalKind::Showdown,
             hero_invested,
             villain_invested,
         }
     }
 
-    /// Showdown value for hero (bb) given class pair: deterministic strength order.
+    /// Showdown value for hero (bb). C-4 fix (2026-09-27): the pre-river pot
+    /// `pot_bb` MUST be included in the win/lose differences. Before this
+    /// fix, `hero_invested`/`villain_invested` started at 0 and only tracked
+    /// RIVER money, so a checked-through winner netted 0 instead of
+    /// `+pot_bb/2`. The solver was playing a zero-pot game with
+    /// pot-derived bet sizes — every bluff/value frequency derived from it
+    /// was for a different game. Now:
+    ///   hero wins:   +pot_bb/2 + villain_invested
+    ///   hero loses:  -(pot_bb/2 + hero_invested)
+    ///   split:       (villain_invested - hero_invested) / 2
     pub fn showdown_value(
         &self,
         hero: &Class,
@@ -174,13 +230,29 @@ impl Subgame {
         hero_invested: f64,
         villain_invested: f64,
     ) -> f64 {
-        let pot = hero_invested + villain_invested;
+        let half_pot = self.pot_bb / 2.0;
         if hero.strength > villain.strength {
-            villain_invested // villain's share flows to hero
+            half_pot + villain_invested
         } else if hero.strength < villain.strength {
-            -hero_invested
+            -(half_pot + hero_invested)
         } else {
-            pot / 2.0 - hero_invested
+            (villain_invested - hero_invested) / 2.0
+        }
+    }
+
+    /// Fold value for hero (bb). C-3 fix (2026-09-27): a fold must NOT be
+    /// evaluated through `showdown_value` — the payoff is class-independent.
+    ///   villain folds: hero wins villain's pre-river pot share (+pot_bb/2)
+    ///                  regardless of hero's hole strength
+    ///   hero folds:    hero loses own pre-river pot share and own river
+    ///                  money (-(pot_bb/2 + hero_invested))
+    pub fn fold_value(&self, kind: TerminalKind, hero_invested: f64) -> f64 {
+        match kind {
+            TerminalKind::VillainFolds => self.pot_bb / 2.0,
+            TerminalKind::HeroFolds => -(self.pot_bb / 2.0 + hero_invested),
+            TerminalKind::Showdown => {
+                unreachable!("cham-search: fold_value called on a showdown terminal")
+            }
         }
     }
 

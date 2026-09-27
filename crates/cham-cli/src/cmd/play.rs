@@ -123,6 +123,20 @@ pub fn run(agent: &str, depth: i64, search_warmstart: bool) -> i32 {
             } else {
                 bot.act(&obs, &mut session_rng)
             };
+            // H-7 fix (2026-09-27): feed EVERY action to the bot via
+            // on_public_action BEFORE applying it, exactly as matcheng.rs does.
+            // Without this, the bot's ActionSeq only contains its OWN actions;
+            // every infoset key diverges from the trainer's, and
+            // BlueprintPolicy::strategy returns None on ~65% of decisions
+            // (silent fallback — the exact symptom guard.rs exists to prevent,
+            // on the human-facing interactive path). The bot's own action is
+            // already recorded in `act`; its on_public_action no-ops on
+            // self-actions, so passing seat-1's action here is what matters.
+            {
+                let bot_seat = 1; // human is seat 0 (button/SB first hand)
+                let bot_obs = Observables::view(&state, Player::from_usize(bot_seat));
+                bot.on_public_action(&bot_obs, Player::from_usize(seat), a);
+            }
             log.push((state.street(), Player::from_usize(seat), a));
             if let Err(e) = state.apply(a) {
                 eprintln!("play: {e}");
