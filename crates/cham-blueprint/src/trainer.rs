@@ -227,7 +227,14 @@ pub fn train_with_threads(
     // it is rebuilt only when the block index rolls over.
     let mut bayes_opp: Option<Box<dyn Agent>> = None;
 
-    for t in 0..cfg.iters {
+    // H-9 fix (2026-09-27): start from the table's recorded last_iter, so a
+    // resumed run continues the RNG bitstream from where the previous run
+    // stopped instead of replaying iterations 0..N on top of the restored
+    // table. `total_iters` is the GLOBAL end (start + this call's cfg.iters)
+    // — averaging weights and cadence checks use it, not the local count.
+    let start = table.last_iter();
+    let total_iters = start + cfg.iters;
+    for t in start..total_iters {
         // ---- ExploitBayes session blocks: hidden type + belief bin ----
         if let TrainMode::ExploitBayes {
             families,
@@ -311,7 +318,7 @@ pub fn train_with_threads(
             cham_core::rng::pick(iter_rng, 2)
         };
         seat_histogram[hero_seat] += 1;
-        let w_t = averaging_weight_gamma(t, cfg.iters, robust, cfg.avg_gamma);
+        let w_t = averaging_weight_gamma(t, total_iters, robust, cfg.avg_gamma);
 
         // ---- per-iteration opponent (jitter redraw: `jitter_seed ^ iter`) ----
         // materialize a concrete agent each iteration when the spec is an archetype
@@ -413,7 +420,7 @@ pub fn train_with_threads(
         }
 
         // ---- snapshot cadence: renorm pass + save + record ----
-        if (t + 1) % cfg.snapshot_every == 0 || t + 1 == cfg.iters {
+        if (t + 1) % cfg.snapshot_every == 0 || t + 1 == total_iters {
             let mut renormed = 0u64;
             let entries: Vec<(u64, u32, usize)> = table
                 .iter()
@@ -426,6 +433,9 @@ pub fn train_with_threads(
             }
             let _ = renormed;
             let snap_path = out_dir.join("table.snap");
+            // H-9: stamp the resume position BEFORE snapshotting, so the
+            // saved file carries the correct last_iter.
+            table.set_last_iter(t + 1);
             let bytes = table.snapshot();
             let tmp = snap_path.with_extension("tmp");
             std::fs::write(&tmp, &bytes)?;
@@ -444,7 +454,7 @@ pub fn train_with_threads(
             // v7 Item 2: LBR convergence checkpoints (independent of the
             // rolling table.snap above — each checkpoint is self-contained).
             if cfg.checkpoint_every > 0
-                && ((t + 1) % cfg.checkpoint_every == 0 || t + 1 == cfg.iters)
+                && ((t + 1) % cfg.checkpoint_every == 0 || t + 1 == total_iters)
             {
                 if let Some(cp_dir) = cfg.checkpoint_dir.as_ref() {
                     let dir = cp_dir.join(format!("iter-{}", t + 1));
@@ -461,6 +471,11 @@ pub fn train_with_threads(
         }
     }
 
+    // H-9: stamp the final position after the loop, so a caller that
+    // immediately calls `save_to` records the correct resume position even
+    // if the final iteration didn't trigger a snapshot.
+    table.set_last_iter(total_iters);
+
     let prov = RunProvenance {
         mode: mode.tag(),
         opponent_id: match mode {
@@ -475,7 +490,9 @@ pub fn train_with_threads(
             TrainMode::Robust => None,
         },
         depth_bb: cfg.depth_bb,
-        iters: cfg.iters,
+        // H-9: record the GLOBAL iteration count this table has trained
+        // through (start + this call's iters), not the local count.
+        iters: total_iters,
         train_seed: cfg.train_seed,
         thread_mode,
         threads,

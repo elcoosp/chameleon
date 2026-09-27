@@ -564,9 +564,34 @@ fn determinism_same_seed_and_resume() {
 
 #[test]
 fn resume_continues_bitstream() {
-    // train 100 + resume 100 == train 200 (deterministic mode)
+    // H-9 fix (2026-09-27): this test previously ended in
+    //   assert_eq!(digest(200, None), digest(200, None));
+    // — a tautology that verified only that two fresh runs of the same seed
+    // agree. It was neutered because the resume path was broken: the
+    // trainer loop always ran `0..cfg.iters` on the restored table, so a
+    // "resume 100" replayed iterations 0..100 on top of the 100-iteration
+    // table and produced neither training extension nor bitstream
+    // continuation. Now that the trainer starts from `table.last_iter()`
+    // (recorded in the snapshot), the documented contract is implemented:
+    //
+    //     train 100 + resume 100  ==  train 200        (same digest)
     let cfg = TINY();
-    let digest = |iters: u64, resume: Option<&Path>| -> u64 {
+    let out = Path::new("artifacts/runs/resume-test");
+    let _ = std::fs::create_dir_all(out);
+    let snap_path = out.join("table.snap");
+    // Remove any stale snapshot from an earlier run so the first call is
+    // a genuine fresh train.
+    let _ = std::fs::remove_file(&snap_path);
+
+    let digest = |t: &cham_blueprint::RegretTable| -> u64 {
+        let mut sum = 0u64;
+        for (k, off) in t.iter() {
+            let w = t.row_width(off);
+            sum = sum.wrapping_add(k).wrapping_add(t.visits(off, w) as u64);
+        }
+        sum
+    };
+    let run = |iters: u64, resume: Option<&Path>| -> cham_blueprint::RegretTable {
         let mut enc = Encoder::cfg_only(cfg.clone()).expect("enc");
         let tcfg = cham_blueprint::TrainerConfig {
             depth_bb: 100,
@@ -590,25 +615,43 @@ fn resume_continues_bitstream() {
             CFG,
             &mut enc,
             ThreadMode::Deterministic,
-            Path::new("artifacts/runs/resume-test"),
+            out,
             None,
             resume,
         )
         .expect("train");
-        let mut sum = 0u64;
-        for (k, off) in t.iter() {
-            let w = t.row_width(off);
-            sum = sum.wrapping_add(k).wrapping_add(t.visits(off, w) as u64);
-        }
-        sum
+        t
     };
-    // NOTE: resume semantics depend on per-iteration seeds being absolute (iter{t});
-    // they are, so a resumed run continues the same bitstream.
-    let _ = digest;
-    // full vs split: the split run needs the snapshot from the first half
-    // (save_to is exercised in table_snapshot_roundtrip; here we verify the
-    // determinism pre-condition: two full runs match)
-    assert_eq!(digest(200, None), digest(200, None));
+
+    // Reference: fresh 200-iter run.
+    let t_fresh200 = run(200, None);
+    let d_fresh200 = digest(&t_fresh200);
+
+    // Split: 100 iters (writes table.snap at iter 100 with last_iter = 100),
+    // then resume 100 (must run iterations 100..200 on top of the restored
+    // table).
+    let _ = run(100, None); // the trainer's own snapshot cadence writes snap_path
+    assert!(
+        snap_path.exists(),
+        "first 100-iter run must have written a snapshot"
+    );
+    let t_resumed = run(100, Some(&snap_path));
+    let d_resumed = digest(&t_resumed);
+
+    assert_eq!(
+        d_fresh200, d_resumed,
+        "H-9: train 100 + resume 100 must produce the same table as train 200"
+    );
+    assert_eq!(
+        t_fresh200.last_iter(),
+        200,
+        "fresh 200-iter run records last_iter = 200"
+    );
+    assert_eq!(
+        t_resumed.last_iter(),
+        200,
+        "resumed run records last_iter = 200 (start + iters)"
+    );
 }
 
 #[test]

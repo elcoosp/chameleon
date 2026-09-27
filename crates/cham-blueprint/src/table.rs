@@ -17,7 +17,11 @@ use crate::BlueprintError;
 /// Snapshot format version. Bump on any change to the `Snap` layout or the
 /// serializer. v1 was bincode; v2 (current) is postcard. Old files are
 /// rejected by `restore` with a clear message — regenerate with train-bp.
-const SNAP_VERSION: u8 = 2;
+// H-9 fix (2026-09-27): bumped 2 → 3 for the `last_iter` field. Snapshots
+// from earlier builds must be regenerated (they encode neither the resume
+// position nor anything else that lets a resumed run continue the RNG
+// bitstream). `restore` rejects v2 with a clear message.
+const SNAP_VERSION: u8 = 3;
 
 /// Threading mode recorded in provenance (SPECS/00 §3.5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,6 +316,13 @@ pub struct RegretTable {
     pub mode: ThreadMode,
     /// rows scaled at snapshot time (f32 growth guard, review A8)
     pub renorm_events: u64,
+    /// H-9 fix (2026-09-27): the global iteration index this table has been
+    /// trained through. 0 = fresh. Recorded in the snapshot so a resumed
+    /// run can continue the RNG bitstream from the correct position instead
+    /// of replaying iterations 0..N on top of the restored table (the
+    /// pre-fix behaviour — the documented `train 100 + resume 100 ==
+    /// train 200` contract was unimplementable).
+    last_iter: u64,
 }
 
 const ROW_META: u32 = 2; // avg_weight + visits
@@ -364,7 +375,20 @@ impl RegretTable {
             arena_len: 0,
             mode,
             renorm_events: 0,
+            last_iter: 0,
         }
+    }
+
+    /// H-9: global iteration index this table has been trained through.
+    pub fn last_iter(&self) -> u64 {
+        self.last_iter
+    }
+
+    /// H-9: mark the table as trained through iteration `t`. Called by the
+    /// trainer before each snapshot (and once more at exit, so a follow-up
+    /// `save_to` records the correct resume position).
+    pub fn set_last_iter(&mut self, t: u64) {
+        self.last_iter = t;
     }
 
     pub fn len(&self) -> usize {
@@ -686,6 +710,8 @@ impl RegretTable {
             n: usize,
             mode: ThreadMode,
             rows: Vec<(u64, u8, Vec<u32>)>, // key, w, cells
+            /// H-9: global iteration index the table is trained through.
+            last_iter: u64,
         }
         let mut rows = Vec::with_capacity(self.n);
         for s in &self.slots {
@@ -704,6 +730,7 @@ impl RegretTable {
             n: self.n,
             mode: self.mode,
             rows,
+            last_iter: self.last_iter,
         };
         // M-9 fix (2026-09-27): the previous code silently replaced a
         // serialization or compression failure with an empty body, producing
@@ -729,6 +756,8 @@ impl RegretTable {
             n: usize,
             mode: ThreadMode,
             rows: Vec<(u64, u8, Vec<u32>)>,
+            /// H-9: resume position. Present since SNAP_VERSION = 3.
+            last_iter: u64,
         }
         let (version, body) = bytes
             .split_first()
@@ -756,6 +785,7 @@ impl RegretTable {
         self.arena = Arena::with_capacity(slots_cap * 4);
         self.arena_len = 0;
         self.mode = snap.mode;
+        self.last_iter = snap.last_iter;
         for (key, w, cells) in snap.rows {
             let (off, w_out) = self.entry_or_insert(key, w as usize);
             debug_assert_eq!(w_out, w as usize);
