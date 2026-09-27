@@ -152,6 +152,18 @@ fn tilt(
     out
 }
 
+/// Default blend weights over {base, call-heavy, fold-heavy} (v7 Item 5.3).
+/// Base-dominant with symmetric perturbation mass — tune via bench.
+pub const LEAF_BLEND_WEIGHTS: [f64; 3] = [0.6, 0.2, 0.2];
+
+/// Build the blended leaf continuation prior for one infoset (v7 Item 5.3,
+/// DeepStack B-7): 2–3 perturbed blueprint continuations instead of a single
+/// fixed continuation. Returns `None` on shape mismatch (caller falls back
+/// to the single blueprint prior).
+pub fn blended_leaf_prior(base: &[f64], actions: &[Action]) -> Option<Vec<f64>> {
+    leaf_variants(base, actions).map(|set| set.blend(LEAF_BLEND_WEIGHTS))
+}
+
 impl LeafSet {
     /// Combinator blend for the in-subgame solver: `w` (normalized by the
     /// caller — the solver's mixture weights over {base, call-heavy,
