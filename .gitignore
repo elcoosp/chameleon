@@ -79,3 +79,6 @@ artifacts/seat-diag/
 artifacts/blueprints-tiny-honest/
 artifacts/agent-honest/
 artifacts/retrain-honest.log
+artifacts/blueprints-full-honest/
+artifacts/agent-full-honest/
+artifacts/retrain-full-honest.log
