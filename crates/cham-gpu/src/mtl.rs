@@ -20,7 +20,16 @@ use crate::kernels::KernelError;
 pub struct GpuContext {
     device: metal::Device,
     queue: metal::CommandQueue,
+    /// Eval7 pipeline (compiled in `new()` — the only one used per dispatch).
     pipeline: metal::ComputePipelineState,
+    /// L-25 fix (2026-09-27): EHS kernels used to recompile MSL on EVERY
+    /// dispatch (~100 ms each on M1; a full `gpu-build --kind flop` run
+    /// spent ~9 min in pure recompilation). The pipelines are content-
+    /// invariant, so cache them lazily: the first `dispatch_ehs_*` call
+    /// compiles; every later call reuses the cell. `OnceLock` is
+    /// thread-safe and preserves determinism (one compile, one result).
+    ehs_turn_pipeline: std::sync::OnceLock<metal::ComputePipelineState>,
+    ehs_flop_pipeline: std::sync::OnceLock<metal::ComputePipelineState>,
 }
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -53,6 +62,8 @@ impl GpuContext {
             device,
             queue,
             pipeline,
+            ehs_turn_pipeline: std::sync::OnceLock::new(),
+            ehs_flop_pipeline: std::sync::OnceLock::new(),
         })
     }
 
@@ -84,23 +95,35 @@ pub(crate) fn dispatch_ehs_turn(
         ));
     }
 
-    // Concatenate shared + kernel source (MSL has no #include).
-    let source = format!(
-        "{}\n{}",
-        include_str!("msl/eval7_shared.msl"),
-        include_str!("msl/ehs_turn.msl"),
-    );
-    let library = ctx
-        .device
-        .new_library_with_source(&source, &CompileOptions::new())
-        .map_err(|e| KernelError::Metal(format!("EHS MSL compile: {e:?}")))?;
-    let function = library
-        .get_function("ehs_turn_kernel", None)
-        .map_err(|e| KernelError::Metal(format!("get_function ehs_turn: {e:?}")))?;
-    let pipeline = ctx
-        .device
-        .new_compute_pipeline_state_with_function(&function)
-        .map_err(|e| KernelError::Metal(format!("ehs_turn pipeline: {e:?}")))?;
+    // L-25: compile once per (device, kernel) and reuse. `OnceLock` caches
+    // the pipeline for the lifetime of the GpuContext; a compile error
+    // leaves the cell empty so a retry is possible but never silently uses
+    // a stale pipeline.
+    let pipeline = match ctx.ehs_turn_pipeline.get() {
+        Some(p) => p,
+        None => {
+            let source = format!(
+                "{}\n{}",
+                include_str!("msl/eval7_shared.msl"),
+                include_str!("msl/ehs_turn.msl"),
+            );
+            let library = ctx
+                .device
+                .new_library_with_source(&source, &CompileOptions::new())
+                .map_err(|e| KernelError::Metal(format!("EHS MSL compile: {e:?}")))?;
+            let function = library
+                .get_function("ehs_turn_kernel", None)
+                .map_err(|e| KernelError::Metal(format!("get_function ehs_turn: {e:?}")))?;
+            let compiled = ctx
+                .device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|e| KernelError::Metal(format!("ehs_turn pipeline: {e:?}")))?;
+            let _ = ctx.ehs_turn_pipeline.set(compiled);
+            ctx.ehs_turn_pipeline
+                .get()
+                .expect("just set the turn pipeline")
+        }
+    };
 
     let tables_buf = ctx.device.new_buffer_with_data(
         tables_bytes.as_ptr() as *const std::ffi::c_void,
@@ -190,22 +213,32 @@ pub(crate) fn dispatch_ehs_flop(
         ));
     }
 
-    let source = format!(
-        "{}\n{}",
-        include_str!("msl/eval7_shared.msl"),
-        include_str!("msl/ehs_flop.msl"),
-    );
-    let library = ctx
-        .device
-        .new_library_with_source(&source, &CompileOptions::new())
-        .map_err(|e| KernelError::Metal(format!("EHS flop MSL compile: {e:?}")))?;
-    let function = library
-        .get_function("ehs_flop_kernel", None)
-        .map_err(|e| KernelError::Metal(format!("get_function ehs_flop: {e:?}")))?;
-    let pipeline = ctx
-        .device
-        .new_compute_pipeline_state_with_function(&function)
-        .map_err(|e| KernelError::Metal(format!("ehs_flop pipeline: {e:?}")))?;
+    // L-25: same caching as turn (see dispatch_ehs_turn).
+    let pipeline = match ctx.ehs_flop_pipeline.get() {
+        Some(p) => p,
+        None => {
+            let source = format!(
+                "{}\n{}",
+                include_str!("msl/eval7_shared.msl"),
+                include_str!("msl/ehs_flop.msl"),
+            );
+            let library = ctx
+                .device
+                .new_library_with_source(&source, &CompileOptions::new())
+                .map_err(|e| KernelError::Metal(format!("EHS flop MSL compile: {e:?}")))?;
+            let function = library
+                .get_function("ehs_flop_kernel", None)
+                .map_err(|e| KernelError::Metal(format!("get_function ehs_flop: {e:?}")))?;
+            let compiled = ctx
+                .device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|e| KernelError::Metal(format!("ehs_flop pipeline: {e:?}")))?;
+            let _ = ctx.ehs_flop_pipeline.set(compiled);
+            ctx.ehs_flop_pipeline
+                .get()
+                .expect("just set the flop pipeline")
+        }
+    };
 
     let tables_buf = ctx.device.new_buffer_with_data(
         tables_bytes.as_ptr() as *const std::ffi::c_void,
