@@ -69,8 +69,8 @@ fn exploit_bayes_memory_probe() {
         bayes_session_block: 100,
         regret_discount: 1.0,
         avg_gamma: 0.9,
-            checkpoint_every: 0,
-            checkpoint_dir: None,
+        checkpoint_every: 0,
+        checkpoint_dir: None,
     };
 
     let rss_before = rss_bytes();

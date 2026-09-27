@@ -90,19 +90,35 @@ impl ChangepointShield {
         let h = hazard_rate.clamp(1e-6, 0.5);
         let mut rl = vec![0.0; 200];
         rl[0] = 1.0; // session starts with run length 0 with certainty
-        ChangepointShield { hazard_rate: h, run_length_posterior: rl, last_loglik: Vec::new(), last_vote: None }
+        ChangepointShield {
+            hazard_rate: h,
+            run_length_posterior: rl,
+            last_loglik: Vec::new(),
+            last_vote: None,
+        }
     }
 
     /// Run-length recursion update on this hand's per-archetype evidence
     /// log-likelihoods (one per specialist, any scale — normalized inside).
     pub fn update(&mut self, hand_evidence_loglik: &[f64]) {
-        if hand_evidence_loglik.is_empty() { return; }
+        if hand_evidence_loglik.is_empty() {
+            return;
+        }
         // predictive likelihoods from log-scale (softmax-normalized)
-        let m = hand_evidence_loglik.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let mut lik: Vec<f64> =
-            hand_evidence_loglik.iter().map(|&l| (l - m).exp()).collect();
+        let m = hand_evidence_loglik
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let mut lik: Vec<f64> = hand_evidence_loglik
+            .iter()
+            .map(|&l| (l - m).exp())
+            .collect();
         let s: f64 = lik.iter().sum();
-        if s > 0.0 { for v in lik.iter_mut() { *v /= s; } }
+        if s > 0.0 {
+            for v in lik.iter_mut() {
+                *v /= s;
+            }
+        }
         // archetype-marginal likelihood for growth vs reset: use the max
         // (best-explaining type) so a clean switch still registers.
         let best = lik.iter().copied().fold(0.0f64, f64::max).max(1e-9);
@@ -139,7 +155,11 @@ impl ChangepointShield {
         }
         self.last_vote = vote;
         let tot: f64 = next.iter().sum();
-        if tot > 0.0 { for v in next.iter_mut() { *v /= tot; } }
+        if tot > 0.0 {
+            for v in next.iter_mut() {
+                *v /= tot;
+            }
+        }
         self.run_length_posterior = next;
         self.last_loglik = hand_evidence_loglik.to_vec();
     }

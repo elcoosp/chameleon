@@ -78,8 +78,7 @@ pub fn build_chameleon_with_router(
     // (process-wide flag) so it A/B's cleanly vs fixed-N0.
     // RouterRuntime::new already enables it from the flag/env; the explicit
     // wrapper below covers routers constructed before the flag existed.
-    if cham_router::runtime::CHANGEPOINT_FORCE
-        .load(std::sync::atomic::Ordering::SeqCst)
+    if cham_router::runtime::CHANGEPOINT_FORCE.load(std::sync::atomic::Ordering::SeqCst)
         && !router.changepoint_enabled()
     {
         router = router.with_changepoint_shield(1.0 / 200.0);

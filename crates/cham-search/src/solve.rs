@@ -106,36 +106,53 @@ pub fn blended_villain_prior(base: &[f64], actions: &[String]) -> Vec<f64> {
         .iter()
         .position(|a| a.starts_with("call"))
         .or_else(|| lower.iter().position(|a| a.starts_with("check")));
-    let weak = lower
-        .iter()
-        .position(|a| a.starts_with("fold"))
-        .or(passive);
+    let weak = lower.iter().position(|a| a.starts_with("fold")).or(passive);
     let tilt = |target: Option<usize>, aggressive_only: bool| -> Vec<f64> {
         let mut out = base.to_vec();
         let Some(t) = target else { return out };
         let is_aggr = |a: &str| a.starts_with("bet") || a.starts_with("raise") || a == "jam";
         let mut movable = 0.0;
         for (i, p) in base.iter().enumerate() {
-            if i == t { continue; }
-            if !aggressive_only || is_aggr(&lower[i]) { movable += p; }
+            if i == t {
+                continue;
+            }
+            if !aggressive_only || is_aggr(&lower[i]) {
+                movable += p;
+            }
         }
         let shift = movable * TILT;
-        if shift <= 0.0 { return out; }
+        if shift <= 0.0 {
+            return out;
+        }
         for (i, p) in base.iter().enumerate() {
-            if i == t { continue; }
-            if !aggressive_only || is_aggr(&lower[i]) { out[i] = p - shift * (p / movable); }
+            if i == t {
+                continue;
+            }
+            if !aggressive_only || is_aggr(&lower[i]) {
+                out[i] = p - shift * (p / movable);
+            }
         }
         out[t] = base[t] + shift;
         let total: f64 = out.iter().sum();
-        if total > 0.0 { for v in out.iter_mut() { *v /= total; } }
+        if total > 0.0 {
+            for v in out.iter_mut() {
+                *v /= total;
+            }
+        }
         out
     };
     let ch = tilt(passive, true);
     let fh = tilt(weak, false);
     let mut out = vec![0.0; n];
-    for i in 0..n { out[i] = W[0] * base[i] + W[1] * ch[i] + W[2] * fh[i]; }
+    for i in 0..n {
+        out[i] = W[0] * base[i] + W[1] * ch[i] + W[2] * fh[i];
+    }
     let total: f64 = out.iter().sum();
-    if total > 1e-12 { for v in out.iter_mut() { *v /= total; } }
+    if total > 1e-12 {
+        for v in out.iter_mut() {
+            *v /= total;
+        }
+    }
     out
 }
 
@@ -529,7 +546,9 @@ pub fn solve_with_warmkey(
     // the leaves. Hero paths keep the raw prior (our strategy is solved).
     let mut blended: Strats = prior.strat.clone();
     for (path, player, actions, _n) in nodes.iter() {
-        if *player != 1 { continue; }
+        if *player != 1 {
+            continue;
+        }
         if let Some(base) = prior.strat.get(path) {
             if base.len() == actions.len() {
                 blended.insert(path.clone(), blended_villain_prior(base, actions));

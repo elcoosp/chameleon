@@ -507,5 +507,9 @@ fn multileaf_blend_wired_into_live_solve() {
     assert!(r.lbr_gap.0.is_finite() && r.lbr_gap.1.is_finite());
     // default budget raised to use the 250ms headroom (v7 Item 5.1)
     let cfg = SearchConfig::default();
-    assert_eq!(cfg.budget.iters_cap(0), 2000, "default RNR iters raised 400 -> 2000");
+    assert_eq!(
+        cfg.budget.iters_cap(0),
+        2000,
+        "default RNR iters raised 400 -> 2000"
+    );
 }
