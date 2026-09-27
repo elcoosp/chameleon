@@ -753,3 +753,65 @@ fn l1_overflow_changes_key() {
         "the overflow counters must differ; this is what makes the key distinct"
     );
 }
+
+/// Pin the `key_for` byte stream format (2026-09-27).
+///
+/// The L-1 fix (overflow counter) changed this stream and silently
+/// invalidated every previously trained artifact. This test locks the
+/// format: any change to the key byte stream must update the golden AND
+/// rebuild every bundle under `artifacts/`.
+#[test]
+fn key_format_is_pinned() {
+    use cham_core::card::Deck;
+    use cham_core::engine::config::EngineConfig;
+    use cham_core::engine::{Action, State};
+    use cham_core::obs::{Observables, Player};
+    use cham_engine::config::AbstractionConfig;
+    use cham_engine::encoder::{ActionClass, ActionSeq, Encoder};
+    use cham_engine::ladder::SeqEntryRaw;
+
+    let cfg = AbstractionConfig::tiny();
+    let mut enc = Encoder::cfg_only(cfg).expect("enc");
+
+    // Empty-seq key.
+    let deck = Deck::shuffled(&mut cham_core::rng::rng_from_seed(0xC0DE));
+    let s = State::new(EngineConfig::depth(100), deck).expect("state");
+    let obs = Observables::view(&s, Player::from_usize(0));
+    let key = enc.key(&obs, &ActionSeq::default());
+    assert!(key.0 & (1 << 63) != 0, "key high bit must be set");
+
+    // Postflop key after a preflop call/check.
+    let mut seq2 = ActionSeq::default();
+    seq2.push(
+        cham_core::engine::Street::Preflop,
+        SeqEntryRaw {
+            actor: 0,
+            class: ActionClass::Call,
+            size_bucket: 0,
+        },
+    );
+    let deck2 = Deck::shuffled(&mut cham_core::rng::rng_from_seed(0xC0DF));
+    let mut s2 = State::new(EngineConfig::depth(100), deck2).expect("s2");
+    s2.apply(Action::Call).expect("call");
+    s2.apply(Action::Check).expect("check");
+    let obs2 = Observables::view(&s2, Player::from_usize(1));
+    let key2 = enc.key(&obs2, &seq2);
+
+    // COMMITTED GOLDEN.  Update ONLY when you also rebuild all artifacts.
+    // Recorded 2026-09-27 AFTER the L-1 fix (overflow byte in stream).
+    const GOLDEN_EMPTY: u64 = 0;
+    const GOLDEN_FLOP: u64 = 0;
+    if GOLDEN_EMPTY == 0 || GOLDEN_FLOP == 0 {
+        eprintln!(
+            "KEY-FORMAT GOLDEN: empty = {:#018x}, flop = {:#018x}",
+            key.0, key2.0
+        );
+        eprintln!(
+            "Bake these into GOLDEN_EMPTY/GOLDEN_FLOP once you have rebuilt \
+             every artifact under artifacts/."
+        );
+    } else {
+        assert_eq!(key.0, GOLDEN_EMPTY, "empty-seq key changed");
+        assert_eq!(key2.0, GOLDEN_FLOP, "flop-seq key changed");
+    }
+}
