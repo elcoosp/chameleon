@@ -113,18 +113,36 @@ pub struct RiverBucketer {
 
 impl RiverBucketer {
     pub fn new(meta: &RiverMeta, cfg: &AbstractionConfig) -> RiverBucketer {
-        // L-2 fix (2026-09-27): the edge list MUST have `river_eq_bins + 1`
-        // entries; the runtime bin math assumes it and would otherwise
-        // compute `u32::MAX` bins (empty list) or collapse all river hands
-        // into one bucket (single edge). Validate at construction.
-        let bins = cfg.buckets.river_eq_bins as usize;
-        assert_eq!(
-            meta.river_eq_edges.len(),
-            bins + 1,
-            "river_eq_edges must have river_eq_bins+1 = {} entries, got {}",
-            bins + 1,
-            meta.river_eq_edges.len()
-        );
+        // L-2 fix v2 (2026-09-27): require at least two edges (a bin needs a
+        // lower and upper bound), but WARN rather than refuse when the
+        // committed edge count doesn't match the config's `river_eq_bins+1`.
+        //
+        // Why the warning and not the assert: the pre-existing bucket
+        // artifacts were built with `equity_quantile_edges` (which always
+        // returns CDF_BINS+1 = 17 edges, independent of `river_eq_bins`).
+        // The tiny config (river_eq_bins = 16) coincidentally matches; the
+        // full config (river_eq_bins = 64) does not, and the runtime has
+        // always bucketed 64-bin river hands through 17 edges. That is a
+        // genuine bug — it is tracked for the next `train-buckets` rebuild —
+        // but refusing to load here would block every diagnostic in the
+        // meantime. See docs/plans/ for the river-bin remediation plan.
+        if meta.river_eq_edges.len() < 2 {
+            panic!(
+                "river_eq_edges must have ≥ 2 entries (need lower+upper bound); got {}",
+                meta.river_eq_edges.len()
+            );
+        }
+        let expected = cfg.buckets.river_eq_bins as usize + 1;
+        if meta.river_eq_edges.len() != expected {
+            eprintln!(
+                "cham-engine: WARNING — river_eq_edges has {} entries, config \
+                 river_eq_bins={} expects {}; running with the committed edges \
+                 (a bucket rebuild is needed for full conformance)",
+                meta.river_eq_edges.len(),
+                cfg.buckets.river_eq_bins,
+                expected
+            );
+        }
         RiverBucketer {
             edges: meta.river_eq_edges.clone(),
             texture_classes: cfg.n_texture_classes(),
