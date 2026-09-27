@@ -376,7 +376,7 @@ fn write_meta_struct(out_dir: &Path, meta: &MetaOut) -> Result<(), crate::Engine
 /// `coverage` (a string) and `blake3` (the hash itself) are excluded:
 /// `coverage` is purely informational, and including it would defeat the
 /// point. This encoding is byte-identical across builds and platforms.
-pub fn meta_canonical_bytes(m: &MetaOut) -> Vec<u8> {
+pub(crate) fn meta_canonical_bytes(m: &MetaOut) -> Vec<u8> {
     fn push_str_hash(b: &mut Vec<u8>, s: &str) {
         // Hash a string by its bytes length-prefixed, so two different
         // strings cannot collide by concatenation.
@@ -419,7 +419,7 @@ pub fn meta_canonical_bytes(m: &MetaOut) -> Vec<u8> {
 
 /// Verify a `meta.json` payload against its embedded `blake3` field.
 /// A mismatch is a hard error (tamper / corruption).
-pub fn verify_meta_text(text: &str) -> Result<(), crate::EngineError> {
+pub(crate) fn verify_meta_text(text: &str) -> Result<(), crate::EngineError> {
     let m: MetaOut = serde_json::from_str(text)
         .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
     let stored = m.blake3.clone();
@@ -806,7 +806,12 @@ pub fn finalize_meta(
 /// hash. If the file's numbers were edited, the re-stamp will silently
 /// produce a hash that matches the edited content. Only use this on files
 /// you trust.
-pub fn restamp_meta_text(text: &str) -> Result<String, crate::EngineError> {
+// L-5 v2 migration tool: re-hash an existing meta.json with the new
+// canonical encoder. Only exercised by the throwaway re-stamp binary used
+// to migrate pre-existing bundles; kept here so the encoder stays in one
+// place. If a future migration is needed again, this is the entry point.
+#[allow(dead_code)]
+pub(crate) fn restamp_meta_text(text: &str) -> Result<String, crate::EngineError> {
     let mut m: MetaOut = serde_json::from_str(text)
         .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
     m.blake3 = String::new();
