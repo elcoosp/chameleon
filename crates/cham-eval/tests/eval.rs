@@ -127,20 +127,54 @@ fn sprt_chunking_matches_full_run_seeds() {
 
 #[test]
 fn duplicate_vr_factor_wired() {
-    // B4: a noisy (non-mirror) matchup reports VR > 1.0 — the duplicate
-    // estimator cancels seat effects the naive estimator keeps.
+    // B4 / H-11 fix (2026-09-27): the VR layer was DEAD until
+    // `ApplyOutcome::runout_board_len` started reporting the pre-runout
+    // board. The old guard
+    //   `stacks()==[0,0] && !is_terminal()`
+    // was unsatisfiable (the engine terminates the hand inside
+    // `apply_in_place` the moment it zeroes both stacks), so `vr_factor`
+    // was identically 1.0 and this test's `>= 1.0` assertion was a
+    // tautology.
+    //
+    // Fixture selection (measured 2026-09-27, CallBot hero, 200 deals,
+    // seed 0x5EED_5EED):
+    //   random        depth=40   vr ≈ 1.17  ← chosen
+    //   random        depth=100  vr ≈ 1.20
+    //   arch:lag/tag  any        vr  = 1.00  (deterministic mixtures
+    //                                         cancel exactly across
+    //                                         the duplicate seatings)
+    //   jamfix        any        vr  = 1.00  (jam-vs-call is symmetric:
+    //                                         every deal wins/loses the
+    //                                         same amount in both
+    //                                         seatings, so the raw pair
+    //                                         sums to 0 → baseline
+    //                                         variance = 0; the
+    //                                         variance_factor guard now
+    //                                         returns 1.0 correctly)
+    //
+    // `random` produces a mix of pre-river all-ins and passive hands,
+    // giving the adjustment variance to reduce. 40bb depth maximizes
+    // pre-river all-in frequency without making every hand symmetrical.
     let spec = MatchSpec {
-        opponent: OpponentSpecDto("arch:tag".into()),
-        deals: 60,
-        depth_bb: 100,
-        base_seed: 0x9A9A,
-        label: "vr".into(),
+        opponent: OpponentSpecDto("random".into()),
+        deals: 200,
+        depth_bb: 40,
+        base_seed: 0x5EED_5EED,
+        label: "vr-live".into(),
     };
     let factory = || -> Box<dyn Agent> { Box::new(cham_opponents::baselines::CallBot) };
     let r = MatchRunner::run(&spec, &factory, None).expect("run");
     assert!(
         r.vr_factor >= 1.0,
         "VR factor never below 1.0: {}",
+        r.vr_factor
+    );
+    assert!(
+        r.vr_factor > 1.0,
+        "H-11: random-vs-CallBot must show vr_factor > 1.0 (the all-in-EV \
+         adjustment actually fired); got {}. If this fails, the wiring is \
+         still dead — check `ApplyOutcome::runout_board_len` is populated \
+         in cham-core/src/engine/mod.rs.",
         r.vr_factor
     );
 }

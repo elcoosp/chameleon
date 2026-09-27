@@ -111,7 +111,13 @@ pub fn variance_factor(baseline: &[f64], adjusted: &[f64]) -> f64 {
     }
     let v_base = variance_of(baseline);
     let v_adj = variance_of(adjusted);
-    if v_adj <= 1e-12 {
+    // H-11 (2026-09-27): also guard a zero baseline. If the baseline series
+    // has no variance there is nothing to reduce, so the honest factor is
+    // 1.0 — not `0 / v_adj = 0`. This case fires on perfectly symmetric
+    // duplicate matchups (e.g. both seats commit identical amounts and the
+    // winner-takes-all outcome cancels across the seatings, so every raw
+    // pair sums to 0).
+    if v_base <= 1e-12 || v_adj <= 1e-12 {
         return 1.0;
     }
     v_base / v_adj
