@@ -29,6 +29,12 @@ Clippy green: `cargo clippy --workspace --all-targets -- -D warnings`.
 
 ### P1 — [RESOLVED this cycle] Full-abstraction fallback
 
+> **⚠ Numbers below predate the RBP-gate fix (fe84467).** The 26.7% →
+> 3.3% fallback reduction was real *as a fallback-telemetry change*
+> (EXP-012/013), but was measured on a collapsed policy. The honest
+> fallback rate on a correctly-trained policy has not been measured
+> yet. See `docs/reports/20260927-rbp-gate-stale-results.md`.
+
 Was 26.7% (full) / 17.3% (tiny). Root cause diagnosed and fixed:
 `docs/reports/p1-fallback-diagnosis-20260926.md` found two distinct
 classes (Cause A: training-reachability gap on `jamfix`/`pnash`; Cause B:

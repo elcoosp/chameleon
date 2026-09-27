@@ -1,3 +1,18 @@
+> **⚠ STALE NOTICE (2026-09-27, commit fe84467)**
+> Every policy-strength number in §2 (Ledger Match Play, Screening
+> Ladder, Comparisons) was measured BEFORE the RBP-gate fix
+> (`crates/cham-blueprint/src/traversal.rs`'s "pruning disabled by
+> default" was actually pruning unconditionally, collapsing every
+> trained policy to a pure strategy at every infoset). See
+> `docs/reports/20260927-rbp-gate-stale-results.md` for the diagnosis
+> and `docs/reports/20260927-v7-audit.md` for the audit trail.
+>
+> §1 (engine/algorithmic speed) and §3 (GPU throughput) are PERF-only
+> and remain valid — they don't measure policy quality.
+>
+> First honest LBR after the fix: tiny 3M mean 26641 mb/hand vs
+> uniform 37756 (−29%). Full honest tiny-agent LBR still pending.
+
 # Performance, Competitiveness, and Benchmark Analysis: CHAMELEON Bot Engine
 
 This report evaluates the **competitiveness** and **speed/efficiency** of the CHAMELEON bot engine relative to concurrence (academic SOTA, public benchmarks like Slumbot, and standard CFR architectures), **grounded strictly in actual measurements, committed criterion benchmarks, and repo flight records**.

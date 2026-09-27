@@ -1,3 +1,13 @@
+> **⚠ PARTIALLY STALE (2026-09-27, commit fe84467)**
+> The per-expert fallback breakdown this report describes was
+> measured on the PRE-RBP-fix collapsed policy. The two mechanisms
+> (Cause A training-reachability gap, Cause B fallback-order
+> over-report) are still the right explanation of WHY fallbacks
+> happen, but every NUMERIC rate in the tables below is now
+> stale — the honest-trained policy has never been measured with
+> this diagnostic. See `docs/reports/20260927-rbp-gate-stale-results.md`.
+> The `probe --diag-fallback` instrumentation itself is unaffected.
+
 # P1 fallback diagnosis — per-expert miss attribution
 
 > **Status:** [DONE] — 2026-09-26 — measurement only, no runtime change shipped.
