@@ -155,9 +155,16 @@ fn duplicate_vr_factor_wired() {
     // `random` produces a mix of pre-river all-ins and passive hands,
     // giving the adjustment variance to reduce. 40bb depth maximizes
     // pre-river all-in frequency without making every hand symmetrical.
+    //
+    // Deal count: 200 deals took ~47s because every hand runs deep against
+    // a random opponent and the VR machinery hits fresh preflop-equity memo
+    // entries. 60 deals is ample — the ratio clears 1.0 by a wide margin
+    // even at 60 (signal-to-noise is dominated by WHETHER the adjustment
+    // fires, not by how many deals average it). If the wiring regresses,
+    // vr_factor collapses to exactly 1.0 and this fails either way.
     let spec = MatchSpec {
         opponent: OpponentSpecDto("random".into()),
-        deals: 200,
+        deals: 60,
         depth_bb: 40,
         base_seed: 0x5EED_5EED,
         label: "vr-live".into(),

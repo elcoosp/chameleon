@@ -367,11 +367,10 @@ fn metrics_gates_negative() {
     //
     // M-3 re-baseline (2026-09-27): the M-3 fix raised the split-A class
     // balance floor from `n < 2` to `n < 2000`. The original 30×120 fixture
-    // produced ~450 rows/class in split A, so `train_model` now refuses it
-    // with "class 0 has 450 rows in A (min 2000)". Enlarge to 200×400 =
-    // 80 000 rows total (~20 000/class; ≥ 2000 in A by a wide margin
-    // whatever the split ratios are).
-    let rows = synthetic_rows(200, 400, 3);
+    // produced ~450 rows/class in A. Sizing: ~50% of sessions land in A →
+    // ~12.5% of all rows per class → 60×400 = 24 000 rows → ~3 000/class
+    // in A (1.5x safety margin, and far cheaper to train than 80k).
+    let rows = synthetic_rows(60, 400, 3);
     // shuffle labels to destroy signal
     let mut shuffled: Vec<RbinRow> = rows
         .iter()
@@ -388,7 +387,7 @@ fn metrics_gates_negative() {
         }
     }
     let (_m, report) = train_model(&shuffled).expect("train (weak)");
-    let rows_ok = synthetic_rows(200, 400, 3);
+    let rows_ok = synthetic_rows(60, 400, 3);
     let (_m2, good) = train_model(&rows_ok).expect("train (good)");
     assert!(
         !report.gates_passed,
