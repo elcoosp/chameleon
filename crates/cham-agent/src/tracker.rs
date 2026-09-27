@@ -176,6 +176,55 @@ impl Tracker {
             vpip = true;
         }
         let _ = vpip;
+        // H-3 / H-4 / H-5 fixes (2026-09-27):
+        //
+        //  (a) A real showdown has NO fold action anywhere. The previous
+        //      code inferred "showdown" from `showdown_holes` being fully
+        //      populated, but PublicHistory::from currently reveals both
+        //      holes whenever board_len == 5 — including a FOLD on the
+        //      river (H-5, I9 leak). Detect the fold directly.
+        //  (b) FOLD_VS_BET needs a PER-HAND `opp_called_bet_this_hand`
+        //      flag, not the LIFETIME `n_bets_faced_called > 0` counter,
+        //      which becomes permanently true after the first call ever
+        //      and then never records a fold again (H-4).
+        //  (c) Every postflop stat must be gated on its per-hand
+        //      OPPORTUNITY, not written 0/1 every hand (H-5). Otherwise
+        //      the stats are diluted and `n_faces_open` becomes its own
+        //      denominator (invariant 1.0).
+        //  (d) Aggression must count bets/raises on EVERY street including
+        //      the river (previously omitted, H-5).
+        let opp_is_pfa = pfr || opp_3bet;
+        let opp_called_bet_this_hand = ph.actions.iter().any(|(s, p, a)| {
+            s.as_u8() >= 1
+                && p.as_usize() == opp
+                && matches!(a, cham_core::engine::Action::Call)
+        });
+        let opp_folded_preflop = ph.actions.iter().any(|(s, p, a)| {
+            s.as_u8() == 0
+                && p.as_usize() == opp
+                && matches!(a, cham_core::engine::Action::Fold)
+        });
+        let reached_flop = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 1);
+        let reached_turn = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 2);
+        let any_fold = ph
+            .actions
+            .iter()
+            .any(|(_, _, a)| matches!(a, cham_core::engine::Action::Fold));
+        let reached_showdown =
+            !any_fold && ph.showdown_holes.iter().all(|h| h.is_some());
+        let opp_aggressive = opp_3bet
+            || opp_cbet
+            || opp_barreled_turn
+            || ph.actions.iter().any(|(s, p, a)| {
+                p.as_usize() == opp
+                    && s.as_u8() >= 1
+                    && matches!(
+                        a,
+                        cham_core::engine::Action::Bet { .. }
+                            | cham_core::engine::Action::Raise { .. }
+                    )
+            });
+
         // --- opportunity denominators ---
         if facing_open {
             self.opp_faces_open += 1;
@@ -187,15 +236,20 @@ impl Tracker {
         if facing_3bet {
             self.opp_faces_3bet += 1;
         }
-        if opp_cbet {
+        // H-5: `opp_cbet_opportunities` must count OPPORTUNITIES (opp was
+        // PFA and reached the flop), not c-bets made — the previous code
+        // made it identical to `n_cbet` (invariant 1.0 ratio).
+        if opp_is_pfa && reached_flop {
             self.opp_cbet_opportunities += 1;
-            self.n_cbet += 1;
+            if opp_cbet {
+                self.n_cbet += 1;
+            }
         }
         if opp_bet_faced {
             self.opp_bets_faced += 1;
         }
 
-        // --- EWM updates (raw, [0,1]) ---
+        // --- EWM updates (raw, [0,1]) — now all OPPORTUNITY-GATED ---
         self.ewm_update(
             EWM_VPIP,
             if is_opp_vpip(&ph.actions, opp) {
@@ -205,11 +259,20 @@ impl Tracker {
             },
         );
         self.ewm_update(EWM_PFR, if pfr { 1.0 } else { 0.0 });
-        self.ewm_update(EWM_THREE_BET, if opp_3bet { 1.0 } else { 0.0 });
-        if self.opp_faces_open > 0 && opp_3bet {
-            self.ewm_update(EWM_FOLD_TO_3BET, 0.0);
+        if facing_open {
+            // opp had an open to face → opportunity to 3-bet
+            self.ewm_update(EWM_THREE_BET, if opp_3bet { 1.0 } else { 0.0 });
         }
         if facing_3bet {
+            // H-3 fix: opp faces OUR 3bet. Previous code fired when
+            // `opp_faces_open > 0 && opp_3bet` — the WRONG side (fires
+            // when opp 3bets us), on a LIFETIME counter, and always wrote
+            // 0.0 (a fold was never recorded). Now: 1.0 if opp folds
+            // preflop, 0.0 if opp calls/raises.
+            self.ewm_update(
+                EWM_FOLD_TO_3BET,
+                if opp_folded_preflop { 1.0 } else { 0.0 },
+            );
             self.ewm_update(
                 EWM_CALL_3BET,
                 if opp_called_3bet(&ph.actions, opp) {
@@ -219,16 +282,22 @@ impl Tracker {
                 },
             );
         }
-        self.ewm_update(EWM_CBET_FLOP, if opp_cbet { 1.0 } else { 0.0 });
-        if opp_bet_faced && street >= 1 {
-            let called = self.n_bets_faced_called > 0;
-            self.ewm_update(EWM_FOLD_VS_BET, if called { 0.0 } else { 1.0 });
+        if opp_is_pfa && reached_flop {
+            self.ewm_update(EWM_CBET_FLOP, if opp_cbet { 1.0 } else { 0.0 });
         }
-        self.ewm_update(EWM_BARREL_TURN, if opp_barreled_turn { 1.0 } else { 0.0 });
-        // WTSD + showdown
+        if opp_bet_faced && street >= 1 {
+            // H-4 fix: per-hand flag, not the lifetime counter.
+            self.ewm_update(
+                EWM_FOLD_VS_BET,
+                if opp_called_bet_this_hand { 0.0 } else { 1.0 },
+            );
+        }
+        if opp_cbet && reached_turn {
+            self.ewm_update(EWM_BARREL_TURN, if opp_barreled_turn { 1.0 } else { 0.0 });
+        }
+        // WTSD + showdown (H-5: require a real showdown — no fold anywhere)
         self.hands_since_showdown += 1;
-        if ph.showdown_holes.iter().all(|h| h.is_some()) {
-            // only reached at showdown (PublicHistory contract)
+        if reached_showdown {
             opp_showdown = true;
             self.hands_since_showdown = 0;
         }
@@ -238,14 +307,7 @@ impl Tracker {
             EWM_SHOWDOWN_WON,
             if opp_showdown && opp_won { 1.0 } else { 0.0 },
         );
-        self.ewm_update(
-            EWM_AGGRESSION,
-            if opp_3bet || opp_cbet || opp_barreled_turn {
-                1.0
-            } else {
-                0.0
-            },
-        );
+        self.ewm_update(EWM_AGGRESSION, if opp_aggressive { 1.0 } else { 0.0 });
         self.ewm_update(EWM_LIMP, if limped { 1.0 } else { 0.0 });
         let _ = opp_put_in;
     }
