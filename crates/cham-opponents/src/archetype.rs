@@ -43,12 +43,25 @@ pub struct ArchetypeAgent {
 
 impl ArchetypeAgent {
     /// Point (unjittered) archetype.
+    ///
+    /// L-16 fix (2026-09-27): give every instance a UNIQUE session_seed via a
+    /// process-global counter, mixed with the archetype id. Before this,
+    /// `session_seed: 0` was hardcoded — so two `point(Lag)` instances in
+    /// one process drew their per-decision `next_f64` from the SAME stream
+    /// (`child(0 ^ 0xA5A5_5A5A, ...)`) and produced perfectly correlated
+    /// action sequences. The seed stays deterministic for a single instance
+    /// across runs (it's the instance ordinal, not wall-clock). Same fix
+    /// rationale as L-8 in the trainer's jitter redraw.
     pub fn point(arch: ArchetypeId, chart: &'static PercentileChart) -> ArchetypeAgent {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static INSTANCE_CTR: AtomicU64 = AtomicU64::new(0);
+        let inst = INSTANCE_CTR.fetch_add(1, Ordering::Relaxed);
+        let seed = 0xA5A5_5A5A_0000_0000u64 ^ ((inst + 1) << 8) ^ (arch as u64 & 0xFF);
         ArchetypeAgent {
             arch,
             params: ArchetypeParams::point(arch),
             chart,
-            session_seed: 0,
+            session_seed: seed,
             hand: Cell::new(0),
             street: Cell::new(0),
             decision: Cell::new(0),

@@ -184,7 +184,24 @@ impl OpponentSpec {
             OpponentSpec::Perturbed { .. } => "PN",
             OpponentSpec::FamilyB(_) => "B",
             OpponentSpec::Noisy { .. } => "noise",
-            OpponentSpec::Switcher { .. } => "A",
+            // L-17 fix (2026-09-27): delegate to the inner specs. The previous
+            // `Switcher { .. } => "A"` labeled `switch:famB:...` as family A,
+            // defeating the "never accidentally in-family" guarantee: a
+            // switcher that spends most of its hands in family B was
+            // presented to the router as a family-A opponent.
+            //
+            // Rule: if both inner families agree, use it. If they differ,
+            // report a "mixed" family so the caller cannot treat the
+            // switcher as a clean member of either group.
+            OpponentSpec::Switcher { a, b, .. } => {
+                let fa = a.family();
+                let fb = b.family();
+                if fa == fb {
+                    fa
+                } else {
+                    "mixed"
+                }
+            }
             // SELF: our own frozen snapshot — excluded from router training,
             // tuning, and promotion gates (diagnostic self-measurement only).
             OpponentSpec::Frozen { .. } => "SELF",
