@@ -36,6 +36,7 @@ pub fn run(
     reuse: bool,
     resume_from: Option<&str>,
     cache_dir: Option<&str>,
+    checkpoint_every: u64,
 ) -> i32 {
     if let Some(run_dir) = status {
         return print_status(run_dir);
@@ -91,6 +92,12 @@ pub fn run(
         bayes_session_block: 2000,
         regret_discount,
         avg_gamma,
+        checkpoint_every,
+        checkpoint_dir: if checkpoint_every > 0 {
+            Some(std::path::PathBuf::from(out).join("checkpoints"))
+        } else {
+            None
+        },
     };
     let runs = std::path::Path::new(out).join(format!("{mode}-{seed}"));
 
@@ -134,6 +141,8 @@ pub fn run(
             bayes_session_block: 2000,
             regret_discount,
             avg_gamma,
+            checkpoint_every: 0,
+            checkpoint_dir: None,
         };
         let key = cham_blueprint::train_cache::train_cache_key(
             &cfg_peek,
@@ -241,6 +250,8 @@ pub fn run(
             bayes_session_block: 2000,
             regret_discount,
             avg_gamma,
+            checkpoint_every: 0,
+            checkpoint_dir: None,
         };
         let key = cham_blueprint::train_cache::train_cache_key(
             &cfg_peek,
