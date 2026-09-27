@@ -58,7 +58,7 @@ pub fn build_chameleon_with_router(
         },
         fallback_mode: std::env::var("CHAM_FALLBACK_MODE").unwrap_or_else(|_| "renorm".into()),
     };
-    let router = match std::fs::read(bundle.join("router.bin")) {
+    let mut router = match std::fs::read(bundle.join("router.bin")) {
         Ok(bytes) => {
             let base = cham_router::runtime::RouterRuntime::from_model_bytes(&bytes)
                 .map_err(|e| format!("router model: {e}"))?;
@@ -74,6 +74,16 @@ pub fn build_chameleon_with_router(
             cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), temp, n0, beta, z)
         }
     };
+    // v7 Item 6: changepoint shield is opt-in via --router-changepoint-shield
+    // (process-wide flag) so it A/B's cleanly vs fixed-N0.
+    // RouterRuntime::new already enables it from the flag/env; the explicit
+    // wrapper below covers routers constructed before the flag existed.
+    if cham_router::runtime::CHANGEPOINT_FORCE
+        .load(std::sync::atomic::Ordering::SeqCst)
+        && !router.changepoint_enabled()
+    {
+        router = router.with_changepoint_shield(1.0 / 200.0);
+    }
     ChameleonAgent::new(
         mode,
         loaded.encoder,
