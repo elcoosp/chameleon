@@ -32,6 +32,17 @@ Legend: **[DONE]** shipped · **[WIP]** actively in flight · **[TODO]** next ·
 
 ## DONE (recent first)
 
+### v7-sota-competitiveness-runbook (2026-09-27 session)
+- **[DONE]** Item 1 — honest re-baseline verified (`fe84467` in tree; `honest-lbr-tiny-3M-s7` mean 26,641 vs 37,757 uniform, −29%; 10M bundle exists, LBR bench pending).
+- **[DONE]** Item 2 (infra) — convergence checkpoints (`TrainerConfig.checkpoint_every/dir`, `train-bp --checkpoint-every`); sweep loop + baseline in `docs/reports/convergence-curve.md`, 100M run pending compute.
+- **[TODO]** Item 3 — DCFR honest 9-cell re-sweep at Item 2 iters (flags exist; stale EXP-011 not trusted).
+- **[WIP]** Item 4 — EMD GPU bulk-fill (flop-full tables present; turn queued; v6 Item 6 §§6.1–6.7; gate on Item 2 curve).
+- **[DONE]** Item 5 — default RNR 400→2000 + B-7 multi-leaf blend wired into live solve (`blended_villain_prior`), test green; turn re-solving = TODO 5b.
+- **[DONE]** Item 6 (flag-gated) — `ChangepointShield` + `--router-changepoint-shield`, unit tests green; EXP-015 honest re-run + A/B pending compute.
+- **[WIP]** Item 7 — EXP-014 hi-iters 2M job running (`artifacts/exp-014-hi-iters.log` slot 0); verdict on completion.
+- **[DONE]** Item 8 (proposal only) — `docs/plans/v8-leaf-value-net-proposal.md`; no code/deps/spec edits; awaits human green light.
+- Detail: `docs/reports/v7-sota-items-1-7-status.md`.
+
 ### v5-deepdive-audit fixes (v6 runbook, 2026-09-26 session)
 - **[DONE]** Item 1 — `docs/HANDOFF.md` P1 synced (fallback fixed this cycle).
 - **[DONE]** Items 2+3 — `pipeline.rs`: reach update reuses `expert_sigma`/
