@@ -119,18 +119,36 @@ impl ChangepointShield {
                 *v /= s;
             }
         }
-        // archetype-marginal likelihood for growth vs reset: use the max
-        // (best-explaining type) so a clean switch still registers.
-        let best = lik.iter().copied().fold(0.0f64, f64::max).max(1e-9);
+        // L-20 fix (2026-09-27): the previous form used `best = max(lik)`
+        // for BOTH next[0] and next[r+1]. Since both terms are then scaled
+        // by the same constant and the vector is renormalized at the end,
+        // that factor cancels EXACTLY — the likelihood never influenced the
+        // update. The shield was effectively argmax-vote-only.
+        //
+        // Correct Adams & MacKay (2007) recursion: growth uses the
+        // likelihood of this hand's evidence under the RUN'S OWN TYPE
+        // (approximated here by the previous argmax vote); reset uses the
+        // likelihood under the PRIOR (uniform over archetypes → a constant,
+        // which cancels in normalization). Now a hand the current type
+        // explains poorly shrinks the growth factor and lets reset mass
+        // grow — the actual "surprise" signal the model is meant to carry.
+        //
+        //   next[0]    ∝ hazard      · Σ_r P(r) · 1
+        //   next[r+1]  ∝ (1−hazard) · P(r)   · lik[last_type]
         let h = self.hazard_rate;
         let n = self.run_length_posterior.len();
         let mut next = vec![0.0; n];
-        // reset: P(r=0) ∝ hazard * Σ_r P(r) * lik
+        let last_type = self.last_vote;
+        let growth_factor: f64 = match last_type {
+            Some(v) => lik.get(v).copied().unwrap_or(1.0).max(1e-12),
+            // First update: no run type yet, so both hypotheses are equally
+            // likely on this hand — the ratio is hazard : (1−hazard).
+            None => 1.0,
+        };
         let total: f64 = self.run_length_posterior.iter().sum();
-        next[0] = h * total * best;
-        // growth: P(r+1) ∝ (1-hazard) * P(r) * lik
+        next[0] = h * total;
         for r in 0..n - 1 {
-            next[r + 1] = (1.0 - h) * self.run_length_posterior[r] * best;
+            next[r + 1] = (1.0 - h) * self.run_length_posterior[r] * growth_factor;
         }
         // evidence-sharpening: when the vote disagrees with the accumulated
         // posterior mode, boost the reset mass (the "surprise" signal).
