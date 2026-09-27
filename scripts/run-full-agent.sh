@@ -70,9 +70,46 @@ done
 
 # 5) Ladder: swap in full agent, run, swap back
 log "ladder full-abstraction agent (keeping tiny as agent-tiny)"
+# H-14 fix (2026-09-27): the old sequence
+#     mv artifacts/agent artifacts/agent-tiny-backup
+#     cp -a artifacts/agent-full artifacts/agent
+#     <run ladder>
+#     mv artifacts/agent-tiny-backup artifacts/agent
+# was broken: after the cp recreates `artifacts/agent` as a directory, the
+# final mv has an EXISTING dst dir, so POSIX mv semantics NEST the source
+# INSIDE it (`artifacts/agent/agent-tiny-backup/`) instead of restoring the
+# tiny agent at the top level. The full agent silently stayed installed and
+# a second run compounded the nesting. Also the ladder's exit code was
+# never checked.
+#
+# Fix: rm the destination before restoring, and gate on the ladder rc so a
+# failing ladder does not silently look like success.
+if [ ! -d artifacts/agent ]; then
+  log "FAIL: artifacts/agent does not exist to back up"
+  exit 1
+fi
+# Preserve any pre-existing backup rather than clobbering it silently
+if [ -e artifacts/agent-tiny-backup ]; then
+  log "FAIL: artifacts/agent-tiny-backup already exists — remove it first"
+  exit 1
+fi
 mv artifacts/agent artifacts/agent-tiny-backup
+# Make sure the restore happens even if the ladder fails or the shell
+# dies: this is the whole point of the backup.
+restore_tiny() {
+  rm -rf artifacts/agent
+  mv artifacts/agent-tiny-backup artifacts/agent
+}
+trap 'restore_tiny' EXIT INT TERM
 cp -a artifacts/agent-full artifacts/agent
-cargo run -q --release -p cham-cli -- ladder --fast --agent full 2>&1 | tee -a "$LOG"
-mv artifacts/agent-tiny-backup artifacts/agent
+ladder_rc=0
+cargo run -q --release -p cham-cli -- ladder --fast --agent full 2>&1 | tee -a "$LOG" || ladder_rc=$?
+# Reinstall the tiny agent explicitly before reporting the ladder's status.
+restore_tiny
+trap - EXIT INT TERM
+if [ "$ladder_rc" -ne 0 ]; then
+  log "FAIL: ladder exited $ladder_rc — tiny agent restored"
+  exit "$ladder_rc"
+fi
 
 log "DONE — full-abstraction ladder above"

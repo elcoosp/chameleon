@@ -81,15 +81,30 @@ impl PerturbedNashAgent {
             .filter(|(a, _)| classify(a))
             .map(|(_, p)| *p)
             .sum();
+        // H-13 fix (2026-09-27): when the base policy contains NO action in
+        // the target class (e.g. OverFold facing a check — no fold is legal;
+        // OverRaise vs an all-in — no bet/raise is legal), `target_mass == 0`
+        // and every action would be scaled by `(1 − new_mass) / (1 − 0) =
+        // 1 − δ`, so the distribution sums to 1 − δ. The δ mass is assigned
+        // to NOTHING. Consequences:
+        //   * `action_probs` returns a distribution that sums to 0.85 (for
+        //     δ = 0.15), corrupting one-sided-CFR reach products during
+        //     exploit training;
+        //   * `sample()` falls through to `dist.last()` for `u > 1 − δ`,
+        //     biasing ~15% of those decisions to the LAST legal action.
+        // If the target class is unrepresentable, the safe behaviour is to
+        // return the base distribution unchanged — no tilt is possible.
+        if target_mass <= 1e-12 {
+            for (a, p) in &base {
+                out.push((*a, *p));
+            }
+            return out;
+        }
         let taken = (self.delta).min(1.0 - target_mass);
         let new_mass = target_mass + taken;
         for (a, p) in &base {
             let q = if classify(a) {
-                if target_mass > 1e-12 {
-                    p * (new_mass / target_mass)
-                } else {
-                    new_mass / base.len() as f64
-                }
+                p * (new_mass / target_mass)
             } else if target_mass < 1.0 - 1e-12 {
                 p * ((1.0 - new_mass) / (1.0 - target_mass))
             } else {
