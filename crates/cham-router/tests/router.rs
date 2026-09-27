@@ -448,3 +448,41 @@ fn split_buckets_cover() {
         "every split populated"
     );
 }
+
+#[test]
+fn changepoint_shield_stationary_stays_near_base_n0() {
+    // v7 Item 6(a): stationary opponent — effective_n0 stays near base_n0
+    // (no regression on non-adversarial opponents).
+    use cham_router::runtime::ChangepointShield;
+    let mut cp = ChangepointShield::new(1.0 / 200.0);
+    // repeated consistent evidence for archetype 0
+    for _ in 0..30 {
+        cp.update(&[0.0, -3.0, -3.0, -3.0]);
+    }
+    let eff = cp.effective_n0(8.0);
+    assert!(
+        eff > 4.0,
+        "stationary: effective_n0 {eff} must stay near base 8.0 (no false switch)"
+    );
+}
+
+#[test]
+fn changepoint_shield_drops_after_switch() {
+    // v7 Item 6(b): switching case — effective_n0 drops sharply within a
+    // small window of the switch point.
+    use cham_router::runtime::ChangepointShield;
+    let mut cp = ChangepointShield::new(1.0 / 200.0);
+    for _ in 0..30 {
+        cp.update(&[0.0, -3.0, -3.0, -3.0]);
+    }
+    let before = cp.effective_n0(8.0);
+    // abrupt switch to archetype 3
+    for _ in 0..5 {
+        cp.update(&[-3.0, -3.0, -3.0, 0.0]);
+    }
+    let after = cp.effective_n0(8.0);
+    assert!(
+        after < before,
+        "switching: effective_n0 must drop after a switch ({before} -> {after})"
+    );
+}
