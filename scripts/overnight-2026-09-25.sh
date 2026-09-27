@@ -81,6 +81,19 @@ mem_disk_watch() {
     sleep 30
     local pid rss_kb free_gb
     pid=$(pgrep -P $$ cargo 2>/dev/null | head -1 || true)
+    # L-22 fix (2026-09-27): `pgrep -P $$ cargo` finds the cargo *driver*
+    # process (tens of MB resident), not the actual `train-bp` child the
+    # guard is meant to kill. Walk one level to the child — cargo spawns
+    # the compiled `chameleon` binary directly, so `pgrep -P $cargo_pid`
+    # finds it. If cargo hasn't spawned yet (build phase), fall back to
+    # the cargo pid so the free-disk half still works.
+    if [ -n "${pid:-}" ]; then
+      local child
+      child=$(pgrep -P "$pid" 2>/dev/null | head -1 || true)
+      if [ -n "${child:-}" ]; then
+        pid="$child"
+      fi
+    fi
     if [ -n "${pid:-}" ]; then
       rss_kb=$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ' || echo 0)
       if [ "${rss_kb:-0}" -gt $((12 * 1024 * 1024)) ]; then

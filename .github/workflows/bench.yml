@@ -130,14 +130,20 @@ jobs:
       - name: bench (compare to baseline)
         if: steps.mode.outputs.save != 'true'
         run: |
-          cargo bench -p cham-agent --bench decision -- --baseline ci || true
-          cargo bench -p cham-blueprint --bench mccfr -- --baseline ci || true
-          cargo bench -p cham-core --bench eval -- --baseline ci || true
-          cargo bench -p cham-core --bench engine -- --baseline ci || true
-          cargo bench -p cham-engine --bench encode -- --baseline ci || true
-          cargo bench -p cham-eval --bench match_throughput -- --baseline ci || true
-          cargo bench -p cham-search --bench solve -- --baseline ci || true
-          cargo bench -p cham-search --bench trigger_cache -- --baseline ci || true
+          # L-21 fix (2026-09-27): the `suite` dispatch input was parsed into
+          # `$FILTER` above and then never used; each invocation was also
+          # masked with `|| true`, so a crashing bench produced a green run
+          # and a normal-looking table. Now the filter is passed through as a
+          # libtest positional filter (criterion accepts it after `--`) and
+          # any failing bench fails the job.
+          cargo bench -p cham-agent --bench decision -- --baseline ci $FILTER
+          cargo bench -p cham-blueprint --bench mccfr -- --baseline ci $FILTER
+          cargo bench -p cham-core --bench eval -- --baseline ci $FILTER
+          cargo bench -p cham-core --bench engine -- --baseline ci $FILTER
+          cargo bench -p cham-engine --bench encode -- --baseline ci $FILTER
+          cargo bench -p cham-eval --bench match_throughput -- --baseline ci $FILTER
+          cargo bench -p cham-search --bench solve -- --baseline ci $FILTER
+          cargo bench -p cham-search --bench trigger_cache -- --baseline ci $FILTER
 
       - name: summary table
         if: always()

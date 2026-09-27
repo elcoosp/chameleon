@@ -22,14 +22,28 @@
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-STAMP=$(date +%Y%m%d-%H%M%S)
-ROOT=artifacts/overnight-lbr-$STAMP
+# L-24 fix (2026-09-27): the docstring above promises idempotency ("any run
+# whose record already exists is skipped"), but the code used a fresh
+# `$STAMP` per invocation and truncated the records file — so a rerun
+# re-executed everything into a new directory and never saw prior runs.
+# Fix: ROOT is stable (env-overridable for parallel experiments) and the
+# records file is APPEND-ONLY. `record_exists <run-id>` is available for
+# the individual run functions to consult before doing expensive work.
+ROOT=${OVERNIGHT_ROOT:-artifacts/overnight-lbr}
 mkdir -p "$ROOT"
 RECORDS="$ROOT/records.jsonl"
 LOG="$ROOT/run.log"
-: > "$RECORDS"
-: > "$LOG"
+# Append-only: do NOT truncate on rerun — that is what broke idempotency.
+touch "$RECORDS" "$LOG"
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
+
+# L-24: returns 0 when a record with the given "run" id already exists in
+# the ledger. Individual experiment functions call this before their heavy
+# work and `return 0` early on a hit.
+record_exists() {
+  local rid="$1"
+  grep -q "\"run\":\"$rid\"" "$RECORDS" 2>/dev/null
+}
 
 CFG=config/abstraction-tiny.toml
 BUCKETS=artifacts/buckets-tiny

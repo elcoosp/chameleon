@@ -9,7 +9,10 @@ for switch in 10 20 40 80 150; do
   for n0 in 4 8 16 32; do
     for temp in 0.5 0.7 1.0; do
       out="artifacts/exp-015-grid/switch${switch}-n0${n0}-temp${temp}.json"
-      cargo run -q -p cham-cli -- self-exploit \
+      # L-23 fix (2026-09-27): this 60-cell grid was running in DEBUG mode
+      # (`cargo run -q`) while every sibling experiment script uses
+      # `--release`. Debug is 10-50× slower, risking truncated runs.
+      cargo run -q --release -p cham-cli -- self-exploit \
         --snapshot artifacts/blueprints-tiny/robust-7 \
         --buckets artifacts/buckets-tiny \
         --config config/abstraction-tiny.toml \
