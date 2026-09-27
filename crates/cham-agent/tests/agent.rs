@@ -39,6 +39,8 @@ fn trained_policy(dir: &Path, iters: u64, seed: u64) -> BlueprintPolicy {
         bayes_session_block: 100,
         regret_discount: 1.0,
         avg_gamma: 0.9,
+            checkpoint_every: 0,
+            checkpoint_dir: None,
     };
     let (table, prov) = cham_blueprint::train(
         &tcfg,
