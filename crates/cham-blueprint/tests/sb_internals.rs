@@ -1,7 +1,7 @@
 //! Diagnostic: train a fresh tiny robust, then inspect the internals at the
 //! SB root — regret / RM+ current strategy / avg_strategy — for one hand.
 //! Separate "RM+ produces pure" from "averaging is broken".
-use cham_blueprint::table::{RegretTable, ThreadMode};
+use cham_blueprint::table::ThreadMode;
 use cham_blueprint::{TrainMode, TrainerConfig};
 use cham_core::card::Deck;
 use cham_core::engine::State;

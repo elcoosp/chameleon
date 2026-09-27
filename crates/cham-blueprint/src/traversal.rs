@@ -151,10 +151,7 @@ impl Default for RbpConfig {
             .ok()
             .and_then(|v| v.parse::<f64>().ok())
             .unwrap_or(0.0);
-        RbpConfig {
-            theta0,
-            delta: 1.0,
-        }
+        RbpConfig { theta0, delta: 1.0 }
     }
 }
 
