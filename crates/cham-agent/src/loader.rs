@@ -146,16 +146,44 @@ pub fn load_agent_with_budget(
         )));
     }
     hashes.insert("robust".into(), format!("{:x}", robust.artifact_hash()));
-    let bayes = match BlueprintPolicy::load(&dir.join("bayes"), ab_hash) {
-        Ok(bp) => {
-            if bp.provenance().depth_bb != depth_bb {
-                return Err(AgentError::Loader("bayes depth mismatch".into()));
-            }
-            hashes.insert("bayes".into(), format!("{:x}", bp.artifact_hash()));
-            Some(bp)
+    // M-10 fix (2026-09-27): a MISSING bayes artifact is legitimate
+    // ("this bundle has no bayes expert") — but a CORRUPT one is a hard
+    // error. The previous `Err(_) => None` made the two indistinguishable:
+    // a tampered/truncated bayes/policy.bin loaded "successfully" with
+    // bayes=None, and bayes routing silently played uniform. We now
+    // pre-check the file's existence: if it doesn't exist → None; if it
+    // exists but fails to load → propagate the error.
+    let bayes_dir = dir.join("bayes");
+    let bayes_bin = bayes_dir.join("policy.bin");
+    let bayes = if !bayes_bin.exists() {
+        None
+    } else {
+        let bp = BlueprintPolicy::load(&bayes_dir, ab_hash).map_err(|e| {
+            AgentError::Loader(format!(
+                "bayes/policy.bin exists but failed to load (corrupt or wrong \
+                 abstraction): {e}"
+            ))
+        })?;
+        if bp.provenance().depth_bb != depth_bb {
+            return Err(AgentError::Loader(format!(
+                "bayes depth {} ≠ requested {depth_bb}",
+                bp.provenance().depth_bb
+            )));
         }
-        Err(_) => None,
+        hashes.insert("bayes".into(), format!("{:x}", bp.artifact_hash()));
+        Some(bp)
     };
+
+    // M-10 second half: 'bayes' routing requires a bayes expert. A bundle
+    // that declares routing=bayes but ships no bayes artifact is an
+    // inconsistency the operator should see NOW, not at the first
+    // inference call (which would silently use uniform-greedy).
+    if routing == "bayes" && bayes.is_none() {
+        return Err(AgentError::Loader(
+            "routing='bayes' but no bayes/policy.bin in the bundle".into(),
+        ));
+    }
+
     let record = AgentLoadRecord {
         mode: routing.to_string(),
         artifact_hashes: hashes,
