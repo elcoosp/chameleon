@@ -4,11 +4,26 @@ pub fn run(
     a: &str,
     b: &str,
     deals: u64,
-    _clusters: usize,
+    clusters: usize,
     margin: f64,
     no_sprt: bool,
     promote: bool,
 ) -> i32 {
+    // L-11 fix (2026-09-27): `--clusters N` was accepted as `_clusters` and
+    // silently ignored — A/Bs ran plain deal-level paired CIs while claiming
+    // session-level support (`session_cluster_ci` exists in cham-eval but is
+    // never called from this path). Until the clustered CI is actually wired
+    // into the A/B runner, refuse anything but the default so the operator
+    // sees the truth.
+    if clusters != 1 {
+        eprintln!(
+            "ab: --clusters {clusters} is not implemented (session-clustered CIs \
+             are not wired into the A/B runner; deal-level paired CIs are what \
+             you get today). Pass --clusters 1, or see cham-eval::stats::\
+             session_cluster_ci for the machinery if you want to wire it."
+        );
+        return crate::cmd::EXIT_BUDGET;
+    }
     // B-2: same cache guard as play/ladder. No-op today; cheap.
     let _cache_guard =
         crate::cmd::cache_guard::CachePersist::hydrate("ab", "artifacts/river-cache.bin");
