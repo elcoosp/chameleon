@@ -698,3 +698,58 @@ fn histo_cache_warm_run_byte_identical() {
     let fp2 = histo_fingerprint(3, &keys, params, &edges);
     assert_eq!(fp, fp2, "fingerprint stable for the same content");
 }
+
+/// L-1 anti-regression (2026-09-27): two action sequences that share the
+/// first 8 actions of a street but diverge afterwards must produce different
+/// infoset keys. Before the fix, both hit the window cap and dropped the
+/// 9th+ action silently, so the two histories collided in the key space.
+///
+/// This test proves the STRUCTURAL half of the fix: the `overflow` counter
+/// is populated, is not equal for the two histories, and would therefore be
+/// hashed differently by `key_for` (which folds `seq.overflow` into the
+/// byte stream).
+#[test]
+fn l1_overflow_changes_key() {
+    use cham_core::engine::Street;
+    use cham_engine::ladder::SeqEntryRaw;
+
+    let push = |seq: &mut ActionSeq, n: usize| {
+        for i in 0..n {
+            seq.push(
+                Street::Preflop,
+                SeqEntryRaw {
+                    actor: (i % 2) as u8,
+                    class: if i % 2 == 0 {
+                        ActionClass::Call
+                    } else {
+                        ActionClass::Raise
+                    },
+                    size_bucket: (i % 4) as u8,
+                },
+            );
+        }
+    };
+    let mut a = ActionSeq::default();
+    push(&mut a, 8); // exactly fills the window
+    // b starts FRESH (not `b = a` — copying a already-full seq would make
+    // every subsequent push overflow and the counter would read 10, not 2).
+    let mut b = ActionSeq::default();
+    push(&mut b, 10); // first 8 fill (identical to a), remaining 2 overflow
+
+    assert_eq!(a.lens[0], 8, "first seq fills the window exactly");
+    assert_eq!(b.lens[0], 8, "second seq also fills the window");
+    assert_eq!(a.overflow[0], 0, "no overflow on the first seq");
+    assert_eq!(b.overflow[0], 2, "second seq recorded 2 dropped actions");
+
+    // The first-8 entries must be IDENTICAL — the whole point is that the
+    // keys would collide if only the window were hashed.
+    assert_eq!(
+        a.entries, b.entries,
+        "windows must be identical; divergence is only in `overflow`"
+    );
+    // …and the `overflow` counter distinguishes them.
+    assert_ne!(
+        a.overflow, b.overflow,
+        "the overflow counters must differ; this is what makes the key distinct"
+    );
+}

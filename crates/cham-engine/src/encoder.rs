@@ -396,6 +396,13 @@ impl Encoder {
             let len = seq.lens[street] as usize;
             bytes[n] = seq.lens[street];
             n += 1;
+            // L-1 fix (2026-09-27): emit the per-street overflow counter so
+            // two histories that share the first 8 actions of a street but
+            // diverge afterwards produce DIFFERENT keys. The buffer is 128
+            // bytes; worst case is 8 header + 4×(1 + 8×3 + 1) = 8 + 4×26 = 112,
+            // still under 128.
+            bytes[n] = seq.overflow[street];
+            n += 1;
             for i in 0..len {
                 let e = &seq.entries[street * 8 + i];
                 bytes[n] = e.actor;
