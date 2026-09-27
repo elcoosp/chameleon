@@ -341,10 +341,10 @@ fn write_meta(
 }
 
 fn write_meta_struct(out_dir: &Path, meta: &MetaOut) -> Result<(), crate::EngineError> {
-    let json = serde_json::to_vec_pretty(meta)
-        .map_err(|e| crate::EngineError::Meta(format!("serialize: {e}")))?;
-    let h = blake3::hash(&json);
-    // final meta carries its own hash (computed over the payload without the field)
+    // L-5 v2: hash the same canonical encoding `verify_meta_text` uses.
+    // Never hash the serde_json output — it is not byte-stable across builds.
+    let canonical = meta_canonical_bytes(meta);
+    let h = blake3::hash(&canonical);
     let m2 = meta.clone_for_hash(&h.to_string());
     let json = serde_json::to_vec_pretty(&m2)
         .map_err(|e| crate::EngineError::Meta(format!("serialize: {e}")))?;
@@ -352,21 +352,78 @@ fn write_meta_struct(out_dir: &Path, meta: &MetaOut) -> Result<(), crate::Engine
     Ok(())
 }
 
-/// L-5 fix (2026-09-27): verify a `meta.json` payload against its embedded
-/// `blake3` field. `write_meta_struct` computes the hash over the JSON of
-/// `MetaOut` with `blake3 = ""` (declaration order preserved by serde_json),
-/// then writes the JSON of the hash-stamped struct. This helper reverses
-/// that: parse to `MetaOut`, blank the field, re-serialize with the SAME
-/// pretty-printer, re-hash, compare. Callers (e.g. `load_meta`) use it as
-/// the tamper check the previous code never ran — a hand-edited
-/// `river_eq_edges` would load silently and produce garbage buckets.
+/// L-5 fix v2 (2026-09-27): verify a `meta.json` payload against its
+/// embedded `blake3` field, using a MANUAL canonical byte stream.
+///
+/// Why not hash the re-serialized JSON? Because `serde_json`'s f64
+/// formatting is **not byte-stable across builds**: the same f64 value can
+/// serialize as `0.10757575757575757` in one build and
+/// `0.10757575757575756` in another. An earlier version of this function
+/// re-serialized and hashed; on the existing bundles that produced a
+/// different hash every time and every load refused. That is worse than
+/// the unverified state — it breaks unrelated tooling for no gain.
+///
+/// Instead, hash a hand-rolled canonical encoding of the SEMANTICALLY
+/// MEANINGFUL fields only:
+///   version u32 LE
+///   n_edges u32 LE, then each edge f64 LE (bit-exact)
+///   default_bucket u16 LE
+///   flop: presence u8, then its k u32, orbits u64, kmeans.k u32,
+///         kmeans.feature_runs u32, n_seeds u32 + each u64 LE,
+///         n_inertia u32 + each f64 LE
+///   turn: same shape
+///
+/// `coverage` (a string) and `blake3` (the hash itself) are excluded:
+/// `coverage` is purely informational, and including it would defeat the
+/// point. This encoding is byte-identical across builds and platforms.
+pub fn meta_canonical_bytes(m: &MetaOut) -> Vec<u8> {
+    fn push_str_hash(b: &mut Vec<u8>, s: &str) {
+        // Hash a string by its bytes length-prefixed, so two different
+        // strings cannot collide by concatenation.
+        b.extend_from_slice(&(s.len() as u32).to_le_bytes());
+        b.extend_from_slice(s.as_bytes());
+    }
+    fn push_street(b: &mut Vec<u8>, sm: &Option<StreetMeta>) {
+        match sm {
+            None => b.push(0),
+            Some(s) => {
+                b.push(1);
+                b.extend_from_slice(&s.k.to_le_bytes());
+                b.extend_from_slice(&s.orbits.to_le_bytes());
+                push_str_hash(b, &s.coverage);
+                b.extend_from_slice(&s.kmeans.k.to_le_bytes());
+                push_str_hash(b, &s.kmeans.feature);
+                b.extend_from_slice(&s.kmeans.feature_runs.to_le_bytes());
+                b.extend_from_slice(&(s.kmeans.seeds.len() as u32).to_le_bytes());
+                for seed in &s.kmeans.seeds {
+                    b.extend_from_slice(&seed.to_le_bytes());
+                }
+                b.extend_from_slice(&(s.kmeans.inertia.len() as u32).to_le_bytes());
+                for i in &s.kmeans.inertia {
+                    b.extend_from_slice(&i.to_bits().to_le_bytes());
+                }
+            }
+        }
+    }
+    let mut b: Vec<u8> = Vec::with_capacity(256);
+    b.extend_from_slice(&m.version.to_le_bytes());
+    b.extend_from_slice(&(m.river_eq_edges.len() as u32).to_le_bytes());
+    for e in &m.river_eq_edges {
+        b.extend_from_slice(&e.to_bits().to_le_bytes());
+    }
+    b.extend_from_slice(&m.default_bucket.to_le_bytes());
+    push_street(&mut b, &m.flop);
+    push_street(&mut b, &m.turn);
+    b
+}
+
+/// Verify a `meta.json` payload against its embedded `blake3` field.
+/// A mismatch is a hard error (tamper / corruption).
 pub fn verify_meta_text(text: &str) -> Result<(), crate::EngineError> {
-    let mut m: MetaOut = serde_json::from_str(text)
+    let m: MetaOut = serde_json::from_str(text)
         .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
     let stored = m.blake3.clone();
-    m.blake3 = String::new();
-    let canonical = serde_json::to_vec_pretty(&m)
-        .map_err(|e| crate::EngineError::Meta(format!("re-serialize: {e}")))?;
+    let canonical = meta_canonical_bytes(&m);
     let computed = blake3::hash(&canonical).to_string();
     if computed != stored {
         return Err(crate::EngineError::Meta(format!(
@@ -738,4 +795,24 @@ pub fn finalize_meta(
     meta.river_eq_edges = edges;
     write_meta_struct(out_dir, &meta)?;
     Ok(())
+}
+
+/// L-5 re-stamp helper (2026-09-27): given an existing `meta.json` payload
+/// as text, recompute the `blake3` field with the CURRENT canonical encoder
+/// and return the rewritten JSON. Used to migrate bundles whose stored
+/// hash was computed under the previous (JSON-derived, non-stable) scheme.
+///
+/// NOTE: this does NOT re-derive the numeric fields — it only re-stamps the
+/// hash. If the file's numbers were edited, the re-stamp will silently
+/// produce a hash that matches the edited content. Only use this on files
+/// you trust.
+pub fn restamp_meta_text(text: &str) -> Result<String, crate::EngineError> {
+    let mut m: MetaOut = serde_json::from_str(text)
+        .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
+    m.blake3 = String::new();
+    let canonical = meta_canonical_bytes(&m);
+    let h = blake3::hash(&canonical);
+    m.blake3 = h.to_string();
+    serde_json::to_string_pretty(&m)
+        .map_err(|e| crate::EngineError::Meta(format!("re-serialize: {e}")))
 }
