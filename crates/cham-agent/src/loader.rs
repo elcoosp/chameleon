@@ -125,7 +125,18 @@ pub fn load_agent_with_budget(
     let mut hashes = std::collections::BTreeMap::new();
     for i in 0..4 {
         let p = dir.join(format!("experts/{i}/policy.bin"));
-        let bp = BlueprintPolicy::load(p.parent().expect("dir"), ab_hash)
+        let expected_ab = if std::env::var("CHAM_IGNORE_ABSTRACTION_HASH").as_deref() == Ok("1") {
+            eprintln!(
+                "cham-agent: WARNING — CHAM_IGNORE_ABSTRACTION_HASH=1 is set; \
+                 skipping abstraction-hash verification for diagnostics. The \
+                 loaded bundle's keys may not match its trained abstraction; \
+                 never use this in a gate."
+            );
+            0 // 0 = "skip the check" per BlueprintPolicy::load
+        } else {
+            ab_hash
+        };
+        let bp = BlueprintPolicy::load(p.parent().expect("dir"), expected_ab)
             .map_err(|e| AgentError::Loader(format!("expert {i}: {e}")))?;
         if bp.provenance().depth_bb != depth_bb {
             return Err(AgentError::Loader(format!(
@@ -137,7 +148,12 @@ pub fn load_agent_with_budget(
         hashes.insert(format!("expert{i}"), format!("{:x}", bp.artifact_hash()));
         experts.push(bp);
     }
-    let robust = BlueprintPolicy::load(&dir.join("robust"), ab_hash)
+    let robust_ab = if std::env::var("CHAM_IGNORE_ABSTRACTION_HASH").as_deref() == Ok("1") {
+        0
+    } else {
+        ab_hash
+    };
+    let robust = BlueprintPolicy::load(&dir.join("robust"), robust_ab)
         .map_err(|e| AgentError::Loader(format!("robust: {e}")))?;
     if robust.provenance().depth_bb != depth_bb {
         return Err(AgentError::Loader(format!(
@@ -158,7 +174,12 @@ pub fn load_agent_with_budget(
     let bayes = if !bayes_bin.exists() {
         None
     } else {
-        let bp = BlueprintPolicy::load(&bayes_dir, ab_hash).map_err(|e| {
+        let bayes_ab = if std::env::var("CHAM_IGNORE_ABSTRACTION_HASH").as_deref() == Ok("1") {
+            0
+        } else {
+            ab_hash
+        };
+        let bp = BlueprintPolicy::load(&bayes_dir, bayes_ab).map_err(|e| {
             AgentError::Loader(format!(
                 "bayes/policy.bin exists but failed to load (corrupt or wrong \
                  abstraction): {e}"
