@@ -423,15 +423,31 @@ pub(crate) fn verify_meta_text(text: &str) -> Result<(), crate::EngineError> {
     let m: MetaOut = serde_json::from_str(text)
         .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
     let stored = m.blake3.clone();
+    // Preferred (new) scheme: hash the canonical byte stream (stable across
+    // serde_json versions and rebuilds).
     let canonical = meta_canonical_bytes(&m);
     let computed = blake3::hash(&canonical).to_string();
-    if computed != stored {
-        return Err(crate::EngineError::Meta(format!(
-            "meta.json hash mismatch: stored {stored}, computed {computed} \
-             (file has been edited or corrupted; regenerate with train-buckets)"
-        )));
+    if computed == stored {
+        return Ok(());
     }
-    Ok(())
+    // Migration shim: also accept the LEGACY scheme (hash of the pretty
+    // JSON of MetaOut with the blake3 field blanked) for pre-existing files.
+    // Both writers used serde_json::to_vec_pretty; the same serde_json
+    // version reproduces the exact bytes, so this check works on the files
+    // that were committed before L-5 v2. Fresh `train-buckets` output uses
+    // the canonical scheme and always passes the first check.
+    let mut blanked = m.clone();
+    blanked.blake3 = String::new();
+    if let Ok(legacy_bytes) = serde_json::to_vec_pretty(&blanked) {
+        let legacy = blake3::hash(&legacy_bytes).to_string();
+        if legacy == stored {
+            return Ok(());
+        }
+    }
+    Err(crate::EngineError::Meta(format!(
+        "meta.json hash mismatch: stored {stored}, computed {computed} \
+         (file has been edited or corrupted; regenerate with train-buckets)"
+    )))
 }
 
 impl MetaOut {
