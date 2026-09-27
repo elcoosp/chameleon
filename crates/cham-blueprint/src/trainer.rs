@@ -216,6 +216,17 @@ pub fn train_with_threads(
     let mut dummy = DummyOpponent;
     let mut seat_histogram = [0u64; 2];
 
+    // H-8 fix (2026-09-27): ExploitBayes needs a concrete family agent per
+    // session block. The previous code sampled a family, set the belief
+    // bin, and then fell through to `_ => None` for `iter_opp`, so the
+    // traversal consulted `DummyOpponent`, whose `action_probs` returns
+    // `Err`, and the traversal silently used uniform over the legal slots.
+    // Every belief bin thus trained against the SAME random opponent — the
+    // Bayesian-game arm (EXP-005) was invalid while appearing to work.
+    // This cache holds the concrete agent for the current session block;
+    // it is rebuilt only when the block index rolls over.
+    let mut bayes_opp: Option<Box<dyn Agent>> = None;
+
     for t in 0..cfg.iters {
         // ---- ExploitBayes session blocks: hidden type + belief bin ----
         if let TrainMode::ExploitBayes {
@@ -225,10 +236,9 @@ pub fn train_with_threads(
         } = mode
         {
             if t % cfg.bayes_session_block == 0 {
-                let mut block_rng = child(
-                    cfg.train_seed,
-                    &format!("block{}", t / cfg.bayes_session_block),
-                );
+                let block_idx = t / cfg.bayes_session_block;
+                let mut block_rng =
+                    child(cfg.train_seed, &format!("block{block_idx}"));
                 let chosen = cham_core::rng::pick(&mut block_rng, families.len().max(1));
                 let mut freq = vec![0f64; families.len().max(1)];
                 freq[chosen] = 1.0;
@@ -239,6 +249,49 @@ pub fn train_with_threads(
                     &mut block_rng,
                 );
                 enc.set_belief_bin(bin);
+
+                // H-8: build the concrete family agent for this block.
+                // Same dispatch as the Exploit arm, but with a per-block
+                // seed (jitter-only; the belief bin already carries the
+                // sampled-family signal). Uses a SEPARATE rng label
+                // ("bayes-opp{block_idx}") so it does not perturb the
+                // belief-bin sampling stream above.
+                let spec = &families[chosen];
+                let built: Box<dyn Agent> = match spec {
+                    cham_opponents::OpponentSpec::Arch(a)
+                    | cham_opponents::OpponentSpec::Jitter(a, _) => {
+                        let mut jd =
+                            child(cfg.train_seed, &format!("bayes-opp{block_idx}"));
+                        let seed =
+                            (cham_core::rng::next_u32(&mut jd) as u64) << 32 | block_idx;
+                        Box::new(
+                            cham_opponents::archetype::ArchetypeAgent::jittered(
+                                *a,
+                                seed,
+                                cham_opponents::PercentileChart::global(),
+                            ),
+                        )
+                    }
+                    cham_opponents::OpponentSpec::Frozen { .. } => {
+                        // A frozen victim needs a FrozenOracle (rows +
+                        // encoder), which TrainMode::ExploitBayes does not
+                        // carry. Refuse loudly rather than train the
+                        // Bayesian arm against a uniform fallback (which is
+                        // exactly the H-8 failure mode we are fixing).
+                        return Err(BlueprintError::Training(
+                            "ExploitBayes: Frozen opponent family is not \
+                             supported (only Exploit carries a FrozenOracle); \
+                             refusing to train a Bayesian arm against a \
+                             uniform fallback"
+                                .into(),
+                        ));
+                    }
+                    other => cham_opponents::factory::build(
+                        other,
+                        cham_opponents::PercentileChart::global(),
+                    ),
+                };
+                bayes_opp = Some(built);
             }
         }
 
@@ -298,6 +351,10 @@ pub fn train_with_threads(
                     cham_opponents::PercentileChart::global(),
                 )),
             },
+            // H-8 fix (2026-09-27): hand the block-cached family agent to the
+            // traversal. It is restored to `bayes_opp` after the walk so it
+            // survives to the next iteration within this session block.
+            TrainMode::ExploitBayes { .. } => bayes_opp.take(),
             _ => None,
         };
         let mut state = State::new(engine_cfg, Deck::shuffled(iter_rng))
@@ -343,6 +400,16 @@ pub fn train_with_threads(
                 regret_discount: cfg.regret_discount,
             };
             walker.walk(&mut state, hero_seat, w_t, &mut seq, enc, iter_rng);
+        }
+
+        // H-8 fix (2026-09-27): return the block-cached family agent to
+        // `bayes_opp` so the NEXT iteration within this session block uses
+        // the same opponent (it is rebuilt only when the block index rolls
+        // over). Outside ExploitBayes this is a no-op.
+        if let TrainMode::ExploitBayes { .. } = mode {
+            if let Some(b) = iter_opp.take() {
+                bayes_opp = Some(b);
+            }
         }
 
         // ---- snapshot cadence: renorm pass + save + record ----
