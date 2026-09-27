@@ -345,7 +345,23 @@ impl<'a> Traversal<'a> {
 }
 
 /// Sample an action index from probabilities.
+///
+/// L-7 fix (2026-09-27): the previous `probs.len() - 1` on an empty slice
+/// underflowed usize → an enormous index that callers would then use to
+/// panic on the next slice access. An empty distribution is a caller bug;
+/// we refuse loudly with a debug assert in debug builds and return 0 in
+/// release (which is what the sole caller does on empty: nothing sensible
+/// to sample from). Better to catch it here than to panic later with a
+/// confusing "index out of bounds: the len is 0 but the index is
+/// 18446744073709551615" from a distant call site.
 pub fn sample_index(probs: &[f64], rng: &mut Rng) -> usize {
+    if probs.is_empty() {
+        debug_assert!(
+            false,
+            "sample_index called with an empty distribution — a caller bug"
+        );
+        return 0;
+    }
     let u = cham_core::rng::next_f64(rng);
     let mut acc = 0.0;
     for (i, p) in probs.iter().enumerate() {

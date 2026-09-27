@@ -487,10 +487,24 @@ fn reach_weighted_mixture_e2e() {
     let _ = agent.act(&obs, rng);
     // the trace exists and the weights are the router's output (frozen)
     let t = agent.last_trace.expect("trace");
+    // L-18 fix (2026-09-27): the previous assertion ended with
+    // `|| t.weights_frozen[4] > 0.0`, so a sum far from 1.0 passed whenever
+    // the fifth slot happened to be positive — the assertion was
+    // effectively vacuous. Require BOTH the sum to be 1 AND every weight
+    // to be a valid probability.
+    let sum: f64 = t.weights_frozen.iter().sum();
     assert!(
-        (t.weights_frozen.iter().sum::<f64>() - 1.0).abs() < 1e-6 || t.weights_frozen[4] > 0.0,
-        "weights normalized"
+        (sum - 1.0).abs() < 1e-6,
+        "weights_frozen must sum to 1.0, got {sum}: {:?}",
+        t.weights_frozen
     );
+    for (i, &w) in t.weights_frozen.iter().enumerate() {
+        assert!(
+            (0.0..=1.0).contains(&w),
+            "weights_frozen[{i}] = {w} out of [0,1]: {:?}",
+            t.weights_frozen
+        );
+    }
 }
 
 #[test]

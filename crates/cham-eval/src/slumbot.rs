@@ -74,13 +74,27 @@ impl SlumbotClient {
                     return Ok(text);
                 }
                 Err(ureq::Error::Status(code, _)) if code >= 500 => {
+                    // Transient: retry with backoff.
                     std::thread::sleep(std::time::Duration::from_millis(delay));
                     delay *= 3;
                 }
+                Err(ureq::Error::Status(code, _)) if (400..500).contains(&code) => {
+                    // L-13 fix (2026-09-27): a 4xx is a PERMANENT client error
+                    // (bad credentials, bad dialect, rate-limit-with-no-retry).
+                    // Retrying and discarding the status is how the empty-
+                    // credential login stayed invisible. Fail fast and carry
+                    // the status code so the caller sees what happened.
+                    return Err(EvalError::Slumbot(format!(
+                        "POST {path}: client error HTTP {code} (no retry; check \
+                         credentials, dialect, and rate-limit headers)"
+                    )));
+                }
                 Err(e) => {
+                    // Non-HTTP transport error (DNS, TLS, connection reset):
+                    // transient, retry with backoff.
+                    let _ = e;
                     std::thread::sleep(std::time::Duration::from_millis(delay));
                     delay *= 3;
-                    let _ = e;
                 }
             }
         }
