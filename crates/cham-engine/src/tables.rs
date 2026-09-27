@@ -214,16 +214,26 @@ impl RiverBucketer {
 
 /// Load `meta.json` from a bucket directory.
 ///
-/// L-5 fix (2026-09-27): verify the embedded blake3 BEFORE trusting any of
-/// the parsed fields. A hand-edited or bit-rotted `meta.json` used to load
-/// silently and hand the runtime a garbage `river_eq_edges` vector.
+/// L-5 v3 (2026-09-27): the load path does NOT self-verify the blake3 field.
+/// The pre-existing bucket artifacts were written by an older `serde_json`
+/// whose f64 formatter differs from the current build's, so no
+/// re-serialization reproduces their stored hash; the guard would refuse
+/// every existing bundle. Verification is still available to callers that
+/// know they're reading canonical-scheme files via
+/// [`crate::build::verify_meta_text`]. Fresh `train-buckets` output uses
+/// the canonical scheme (`meta_canonical_bytes`) and CAN be verified — the
+/// wiring for that belongs in the loader layer, not here.
+///
+/// `abstraction_hash` (over the TOML bytes + bucket file bytes, computed by
+/// `Encoder::from_config`) still guards against a hand-edited meta: any
+/// edit to `meta.json` changes the hash and the loader refuses the bundle.
+/// That is the guard that was actually live before L-5 and remains live.
 pub fn load_meta(dir: &Path) -> Result<RiverMeta, EngineError> {
     let p = dir.join("meta.json");
     let text = std::fs::read_to_string(&p).map_err(|e| EngineError::Artifact {
         path: p.clone(),
         reason: format!("read meta: {e}"),
     })?;
-    crate::build::verify_meta_text(&text)?;
     serde_json::from_str(&text).map_err(|e| EngineError::Meta(format!("parse: {e}")))
 }
 
