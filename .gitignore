@@ -84,3 +84,6 @@ artifacts/agent-full-honest/
 artifacts/retrain-full-honest.log
 artifacts/dcfr-gamma-honest/
 artifacts/dcfr-gamma-honest.log
+
+# stray file from a shell redirect (2026-09-27)
+/0
