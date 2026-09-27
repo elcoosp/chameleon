@@ -74,6 +74,15 @@ const HEADER_LEN: usize = 24;
 
 impl BlueprintPolicy {
     /// Build an artifact from a trained table + provenance.
+    ///
+    /// H-6 fix (2026-09-27): the artifact is now **self-verifying**.
+    /// `provenance.artifact_hash` embedded in `policy.bin` is
+    /// `blake3(payload)[..8]` where `payload = keys || offsets || rows` —
+    /// the semantically meaningful region. `load` recomputes this hash and
+    /// refuses a mismatch. The previous version hashed the entire
+    /// pre-provenance byte sequence (circular w.r.t. the hash field) and
+    /// only wrote the correct hash to the *sibling* `provenance.json`, so a
+    /// hand-edited `policy.bin` loaded silently.
     pub fn build_artifact(
         table: &RegretTable,
         prov: &ProvenanceRecord,
@@ -92,49 +101,57 @@ impl BlueprintPolicy {
             rows.push((key, w as u8, visits, probs));
         }
         rows.sort_by_key(|r| r.0);
-
-        let prov_json = serde_json::to_vec(prov)?;
         let n = rows.len();
-        let mut bytes: Vec<u8> = Vec::with_capacity(HEADER_LEN + prov_json.len() + n * 16);
+
+        // Build the payload ONCE: keys, then offsets, then rows. The
+        // artifact hash will be computed over exactly these bytes.
+        let mut payload: Vec<u8> = Vec::with_capacity(n * 16);
+        for (k, ..) in &rows {
+            payload.extend_from_slice(&k.to_le_bytes());
+        }
+        let mut acc: u32 = 0;
+        payload.extend_from_slice(&acc.to_le_bytes());
+        for (_, _w, _visits, probs) in &rows {
+            acc += (1 + 2 + probs.len()) as u32;
+            payload.extend_from_slice(&acc.to_le_bytes());
+        }
+        for (_, w, visits, probs) in &rows {
+            payload.push(*w);
+            payload.extend_from_slice(&visits.to_le_bytes());
+            payload.extend_from_slice(probs);
+        }
+
+        let payload_hash = blake3::hash(&payload);
+        let artifact_hash =
+            u64::from_le_bytes(payload_hash.as_bytes()[..8].try_into().expect("8"));
+
+        // Stamp the hash into the provenance that ships INSIDE policy.bin.
+        let mut prov_embedded = prov.clone();
+        prov_embedded.artifact_hash = artifact_hash;
+        let prov_json = serde_json::to_vec(&prov_embedded)?;
+
+        // Assemble header + provenance + padding + payload.
+        let mut bytes: Vec<u8> =
+            Vec::with_capacity(HEADER_LEN + prov_json.len() + 8 + payload.len());
         bytes.extend_from_slice(&ARTIFACT_MAGIC.to_le_bytes());
         bytes.extend_from_slice(&ARTIFACT_VERSION.to_le_bytes());
         bytes.extend_from_slice(&prov.abstraction_hash.to_le_bytes());
         bytes.extend_from_slice(&(n as u32).to_le_bytes());
         bytes.extend_from_slice(&(prov_json.len() as u32).to_le_bytes());
-        let prov_offset = bytes.len();
         bytes.extend_from_slice(&prov_json);
-        if bytes.len() % 8 != 0 {
-            bytes.extend(std::iter::repeat_n(0u8, 8 - bytes.len() % 8));
+        while bytes.len() % 8 != 0 {
+            bytes.push(0u8);
         }
-        let _keys_off = bytes.len();
-        for (k, ..) in &rows {
-            bytes.extend_from_slice(&k.to_le_bytes());
-        }
-        let _offsets_off = bytes.len();
-        let mut acc: u32 = 0;
-        bytes.extend_from_slice(&acc.to_le_bytes());
-        for (_, _w, _visits, probs) in &rows {
-            acc += (1 + 2 + probs.len()) as u32;
-            bytes.extend_from_slice(&acc.to_le_bytes());
-        }
-        let _rows_off = bytes.len();
-        for (_, w, visits, probs) in &rows {
-            bytes.push(*w);
-            bytes.extend_from_slice(&visits.to_le_bytes());
-            bytes.extend_from_slice(probs);
-        }
-        let hash = blake3::hash(&bytes);
-        let artifact_hash = u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("8"));
-        // record the artifact hash INSIDE the provenance for reproducibility
-        let mut prov2 = prov.clone();
-        prov2.artifact_hash = artifact_hash;
-        let prov_json2 = serde_json::to_vec_pretty(&prov2)?;
+        bytes.extend_from_slice(&payload);
+
         std::fs::create_dir_all(out).map_err(|e| BlueprintError::Artifact {
             path: out.to_path_buf(),
             reason: format!("mkdir: {e}"),
         })?;
-        std::fs::write(out.join("provenance.json"), &prov_json2)?;
-        let _ = prov_offset;
+        // Sibling provenance.json is human-readable (pretty); the embedded
+        // one is compact. Same content, both carry the artifact_hash.
+        let prov_pretty = serde_json::to_vec_pretty(&prov_embedded)?;
+        std::fs::write(out.join("provenance.json"), &prov_pretty)?;
         std::fs::write(out.join("policy.bin"), &bytes)?;
         Ok(())
     }
@@ -241,6 +258,26 @@ impl BlueprintPolicy {
                 ),
             });
         }
+
+        // H-6 fix (2026-09-27): verify the artifact against its embedded
+        // hash. `artifact_hash` computed at the top of `load` (over the
+        // whole file) is retained for callers that log it, but the check
+        // that matters is over the PAYLOAD region — keys || offsets || rows
+        // — which is exactly what `build_artifact` hashes and what a
+        // tamperer would edit to change an action probability. A mismatch
+        // is a hard error: SPECS/07 §6 "hash mismatch = hard error".
+        let payload_end = rows_off + last_payload_end;
+        let payload_hash = blake3::hash(&bytes[keys_off..payload_end]);
+        let payload_hash_u64 =
+            u64::from_le_bytes(payload_hash.as_bytes()[..8].try_into().expect("8"));
+        if payload_hash_u64 != provenance.artifact_hash {
+            return Err(BlueprintError::HashMismatch {
+                expected: provenance.artifact_hash,
+                found: payload_hash_u64,
+            });
+        }
+        let _ = artifact_hash; // whole-file hash retained for API compat
+
         Ok(BlueprintPolicy {
             bytes,
             prov_offset,

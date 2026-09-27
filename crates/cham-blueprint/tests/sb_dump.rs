@@ -9,7 +9,18 @@ use cham_core::obs::{Observables, Player};
 use cham_engine::config::AbstractionConfig;
 use cham_engine::encoder::{ActionSeq, Encoder};
 
+/// Diagnostic — NOT a gate. Ignored by default so CI isn't gated on a
+/// pre-H-6 fixture under `artifacts/agent/robust`. Run manually after
+/// rebuilding that artifact (or pass `CHAM_DUMP_BP=<fresh-artifact>`):
+///
+///     CHAM_DUMP_BP=artifacts/blueprints-full/robust \
+///       cargo nextest run -p cham-blueprint --run-ignored dump_sb_root -- --nocapture
+///
+/// H-6 (2026-09-27) made `policy.bin` self-verifying: the payload hash is
+/// stamped into the embedded provenance, and `load` refuses a mismatch.
+/// The stale fixture under `artifacts/agent/robust` predates the fix.
 #[test]
+#[ignore = "diagnostic: needs a post-H-6 artifact via CHAM_DUMP_BP; see doc comment"]
 fn dump_sb_root() {
     let rel = std::env::var("CHAM_DUMP_BP").unwrap_or_else(|_| "artifacts/agent/robust".into());
     // Tests run with cwd = the crate dir; resolve workspace-root-relative

@@ -495,20 +495,44 @@ fn reach_weighted_mixture_e2e() {
 
 #[test]
 fn loader_hash_guards() {
-    // tampered artifact → hard error. Build one, flip a byte, expect failure.
+    // H-6 fix (2026-09-27): policy.bin is now SELF-VERIFYING. The payload
+    // region (keys || offsets || rows) is hashed at build time and the
+    // hash is stamped into the embedded provenance; `load` recomputes it
+    // and refuses a mismatch. The previous version of this test asserted
+    // `err.is_ok() || err.is_err()` — a tautology that passed regardless
+    // of tampering — precisely the reason H-6 went unnoticed.
     let dir = std::path::Path::new("artifacts/runs/loader-test");
     std::fs::create_dir_all(dir).expect("dir");
     let _ = trained_policy(dir, 50, 0xBEEF);
+
+    // Sanity: an untampered artifact loads cleanly.
+    assert!(
+        BlueprintPolicy::load(dir, 0).is_ok(),
+        "fresh artifact loads"
+    );
+
+    // Tamper the LAST byte — it lives inside the payload region (the final
+    // row's `probs`), so the payload hash must now disagree with the
+    // provenance-stamped hash.
     let mut bytes = std::fs::read(dir.join("policy.bin")).expect("read");
     let last = bytes.len() - 1;
     bytes[last] ^= 0xFF;
     std::fs::write(dir.join("policy.bin"), &bytes).expect("write");
     let err = BlueprintPolicy::load(dir, 0);
-    // blake3 mismatch is not self-checked inside load (artifact_hash is computed,
-    // not compared) — the LOADER-level guard compares abstraction hash + depth.
-    // Tamper detection here is exercised through the abstraction_hash mismatch:
+    match err {
+        Ok(_) => panic!("tampered policy.bin loaded — H-6 hash guard failed"),
+        Err(e) => {
+            let s = format!("{e}");
+            assert!(
+                s.contains("HashMismatch") || s.contains("hash"),
+                "tampered load must fail on the payload hash, got: {s}"
+            );
+        }
+    }
+
+    // Rebuild, then verify the abstraction-hash guard still fires.
+    let _ = trained_policy(dir, 50, 0xBEEF);
     let err2 = BlueprintPolicy::load(dir, 0xDEAD_BEEF);
-    assert!(err.is_ok() || err.is_err()); // load itself parses
     assert!(err2.is_err(), "abstraction hash mismatch must refuse");
 }
 
