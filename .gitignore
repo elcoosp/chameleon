@@ -72,3 +72,7 @@ artifacts/exp-011-sweep.log
 
 # Overnight LBR convergence sweeps (regenerable)
 artifacts/overnight-lbr-*/
+artifacts/avg-diag/
+artifacts/gamma-diag/
+artifacts/nopruning-diag/
+artifacts/seat-diag/
