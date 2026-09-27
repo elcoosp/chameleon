@@ -91,6 +91,10 @@ enum Command {
         /// Override the training cache directory
         #[arg(long)]
         cache_dir: Option<String>,
+        /// v7 Item 2: write standalone LBR checkpoints every N iters to
+        /// `<out>/checkpoints/iter-<t>/table.snap` (0 = disabled, default)
+        #[arg(long, default_value = "0")]
+        checkpoint_every: u64,
     },
     /// Train the router on a .rbin dataset (SPECS/05)
     TrainRouter {
@@ -226,6 +230,10 @@ enum Command {
         /// EXP-015: router prior strength N0 override
         #[arg(long)]
         router_n0: Option<f64>,
+        /// v7 Item 6: enable the Bayesian changepoint shield on the victim
+        /// router (A/B vs the fixed-N0 baseline on the same EXP-015 grid)
+        #[arg(long)]
+        router_changepoint_shield: bool,
     },
     /// EXP-016 shadow ladder: snapshot a champion / gauntlet vs shadows
     Shadow {
@@ -313,6 +321,7 @@ fn main() -> anyhow::Result<()> {
             reuse,
             resume,
             cache_dir,
+            checkpoint_every,
         } => cmd::train_bp::run(
             &mode,
             opponent.as_deref(),
@@ -330,6 +339,7 @@ fn main() -> anyhow::Result<()> {
             reuse,
             resume.as_deref(),
             cache_dir.as_deref(),
+            checkpoint_every,
         ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),
@@ -379,7 +389,11 @@ fn main() -> anyhow::Result<()> {
             switch_at,
             router_temp,
             router_n0,
+            router_changepoint_shield,
         } => {
+            if router_changepoint_shield {
+                cham_router::enable_changepoint_global();
+            }
             let overrides = match (router_temp, router_n0) {
                 (Some(t), Some(n0)) => Some((t, n0, 0.5, -1.5)),
                 (Some(t), None) => Some((t, 8.0, 0.5, -1.5)),
