@@ -82,3 +82,5 @@ artifacts/retrain-honest.log
 artifacts/blueprints-full-honest/
 artifacts/agent-full-honest/
 artifacts/retrain-full-honest.log
+artifacts/dcfr-gamma-honest/
+artifacts/dcfr-gamma-honest.log
