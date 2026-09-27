@@ -364,7 +364,14 @@ fn session_disjoint_splits_enforced() {
 #[test]
 fn metrics_gates_negative() {
     // A garbage model must FAIL the G3 gates (exit 1 path).
-    let rows = synthetic_rows(30, 120, 3);
+    //
+    // M-3 re-baseline (2026-09-27): the M-3 fix raised the split-A class
+    // balance floor from `n < 2` to `n < 2000`. The original 30×120 fixture
+    // produced ~450 rows/class in split A, so `train_model` now refuses it
+    // with "class 0 has 450 rows in A (min 2000)". Enlarge to 200×400 =
+    // 80 000 rows total (~20 000/class; ≥ 2000 in A by a wide margin
+    // whatever the split ratios are).
+    let rows = synthetic_rows(200, 400, 3);
     // shuffle labels to destroy signal
     let mut shuffled: Vec<RbinRow> = rows
         .iter()
@@ -381,7 +388,7 @@ fn metrics_gates_negative() {
         }
     }
     let (_m, report) = train_model(&shuffled).expect("train (weak)");
-    let rows_ok = synthetic_rows(30, 120, 3);
+    let rows_ok = synthetic_rows(200, 400, 3);
     let (_m2, good) = train_model(&rows_ok).expect("train (good)");
     assert!(
         !report.gates_passed,

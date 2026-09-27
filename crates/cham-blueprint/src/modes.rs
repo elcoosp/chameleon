@@ -23,10 +23,18 @@ pub const COLD_BIN: u8 = 12;
 pub const N_BINS: u8 = 13;
 
 impl BeliefBins {
+    /// M-7 fix (2026-09-27): the bin arithmetic is
+    /// `(argmax*3 + tercile).min(COLD_BIN - 1)` with COLD_BIN = 12, so
+    /// argmax ≥ 4 collides with family-3 bins and `conf` divides by
+    /// `1 − 1/k` (NaN at k = 1). The shipped model uses 4 families; we
+    /// assert the supported range here rather than silently alias.
     pub fn new(n_families: usize) -> BeliefBins {
-        BeliefBins {
-            n_families: n_families.max(1),
-        }
+        assert!(
+            (2..=4).contains(&n_families),
+            "BeliefBins supports n_families ∈ [2, 4] (13 bins: 4×3 + cold); \
+             got {n_families}. Widen N_BINS or the arithmetic if you need more."
+        );
+        BeliefBins { n_families }
     }
 
     /// Dirichlet-multinomial posterior with a uniform prior over `counts`, quantized

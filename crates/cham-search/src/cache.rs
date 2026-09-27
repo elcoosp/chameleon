@@ -88,6 +88,14 @@ pub fn cache_key(
     abstraction_hash.hash(&mut h);
     pot_bb.to_bits().hash(&mut h);
     stack_bb.to_bits().hash(&mut h);
+    // M-2 fix (2026-09-27): hash the two lengths BEFORE the concatenated
+    // per-class stream. The prior form chained hero+villain without a
+    // separator or lengths, and `FxHasher` is length-free, so
+    // `hero=[A], villain=[B,C]` and `hero=[A,B], villain=[C]` produced
+    // identical keys but different subgames. Rare in practice, real in
+    // long matches/`ab` sweeps with many distinct ranges.
+    hero.len().hash(&mut h);
+    villain.len().hash(&mut h);
     for c in hero.iter().chain(villain.iter()) {
         c.weight.to_bits().hash(&mut h);
         c.strength.to_bits().hash(&mut h);

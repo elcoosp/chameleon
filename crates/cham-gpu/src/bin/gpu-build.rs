@@ -64,27 +64,51 @@ fn parse_args() -> Args {
     };
     let argv: Vec<String> = env::args().collect();
     let mut i = 1;
+    // M-17 fix (2026-09-27): the arg parser used to (a) index out of bounds
+    // when a flag was the LAST arg, and (b) silently default on parse
+    // failure (`--limit abc` → 100). A typo'd invocation produced a partial
+    // table marked `partial:true` with no error. Now: bounds-check every
+    // `i += 1`, hard-error on parse failure.
+    let need = |argv: &[String], i: usize, flag: &str| -> String {
+        if i >= argv.len() {
+            eprintln!("gpu-build: {flag} requires a value");
+            std::process::exit(2);
+        }
+        argv[i].clone()
+    };
     while i < argv.len() {
         match argv[i].as_str() {
             "--kind" => {
                 i += 1;
-                a.kind = argv[i].clone();
+                a.kind = need(&argv, i, "--kind");
             }
             "--limit" => {
                 i += 1;
-                a.limit = argv[i].parse().unwrap_or(100);
+                let v = need(&argv, i, "--limit");
+                a.limit = v.parse().unwrap_or_else(|_| {
+                    eprintln!("gpu-build: --limit expects an integer, got {v:?}");
+                    std::process::exit(2);
+                });
             }
             "--out" => {
                 i += 1;
-                a.out_dir = PathBuf::from(&argv[i]);
+                a.out_dir = PathBuf::from(need(&argv, i, "--out"));
             }
             "--batch" => {
                 i += 1;
-                a.batch = argv[i].parse().unwrap_or(512);
+                let v = need(&argv, i, "--batch");
+                a.batch = v.parse().unwrap_or_else(|_| {
+                    eprintln!("gpu-build: --batch expects an integer, got {v:?}");
+                    std::process::exit(2);
+                });
             }
             "--sample" => {
                 i += 1;
-                a.sample = argv[i].parse().unwrap_or(20);
+                let v = need(&argv, i, "--sample");
+                a.sample = v.parse().unwrap_or_else(|_| {
+                    eprintln!("gpu-build: --sample expects an integer, got {v:?}");
+                    std::process::exit(2);
+                });
             }
             "--no-check" => {
                 a.sample = 0;

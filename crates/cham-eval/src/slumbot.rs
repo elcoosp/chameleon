@@ -92,7 +92,42 @@ impl SlumbotClient {
 
 impl SlumbotApi for SlumbotClient {
     fn login(&mut self) -> Result<String, EvalError> {
-        self.post("/api/login", "{\"username\": \"\", \"password\": \"\"}")
+        // M-13 fix (2026-09-27): the previous body hardcoded empty
+        // credentials, so `--real` could only fail. Now they come from env
+        // (`SLUMBOT_USER`, `SLUMBOT_PASS`) with JSON-escaped values; the
+        // error path is a clean refusal, not a silently-swallowed 4xx.
+        let user = std::env::var("SLUMBOT_USER").unwrap_or_default();
+        let pass = std::env::var("SLUMBOT_PASS").unwrap_or_default();
+        if user.is_empty() || pass.is_empty() {
+            return Err(EvalError::Slumbot(
+                "SLUMBOT_USER / SLUMBOT_PASS not set — refusing a live login \
+                 with empty credentials"
+                    .into(),
+            ));
+        }
+        let esc = |s: &str| -> String {
+            let mut o = String::with_capacity(s.len() + 2);
+            for ch in s.chars() {
+                match ch {
+                    '"' => o.push_str("\\\""),
+                    '\\' => o.push_str("\\\\"),
+                    '\n' => o.push_str("\\n"),
+                    '\r' => o.push_str("\\r"),
+                    '\t' => o.push_str("\\t"),
+                    c if (c as u32) < 0x20 => {
+                        o.push_str(&format!("\\u{:04x}", c as u32));
+                    }
+                    c => o.push(c),
+                }
+            }
+            o
+        };
+        let body = format!(
+            "{{\"username\": \"{}\", \"password\": \"{}\"}}",
+            esc(&user),
+            esc(&pass)
+        );
+        self.post("/api/login", &body)
     }
     fn new_hand(&mut self, token: &str) -> Result<String, EvalError> {
         self.post("/api/new_hand", &format!("{{\"token\": \"{token}\"}}"))

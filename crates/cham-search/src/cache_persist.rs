@@ -37,6 +37,39 @@ use std::path::Path;
 use crate::cache;
 use crate::subgame::Subgame;
 
+/// M-11 fix (2026-09-27): validate a hydrated `Subgame` against the same
+/// invariants `Subgame::build` enforces. Used by `hydrate` so a tampered
+/// `river-cache.bin` cannot inject a subgame whose weights don't sum to 1,
+/// whose ranges are empty, or whose floats are non-finite.
+fn validate_subgame(sg: &Subgame) -> Result<(), String> {
+    if sg.hero_classes.is_empty() {
+        return Err("empty hero range".into());
+    }
+    if sg.villain_classes.is_empty() {
+        return Err("empty villain range".into());
+    }
+    let wh: f64 = sg.hero_classes.iter().map(|c| c.weight).sum();
+    if !wh.is_finite() || (wh - 1.0).abs() > 1e-6 {
+        return Err(format!("hero weights sum to {wh}, expected 1"));
+    }
+    let wv: f64 = sg.villain_classes.iter().map(|c| c.weight).sum();
+    if !wv.is_finite() || (wv - 1.0).abs() > 1e-6 {
+        return Err(format!("villain weights sum to {wv}, expected 1"));
+    }
+    for c in sg.hero_classes.iter().chain(sg.villain_classes.iter()) {
+        if !c.weight.is_finite() || !c.strength.is_finite() {
+            return Err(format!("non-finite class {c:?}"));
+        }
+    }
+    if !sg.pot_bb.is_finite() || sg.pot_bb < 0.0 {
+        return Err(format!("bad pot_bb {}", sg.pot_bb));
+    }
+    if !sg.stack_bb.is_finite() || sg.stack_bb <= 0.0 {
+        return Err(format!("bad stack_bb {}", sg.stack_bb));
+    }
+    Ok(())
+}
+
 /// Magic bytes at the file head: LE u32 of the ASCII bytes "SHSP"
 /// (0x53='S', 0x48='H', 0x53='S', 0x50='P'). The doubled 'S' is a
 /// namespace tag for a future sub-cache if one ever needs a distinct
@@ -138,6 +171,16 @@ pub fn hydrate_from(path: &Path) -> io::Result<usize> {
         let payload = take(&mut cur, len)?;
         let sg: Subgame = postcard::from_bytes(payload).map_err(|e| {
             io::Error::new(io::ErrorKind::InvalidData, format!("cache: postcard: {e}"))
+        })?;
+        // M-11 fix (2026-09-27): re-run the same validation `Subgame::build`
+        // enforces before we insert a hydrated subgame into the process-global
+        // cache. A poisoned `river-cache.bin` used to be trusted on decode,
+        // contradicting the "cache HIT never skips validation" contract.
+        validate_subgame(&sg).map_err(|reason| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("cache: hydrated subgame failed validation: {reason}"),
+            )
         })?;
         loaded.push((key, sg));
     }

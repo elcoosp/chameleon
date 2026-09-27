@@ -118,6 +118,15 @@ pub fn decode_dataset(bytes: &[u8]) -> Result<(Vec<RbinRow>, usize), RouterError
             off += 4;
         }
         let label = bytes[off];
+        // M-14 fix (2026-09-27): reject `label > 3` at decode. Training indexes
+        // `p[r.label as usize]` and panics far from the cause on a corrupt or
+        // hand-edited `.rbin`; a clean refusal here is the correct behaviour.
+        if label > 3 {
+            return Err(RouterError::Dataset(format!(
+                "row {row_idx}: label {label} out of range 0..=3",
+                row_idx = rows.len()
+            )));
+        }
         let session_id = u16::from_le_bytes(bytes[off + 1..off + 3].try_into().expect("2"));
         let family = bytes[off + 3];
         off += 4;

@@ -101,6 +101,17 @@ fn consistency_eval7_one_million_hands() {
                 );
             }
             Err(e) => {
+                // M-16 fix (2026-09-27): honoring an env var lets CI
+                // (gpu.yml) require a wgpu adapter and fail loudly when the
+                // "cross-platform correctness guarantee" would otherwise
+                // silently vanish. Default (env unset) keeps the dev-loop
+                // skip so a laptop without the adapter isn't blocked.
+                if std::env::var("CHAM_GPU_REQUIRE_WGPU").as_deref() == Ok("1") {
+                    panic!(
+                        "consistency_eval7: wgpu REQUIRED (CHAM_GPU_REQUIRE_WGPU=1) but \
+                         adapter init failed: {e}"
+                    );
+                }
                 eprintln!("consistency_eval7: wgpu SKIP — {e}");
             }
         }
