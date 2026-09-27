@@ -64,15 +64,19 @@ pub fn run(agent: &str, diag_fallback: bool, bundle: Option<&str>) -> i32 {
         }
     };
     let lbr_mb = report.lbr_mb_per_hand;
-    let coverage = 0.91f64;
-    let acc_b_dev = 0.84f64;
-    let verdict = if lbr_mb.abs() < 60_000.0 && coverage >= 0.9 {
-        "PASS"
-    } else {
-        "FAIL"
-    };
+    // L-10 fix (2026-09-27): the previous verdict used hardcoded constants
+    // (`coverage = 0.91`, `acc_b_dev = 0.84`) so the coverage half of the
+    // gate was always true, and the printed numbers were pure decoration.
+    // The `probe` subcommand has no router-dataset access to measure those
+    // values, so we (a) drop the tautological coverage condition and (b)
+    // print the coverage/acc as "n/a" rather than the fake constants. If a
+    // later change adds a real router metrics endpoint, wire it here.
+    let lbr_gate_mb = 60_000.0f64;
+    let verdict = if lbr_mb.abs() < lbr_gate_mb { "PASS" } else { "FAIL" };
     println!(
-        "probe: {verdict} (lbr {lbr_mb:.0} mb/hand, cov {coverage:.2}, acc_b_dev {acc_b_dev:.2}) [{agent}]"
+        "probe: {verdict} (lbr {lbr_mb:.0} mb/hand, gate |lbr| < {lbr_gate_mb:.0}; \
+         cov/acc_b_dev are NOT measured by this subcommand — see router's own \
+         `train-router` gate) [{agent}]"
     );
     if verdict == "PASS" {
         crate::cmd::EXIT_OK

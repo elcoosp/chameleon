@@ -574,22 +574,51 @@ pub fn proof_solver_matches_lp() -> ProofResult {
 /// Exact 2×2 zero-sum solver (closed form).
 pub fn solve_2x2(a: &[[f64; 2]; 2]) -> Option<(f64, [f64; 2], [f64; 2])> {
     // hero mixes p on row 0; villain mixes q on col 0
+    //
+    // L-26 fix (2026-09-27): the two degenerate branches used to return
+    // `[0.5, 0.5]` mixes that are NOT equilibria in general (they were
+    // "consumed today only for `v`" per the report, but the API is public
+    // and a future caller would get a wrong strategy silently). Now the
+    // degenerate branches return a PURE equilibrium, which always exists
+    // in a 2×2 zero-sum game with these conditions.
     let d = a[0][0] - a[0][1] - a[1][0] + a[1][1];
     if d.abs() < 1e-12 {
-        // saddle in pure strategies
-        let v = a[0][0].max(a[1][0]).min(a[0][1].max(a[1][1]));
-        return Some((v, [0.5, 0.5], [0.5, 0.5]));
+        // Saddle in pure strategies: max over row minima = min over column
+        // maxima. Return the row that attains the max-min (and the column
+        // that attains the min-max).
+        let row_min = [a[0][0].min(a[0][1]), a[1][0].min(a[1][1])];
+        let col_max = [a[0][0].max(a[1][0]), a[0][1].max(a[1][1])];
+        let v_lo = row_min[0].max(row_min[1]);
+        let v_hi = col_max[0].min(col_max[1]);
+        if (v_lo - v_hi).abs() > 1e-9 {
+            // Not a saddle in the classic sense — no pure equilibrium at
+            // the integer-verified levels; refuse rather than lie.
+            return None;
+        }
+        let r = if row_min[0] >= row_min[1] { 0 } else { 1 };
+        let c = if col_max[0] <= col_max[1] { 0 } else { 1 };
+        let mut p = [0.0, 0.0];
+        p[r] = 1.0;
+        let mut q = [0.0, 0.0];
+        q[c] = 1.0;
+        return Some((v_lo, p, q));
     }
     // hero indifference across rows fixes villain's q; villain indifference across
     // columns fixes hero's p
     let q = (a[1][1] - a[0][1]) / d;
     let p = (a[1][1] - a[1][0]) / d;
     if !(0.0..=1.0).contains(&q) || !(0.0..=1.0).contains(&p) {
-        // pure equilibrium
-        let v1 = a[0][0].min(a[0][1]);
-        let v2 = a[1][0].min(a[1][1]);
-        let v = v1.max(v2);
-        return Some((v, [0.5, 0.5], [0.5, 0.5]));
+        // Pure equilibrium (one of the rows strictly dominates).
+        let row_min = [a[0][0].min(a[0][1]), a[1][0].min(a[1][1])];
+        let r = if row_min[0] >= row_min[1] { 0 } else { 1 };
+        // villain best-responds to the pure row: pick the column with the
+        // minimum payoff to hero.
+        let c = if a[r][0] <= a[r][1] { 0 } else { 1 };
+        let mut pp = [0.0, 0.0];
+        pp[r] = 1.0;
+        let mut qq = [0.0, 0.0];
+        qq[c] = 1.0;
+        return Some((a[r][c], pp, qq));
     }
     let v =
         p * (q * a[0][0] + (1.0 - q) * a[0][1]) + (1.0 - p) * (q * a[1][0] + (1.0 - q) * a[1][1]);

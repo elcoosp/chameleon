@@ -17,9 +17,16 @@ pub fn run(modes_csv: &str, ledger_path: &str) -> i32 {
         if line.trim().is_empty() {
             continue;
         }
+        // L-15 fix (2026-09-27): the previous code silently `continue`d on
+        // unparseable ledger lines, so a Nash mixture could be computed from
+        // a silently-truncated matrix — the workspace "corruption = stop"
+        // policy says this must be a hard error.
         let v: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("meta-solve: corrupt ledger line: {e}");
+                return crate::cmd::EXIT_FAIL;
+            }
         };
         if v.get("type").and_then(|k| k.as_str()) != Some("ab") {
             continue;

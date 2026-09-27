@@ -684,6 +684,13 @@ impl RegretTable {
     }
 
     fn slot_w(&self, key: u64) -> Option<usize> {
+        // L-6 fix (2026-09-27): use the SAME double-hash probe sequence as
+        // `find` and `entry_or_insert` (`hash_key` + `hash_step`). The old
+        // version probed with a linear `+1` step, which is a DIFFERENT
+        // sequence — it can report "absent" for a key that is actually
+        // present in the table, because the linear walk never visits the
+        // slots the double-hash walk populated.
+        let step = hash_step(key, self.mask);
         let mut i = hash_key(key) & self.mask;
         loop {
             let s = self.slots[i];
@@ -693,7 +700,7 @@ impl RegretTable {
             if s.key == 0 {
                 return None;
             }
-            i = (i + 1) & self.mask;
+            i = (i + step) & self.mask;
         }
     }
 

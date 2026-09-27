@@ -347,7 +347,15 @@ pub fn train_with_threads(
             } => match opponent {
                 cham_opponents::OpponentSpec::Arch(a)
                 | cham_opponents::OpponentSpec::Jitter(a, _) => {
-                    let mut jd = child(*jitter_seed, "jd");
+                    // L-8 fix (2026-09-27): the jitter redraw stream must be
+                    // per-iteration. The previous form used `child(jitter_seed,
+                    // "jd")` — a CONSTANT — so the low 32 bits of the seed
+                    // were drawn from the same stream every iteration and the
+                    // only per-iteration entropy came from `| t`, i.e. the
+                    // iteration INDEX itself. SPECS/04 §3 requires per-iteration
+                    // jitter entropy; XOR the iteration into the seed label so
+                    // each `t` gets a fresh draw.
+                    let mut jd = child(*jitter_seed ^ t, "jd");
                     let seed = (cham_core::rng::next_u32(&mut jd) as u64) << 32 | t;
                     Some(Box::new(
                         cham_opponents::archetype::ArchetypeAgent::jittered(
