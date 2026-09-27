@@ -1,182 +1,241 @@
-//! Independent validation oracles (SPECS/06 §5): a small enumerative Nash solver
-//! for matrix games (support enumeration — exact for ≤ 5×5), used to pin the
-//! FMBR/RNR machinery on single-round matrix-ized spots.
+//! Independent validation oracles (SPECS/06 §5): a small enumerative Nash
+//! solver for matrix games (support enumeration — exact for ≤ 5×5), used
+//! to pin the FMBR/RNR machinery on single-round matrix-ized spots.
 //!
-//! The AGPL `postflop-solver` dev-time oracle (SPECS/06 §5.3) is NEVER linked or
-//! shipped — it is an offline documentation procedure only (cargo-deny tripwire
-//! in deny.toml; AGPL-3.0 is in the license deny list).
+//! The AGPL `postflop-solver` dev-time oracle (SPECS/06 §5.3) is NEVER
+//! linked or shipped — it is an offline documentation procedure only
+//! (cargo-deny tripwire in deny.toml; AGPL-3.0 is in the license deny list).
+//!
+//! C-5 fix (2026-09-27): the previous version was not an independent
+//! validator. Three problems, all fixed here:
+//!
+//! 1. `solve_matrix` kept the support pair with the MAX `v` (line 23:
+//!    `v > *bv`). Single-cell supports pass the row-only check trivially
+//!    and win. For the matching-pennies matrix [[1,-1],[-1,1]] this
+//!    returned `(v=1.0, p=[1,0], q=[1,0])` — the true Nash value is 0.0.
+//!    Now: `solve_support` only returns VERIFIED equilibria, and
+//!    `solve_matrix` returns the FIRST one (any verified equilibrium is a
+//!    valid answer; maximizing is wrong).
+//!
+//! 2. `solve_support` verified only the row side ("no row beats v against
+//!    q"). The column side — "no column best-responds below v against p"
+//!    — was never checked. Now both are checked.
+//!
+//! 3. The "normalization row" was `m[n_eq][c-1] = 1.0`, which encodes
+//!    "q_last = 1", not "Σ q = 1". That is why full-support pairs were
+//!    rejected. Now both p and q are solved by a proper linear system:
+//!      - q: equalize A[i]·q over i ∈ rs, + Σ q = 1
+//!      - p: equalize A^T[j]·p over j ∈ cs, + Σ p = 1
+//!    Both are verified against the FULL payoff matrix afterward.
 
-/// Solve a zero-sum matrix game (row = maximizer) exactly by support enumeration.
-/// Returns (row_value, row_strategy, col_strategy) — any Nash equilibrium.
+/// Solve a zero-sum matrix game (row = maximizer) exactly by support
+/// enumeration. Returns `(row_value, row_strategy, col_strategy)` — any
+/// verified Nash equilibrium. Returns `None` if the matrix is malformed
+/// or if no verified equilibrium is found (which, for a finite game,
+/// should only happen on numerically degenerate inputs).
 pub fn solve_matrix(a: &[Vec<f64>]) -> Option<(f64, Vec<f64>, Vec<f64>)> {
     let rows = a.len();
     let cols = a.first()?.len();
     if rows > 5 || cols > 5 || rows == 0 || cols == 0 {
         return None;
     }
+    // rectangularity sanity
+    if a.iter().any(|r| r.len() != cols) {
+        return None;
+    }
     let row_supports = support_sets(rows);
     let col_supports = support_sets(cols);
-    let mut best: Option<(f64, Vec<f64>, Vec<f64>)> = None;
     for rs in &row_supports {
         for cs in &col_supports {
-            if let Some((v, p, q)) = solve_support(a, rs, cs) {
-                let better = best.as_ref().map(|(bv, _, _)| v > *bv).unwrap_or(true);
-                if better {
-                    best = Some((v, p, q));
-                }
+            if let Some(eq) = solve_support(a, rs, cs) {
+                // First verified pair wins (any verified equilibrium is fine).
+                return Some(eq);
             }
         }
     }
-    // pick the equilibrium (the support pair whose values match)
-    best
+    None
 }
 
 fn support_sets(n: usize) -> Vec<Vec<usize>> {
     let mut out = Vec::new();
-    for mask in 0..(1u32 << n) {
+    for mask in 1u32..(1u32 << n) {
         let s: Vec<usize> = (0..n).filter(|i| mask & (1 << i) != 0).collect();
-        if !s.is_empty() {
-            out.push(s);
-        }
+        out.push(s);
     }
     out
 }
 
-/// Solve the equalizer system on a support pair; verify equilibrium conditions.
-fn solve_support(a: &[Vec<f64>], rs: &[usize], cs: &[usize]) -> Option<(f64, Vec<f64>, Vec<f64>)> {
+/// Solve the equalizer system on a support pair and VERIFY that (p, q, v)
+/// is a Nash equilibrium of the full matrix.
+fn solve_support(
+    a: &[Vec<f64>],
+    rs: &[usize],
+    cs: &[usize],
+) -> Option<(f64, Vec<f64>, Vec<f64>)> {
+    let rows = a.len();
+    let cols = a.first()?.len();
     let r = rs.len();
     let c = cs.len();
-    if r > c {
-        // row player needs |support_r| ≤ |support_c| for a valid equalizer (indifference
-        // across r rows determined by c probs); we allow r == c + 1 case via slack
-    }
-    // Column player picks q over cs to make all row payoffs on rs equal:
-    // for rows i1..ik in rs: Σ_j a[i][j] q_j = v. With Σ q = 1.
-    // Solve by least squares-ish exact enumeration for small sizes: brute force
-    // over rational-ish grid is too coarse — use linear algebra for r ≤ c + 1.
-    let mut q = vec![0.0; cs.len()];
-    if c == 1 {
-        q[0] = 1.0;
-    } else {
-        // solve the (r-1) indifference equations + normalization via Gaussian elim
-        let n_eq = r.saturating_sub(1).min(c - 1);
-        let mut m = vec![vec![0.0; c + 1]; n_eq + 1];
-        for e in 0..n_eq {
+
+    // ----- column strategy q over cs, zero outside -----
+    // Equalize row payoffs: for i1, i2 ∈ rs:  Σ_j (a[i1][j]-a[i2][j]) q_j = 0
+    // plus Σ q = 1.
+    let q_support = solve_equalizer(
+        r,
+        c,
+        |e, j| {
             let i1 = rs[e];
             let i2 = rs[e + 1];
-            for (j, &cj) in cs.iter().enumerate() {
-                m[e][j] = a[i1][cj] - a[i2][cj];
-            }
-            m[e][c] = 0.0;
-        }
-        m[n_eq][c - 1] = 1.0;
-        m[n_eq][c] = 1.0; // normalization row
-        if !gaussian(&mut m, c) {
-            return None;
-        }
-        for j in 0..c {
-            q[j] = m[j][c];
-        }
-        if q.iter().any(|&x| x < -1e-9) {
-            return None;
-        }
-        let s: f64 = q.iter().sum();
-        if (s - 1.0).abs() > 1e-6 {
-            return None;
-        }
-        for x in q.iter_mut() {
-            *x /= s;
-        }
+            a[i1][cs[j]] - a[i2][cs[j]]
+        },
+    )?;
+    let mut q = vec![0.0; cols];
+    for (j, &cj) in cs.iter().enumerate() {
+        q[cj] = q_support[j];
     }
-    // row player: uniform over the support that best-responds
-    // compute v (col's equalized value) and find row's best mix: uniform over rows
-    // whose payoff against q equals v
-    let value_at =
-        |i: usize| -> f64 { cs.iter().enumerate().map(|(j, &cj)| q[j] * a[i][cj]).sum() };
-    let v = value_at(rs[0]);
-    let mut best_rows: Vec<usize> = Vec::new();
-    for i in 0..a.len() {
-        let vi = value_at(i);
-        if (vi - v).abs() < 1e-9 {
-            best_rows.push(i);
-        } else if vi > v + 1e-9 {
-            return None; // col strategy not optimal (row can exploit) — invalid eq
-        }
-    }
-    if best_rows.is_empty() {
+    // sanity: non-negative, sums to 1
+    if q.iter().any(|&x| x < -1e-9) {
         return None;
     }
-    let mut p = vec![0.0; a.len()];
-    for &i in &best_rows {
-        p[i] = 1.0 / best_rows.len() as f64;
+    let qs: f64 = q.iter().sum();
+    if (qs - 1.0).abs() > 1e-6 {
+        return None;
     }
-    // row's guarantee must equal v vs col's best responses (approximate check)
-    Some((v, p, expand(&q, cs, a[0].len())))
+
+    // ----- row strategy p over rs, zero outside -----
+    // Equalize column payoffs: for j1, j2 ∈ cs:  Σ_i (a[i][j1]-a[i][j2]) p_i = 0
+    // plus Σ p = 1.
+    let p_support = solve_equalizer(
+        c,
+        r,
+        |e, i| {
+            let j1 = cs[e];
+            let j2 = cs[e + 1];
+            a[rs[i]][j1] - a[rs[i]][j2]
+        },
+    )?;
+    let mut p = vec![0.0; rows];
+    for (i, &ri) in rs.iter().enumerate() {
+        p[ri] = p_support[i];
+    }
+    if p.iter().any(|&x| x < -1e-9) {
+        return None;
+    }
+    let ps: f64 = p.iter().sum();
+    if (ps - 1.0).abs() > 1e-6 {
+        return None;
+    }
+
+    // ----- value: row's equalized payoff vs q -----
+    let value_at_row = |i: usize| -> f64 { (0..cols).map(|j| a[i][j] * q[j]).sum() };
+    let v = value_at_row(rs[0]);
+
+    // ----- VERIFY row side: no row beats v against q -----
+    for i in 0..rows {
+        if value_at_row(i) > v + 1e-7 {
+            return None;
+        }
+    }
+
+    // ----- VERIFY column side: no column pays below v against p -----
+    let value_at_col = |j: usize| -> f64 { (0..rows).map(|i| p[i] * a[i][j]).sum() };
+    for j in 0..cols {
+        if value_at_col(j) < v - 1e-7 {
+            return None;
+        }
+    }
+
+    Some((v, p, q))
 }
 
-fn expand(q: &[f64], support: &[usize], n: usize) -> Vec<f64> {
-    let mut out = vec![0.0; n];
-    for (j, &s) in support.iter().enumerate() {
-        out[s] = q[j];
+/// Solve the (k-1)-indifference + normalization system for a mixture of
+/// length `k` living on a support of size `k` (indexed 0..k). The
+/// `coef(e, j)` closure returns the coefficient of mixture-component j in
+/// indifference equation e (e ∈ 0..k-1). The final row is a full row of
+/// ones (Σ x = 1) — the correct normalization.
+fn solve_equalizer<F>(k: usize, _dim: usize, coef: F) -> Option<Vec<f64>>
+where
+    F: Fn(usize, usize) -> f64,
+{
+    if k == 0 {
+        return None;
     }
-    out
+    if k == 1 {
+        return Some(vec![1.0]);
+    }
+    // Build the k×k system: rows 0..k-1 are indifference equations, last
+    // row is [1,1,...,1 | 1].
+    let mut m = vec![vec![0.0; k + 1]; k];
+    for e in 0..(k - 1) {
+        for j in 0..k {
+            m[e][j] = coef(e, j);
+        }
+        m[e][k] = 0.0;
+    }
+    for j in 0..k {
+        m[k - 1][j] = 1.0;
+    }
+    m[k - 1][k] = 1.0;
+    gaussian_solve(&mut m, k)?;
+    let mut out = vec![0.0; k];
+    for j in 0..k {
+        out[j] = m[j][k];
+    }
+    Some(out)
 }
 
-fn gaussian(m: &mut [Vec<f64>], cols: usize) -> bool {
-    let rows = m.len();
-    let mut piv_row = 0usize;
-    for col in 0..cols {
+/// Gauss–Jordan solve of a k×(k+1) augmented system. Returns the solution
+/// in column k of each row's pivot (row-reduced echelon form), or `None`
+/// if singular.
+fn gaussian_solve(m: &mut [Vec<f64>], k: usize) -> Option<()> {
+    for col in 0..k {
+        // pivot
         let mut piv = None;
-        for r in piv_row..rows {
+        for r in col..k {
             if m[r][col].abs() > 1e-9 {
                 piv = Some(r);
                 break;
             }
         }
-        let piv = match piv {
-            Some(p) => p,
-            None => return false,
-        };
-        m.swap(piv_row, piv);
-        let pivot = m[piv_row][col];
-        for r in 0..rows {
-            if r != piv_row && m[r][col].abs() > 1e-12 {
-                let f = m[r][col] / pivot;
-                for c in col..=cols {
-                    m[r][c] -= f * m[piv_row][c];
-                }
-            }
+        let piv = piv?;
+        m.swap(col, piv);
+        let pivot = m[col][col];
+        for c in col..=k {
+            m[col][c] /= pivot;
         }
-        piv_row += 1;
-        if piv_row == rows {
-            break;
-        }
-    }
-    // back-substitute for the target variables (assuming full rank on the square part)
-    for r in 0..rows {
-        let pivot_col = (0..cols).find(|&c| m[r][c].abs() > 1e-9);
-        if let Some(c) = pivot_col {
-            let pivot = m[r][c];
-            m[r][c] = 1.0;
-            m[r][cols] /= pivot;
-            // eliminate above/below is already done; store the solution value in the
-            // augmented column at the pivot row of this column
-            let val = m[r][cols];
-            for r2 in 0..rows {
-                if r2 != r && m[r2][c].abs() > 1e-12 {
-                    let f = m[r2][c];
-                    m[r2][c] = 0.0;
-                    m[r2][cols] -= f * val;
+        for r in 0..k {
+            if r != col && m[r][col].abs() > 1e-12 {
+                let f = m[r][col];
+                for c in col..=k {
+                    m[r][c] -= f * m[col][c];
                 }
             }
         }
     }
-    // read solution: for each column, find its pivot row
-    true
+    Some(())
 }
 
-/// Reference spots (committed): 2×2 and 3×2 matrices matching single-bet subgames.
+/// Reference spots (committed).
+///
+/// `reference_matrix_2x2` is **matching pennies**: [[1,-1],[-1,1]]. The
+/// unique Nash equilibrium is p = q = [0.5, 0.5] with value **0.0**. This
+/// is the test that would have caught C-5 — the previous `solve_matrix`
+/// returned `(1.0, [1,0], [1,0])` for it.
 pub fn reference_matrix_2x2() -> Vec<Vec<f64>> {
-    // hero bets pot (values: win pot vs fold-bluff equilibrium)
     vec![vec![1.0, -1.0], vec![-1.0, 1.0]]
+}
+
+/// A 2×2 matrix with a pure-strategy equilibrium at (row 0, col 0),
+/// value 1.0. Used to exercise the pure-support path.
+pub fn reference_matrix_2x2_pure() -> Vec<Vec<f64>> {
+    vec![vec![1.0, 1.0], vec![1.0, -1.0]]
+}
+
+/// A 3×3 rock-paper-scissors-like cyclic game; value 0.0, uniform mix.
+pub fn reference_matrix_3x3_rps() -> Vec<Vec<f64>> {
+    vec![
+        vec![0.0, -1.0, 1.0],
+        vec![1.0, 0.0, -1.0],
+        vec![-1.0, 1.0, 0.0],
+    ]
 }
