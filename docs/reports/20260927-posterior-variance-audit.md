@@ -1,4 +1,4 @@
-# posterior_variance() audit — the B2 gate was promised but not built (2026-09-27)
+# posterior_variance() audit — computed but never consumed (2026-09-27)
 
 ## The claim
 
@@ -31,6 +31,17 @@ Grep of the whole workspace for a caller:
     crates/cham-router/tests/router.rs:272, 281 (tests)
 
 No other file references it.
+
+## Terminology note (correction)
+
+The field's doc-comment references "B2" as if B2 were a single named
+gate. It is not. `docs/plans/v3-execution-roadmap.md:561` describes B2 as
+**"router maturity"** — a research/measurement track that was never
+broken down into individual gate items. There is no "B2 confidence gate"
+elsewhere in SPECS or the plans; the doc-comment's phrase "the B2
+confidence gate input" is itself a small inconsistency. The variance
+value was computed on speculation that a gate would be added; it never
+was.
 
 ## Why this matters
 
