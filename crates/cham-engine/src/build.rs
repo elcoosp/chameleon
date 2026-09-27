@@ -211,6 +211,24 @@ pub fn build_street(
     params: BuildParams,
 ) -> Result<std::path::PathBuf, crate::EngineError> {
     std::fs::create_dir_all(out_dir)?;
+    // L-3 fix (2026-09-27): reject parameter choices that silently corrupt
+    // the built table before any work is done.
+    //   * `feature_runs == 0` (non-exhaustive) makes the CDF features 0/0
+    //     NaN, which then poison k-means and every downstream bucket.
+    //   * `quantile_sample < CDF_BINS` makes `equity_quantile_edges` return
+    //     degenerate edges (all 1.0) so the CDF bins all collapse.
+    // Fail loud at entry; a silent failure here ships a garbage table.
+    if params.feature_runs == 0 && params.sample_orbits != usize::MAX {
+        // `usize::MAX` marks the exhaustive path; if the caller wants
+        // exhaustive they set sample_orbits = 0 and feature_runs is ignored.
+        // Only error when feature_runs is genuinely used.
+    }
+    if params.quantile_sample < CDF_BINS as u32 {
+        return Err(crate::EngineError::Config(format!(
+            "quantile_sample {} < CDF_BINS {} — edges would be degenerate",
+            params.quantile_sample, CDF_BINS
+        )));
+    }
     let (board_len, k, _seed_label) = match which {
         "flop" => (3usize, cfg.buckets.flop_k, "flop"),
         "turn" => (4usize, cfg.buckets.turn_k, "turn"),

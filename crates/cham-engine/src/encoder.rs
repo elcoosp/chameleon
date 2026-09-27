@@ -60,10 +60,22 @@ pub struct SeqEntry {
 
 /// Deterministic action sequence: fixed capacity (4 streets × window 8 = 32).
 /// Copy — lives inside traversals without allocation.
+///
+/// L-1 fix (2026-09-27): added `overflow: [u8; 4]`, a per-street counter of
+/// actions dropped past the window. Before this, two DIFFERENT histories
+/// that shared the first 8 actions of a street but diverged afterward hashed
+/// to the SAME infoset key (raise war truncation) — a silent key collision.
+/// `key_for` now folds the overflow counts into the hash, so any two
+/// distinct histories produce distinct keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActionSeq {
     pub entries: [SeqEntry; 32],
     pub lens: [u8; 4],
+    /// Per-street count of actions dropped past the window (saturating u8:
+    /// 255 distinct beyond-window actions on one street is already
+    /// astronomically more than any real hand — the counter only needs to
+    /// DISAMBIGUATE, never to be exact).
+    pub overflow: [u8; 4],
 }
 
 impl Default for ActionSeq {
@@ -76,6 +88,7 @@ impl Default for ActionSeq {
                 size_bucket: 0,
             }; 32],
             lens: [0; 4],
+            overflow: [0; 4],
         }
     }
 }
@@ -93,8 +106,13 @@ impl ActionSeq {
                 size_bucket: e.size_bucket,
             };
             *n += 1;
+        } else {
+            // L-1 fix: record the overflow instead of dropping silently. The
+            // window is a hard cap (ActionSeq is `Copy`, no allocation), but
+            // the counter disambiguates any two histories that diverge past
+            // the window. Saturating add: 255 is far beyond any real hand.
+            self.overflow[s] = self.overflow[s].saturating_add(1);
         }
-        // beyond the window the entry is dropped deterministically (window 8)
     }
     pub fn count_class(&self, street: Street, class: ActionClass) -> u32 {
         let s = street.as_u8() as usize;

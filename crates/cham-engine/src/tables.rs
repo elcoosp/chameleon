@@ -113,6 +113,18 @@ pub struct RiverBucketer {
 
 impl RiverBucketer {
     pub fn new(meta: &RiverMeta, cfg: &AbstractionConfig) -> RiverBucketer {
+        // L-2 fix (2026-09-27): the edge list MUST have `river_eq_bins + 1`
+        // entries; the runtime bin math assumes it and would otherwise
+        // compute `u32::MAX` bins (empty list) or collapse all river hands
+        // into one bucket (single edge). Validate at construction.
+        let bins = cfg.buckets.river_eq_bins as usize;
+        assert_eq!(
+            meta.river_eq_edges.len(),
+            bins + 1,
+            "river_eq_edges must have river_eq_bins+1 = {} entries, got {}",
+            bins + 1,
+            meta.river_eq_edges.len()
+        );
         RiverBucketer {
             edges: meta.river_eq_edges.clone(),
             texture_classes: cfg.n_texture_classes(),

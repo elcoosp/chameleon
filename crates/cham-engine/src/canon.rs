@@ -113,11 +113,21 @@ impl<'a> TableView<'a> {
         }
         let n = u64::from_le_bytes(bytes[8..16].try_into().expect("8"));
         let default_bucket = u16::from_le_bytes(bytes[16..18].try_into().expect("2"));
-        let need = HEADER_LEN + (n as usize) * 10;
-        if bytes.len() < need {
+        // L-4 fix (2026-09-27): `HEADER_LEN + (n as usize) * 10` can overflow
+        // for a corrupt header with a huge `n`, wrapping to a small value and
+        // turning this clean refusal into a later OOB panic. Use
+        // `checked_mul`/`checked_add` and error out on overflow.
+        let payload = (n as usize)
+            .checked_mul(10)
+            .and_then(|p| HEADER_LEN.checked_add(p))
+            .ok_or_else(|| crate::EngineError::Artifact {
+                path: path.clone(),
+                reason: format!("row count {n} overflows the size computation"),
+            })?;
+        if bytes.len() < payload {
             return Err(crate::EngineError::Artifact {
                 path,
-                reason: format!("truncated: need {need}, have {}", bytes.len()),
+                reason: format!("truncated: need {payload}, have {}", bytes.len()),
             });
         }
         Ok(TableView {
