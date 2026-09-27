@@ -195,12 +195,17 @@ impl RiverBucketer {
 }
 
 /// Load `meta.json` from a bucket directory.
+///
+/// L-5 fix (2026-09-27): verify the embedded blake3 BEFORE trusting any of
+/// the parsed fields. A hand-edited or bit-rotted `meta.json` used to load
+/// silently and hand the runtime a garbage `river_eq_edges` vector.
 pub fn load_meta(dir: &Path) -> Result<RiverMeta, EngineError> {
     let p = dir.join("meta.json");
     let text = std::fs::read_to_string(&p).map_err(|e| EngineError::Artifact {
         path: p.clone(),
         reason: format!("read meta: {e}"),
     })?;
+    crate::build::verify_meta_text(&text)?;
     serde_json::from_str(&text).map_err(|e| EngineError::Meta(format!("parse: {e}")))
 }
 

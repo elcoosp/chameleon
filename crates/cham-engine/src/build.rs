@@ -352,6 +352,31 @@ fn write_meta_struct(out_dir: &Path, meta: &MetaOut) -> Result<(), crate::Engine
     Ok(())
 }
 
+/// L-5 fix (2026-09-27): verify a `meta.json` payload against its embedded
+/// `blake3` field. `write_meta_struct` computes the hash over the JSON of
+/// `MetaOut` with `blake3 = ""` (declaration order preserved by serde_json),
+/// then writes the JSON of the hash-stamped struct. This helper reverses
+/// that: parse to `MetaOut`, blank the field, re-serialize with the SAME
+/// pretty-printer, re-hash, compare. Callers (e.g. `load_meta`) use it as
+/// the tamper check the previous code never ran — a hand-edited
+/// `river_eq_edges` would load silently and produce garbage buckets.
+pub fn verify_meta_text(text: &str) -> Result<(), crate::EngineError> {
+    let mut m: MetaOut = serde_json::from_str(text)
+        .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
+    let stored = m.blake3.clone();
+    m.blake3 = String::new();
+    let canonical = serde_json::to_vec_pretty(&m)
+        .map_err(|e| crate::EngineError::Meta(format!("re-serialize: {e}")))?;
+    let computed = blake3::hash(&canonical).to_string();
+    if computed != stored {
+        return Err(crate::EngineError::Meta(format!(
+            "meta.json hash mismatch: stored {stored}, computed {computed} \
+             (file has been edited or corrupted; regenerate with train-buckets)"
+        )));
+    }
+    Ok(())
+}
+
 impl MetaOut {
     fn clone_for_hash(&self, hash: &str) -> MetaOut {
         MetaOut {
