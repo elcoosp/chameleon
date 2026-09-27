@@ -53,13 +53,14 @@ impl AgentMode {
         // be opt-in. Until the searcher is wired into the pipeline, refuse
         // loudly at load time instead of accepting-and-ignoring.
         if self.search.enabled {
-            return Err(crate::AgentError::Loader(format!(
+            return Err(crate::AgentError::Loader(
                 "search_enabled = true is not yet wired into the runtime \
                  (pipeline hardcodes `search: None`); refusing rather than \
                  silently playing the fallback strategy. Set \
                  search_enabled = false, or complete the RiverSearcher wiring \
                  (cham-agent/src/pipeline.rs)."
-            )));
+                    .into(),
+            ));
         }
         Ok(())
     }

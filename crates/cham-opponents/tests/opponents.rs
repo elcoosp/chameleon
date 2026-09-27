@@ -61,7 +61,7 @@ fn percentile_chart_anchors() {
 fn preflop_gating_pinned() {
     // Open size exactly 2.5bb (250), 3bet +3bb over the raise, 4bet ×2.2 (constants).
     let chart = CHART();
-    let mut hero = ArchetypeAgent::point(ArchetypeId::Lag, chart);
+    let hero = ArchetypeAgent::point(ArchetypeId::Lag, chart);
     // SB opens a strong hand at 2.5bb: search seeds until we see the open size
     let mut found_open = None;
     'outer: for seed in 0..200u64 {

@@ -152,7 +152,7 @@ fn rnr_p_interpolation() {
     let mut strategies: Vec<std::collections::BTreeMap<String, Vec<f64>>> = Vec::new();
     for p in [0.0f64, 0.5, 1.0] {
         let r = solve(&sg, &prior, &SolverChoice::Rnr { p }, 400).expect("solve");
-        for (_path, probs) in &r.our_strategy {
+        for probs in r.our_strategy.values() {
             if probs.is_empty() {
                 continue;
             }
