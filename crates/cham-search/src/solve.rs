@@ -440,8 +440,12 @@ fn cfr_plus(
                 effective.insert(path.clone(), blended);
             }
         }
-        // CFR+ update: for each seat, per infoset per action, counterfactual value
-        let mut new_regret: BTreeMap<(String, u8), Vec<f64>> = BTreeMap::new();
+        // CFR+ update: for each seat, per infoset per action, counterfactual value.
+        // C-1 fix (2026-09-27): accumulate regrets IN PLACE. The previous form
+        // declared a fresh `new_regret` map inside this loop and overwrote
+        // `regret` at the end of each iteration, so `+=` never spanned
+        // iterations and RM+ could not converge (matching last-iteration's
+        // instantaneous positive regrets, not cumulative).
         for (path, player, actions, node) in nodes.iter() {
             let key = (path.clone(), *player);
             let opp = 1 - player;
@@ -466,15 +470,12 @@ fn cfr_plus(
                     .map(|i| cur.get(i).copied().unwrap_or(0.0) * v[i])
                     .sum()
             };
-            let entry = new_regret
-                .entry(key.clone())
-                .or_insert_with(|| vec![0.0; n]);
+            let entry = regret.entry(key.clone()).or_insert_with(|| vec![0.0; n]);
             for i in 0..n {
-                entry[i] += (v[i] - node_v).max(0.0);
+                entry[i] = (entry[i] + (v[i] - node_v)).max(0.0);
             }
             let _ = opp;
         }
-        regret = new_regret;
         // accumulate average strategy
         for (path, player, actions, _n) in nodes.iter() {
             let key = (path.clone(), *player);
