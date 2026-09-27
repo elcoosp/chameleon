@@ -128,6 +128,13 @@ impl ChameleonAgent {
 // struct field order: encoder declared at the end so the helper above compiles
 // (Rust allows any order; the accessor is for external users)
 impl ChameleonAgent {
+    /// L-18 test accessor (2026-09-27): expose the canonical action sequence
+    /// so tests can assert that villain actions land in it. The seq is
+    /// internal state normally; tests should not have to reconstruct it.
+    pub fn seq_for_tests(&self) -> &cham_engine::encoder::ActionSeq {
+        &self.seq
+    }
+
     fn act_impl(&mut self, obs: &Observables<'_>, rng: &mut Rng) -> Action {
         let Self {
             mode,

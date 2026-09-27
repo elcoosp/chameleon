@@ -265,25 +265,41 @@ fn pipeline_deterministic_replay() {
         let mut agent = make_agent(AgentMode::full_search_off());
         let mut out = String::new();
         let mut villain = cham_opponents::baselines::CallBot;
+        const AGENT_SEAT: usize = 0; // hero is seat 0 throughout this test
         for h in 0..30u64 {
             let rng = &mut child(seed, &format!("h{h}"));
             let mut s = State::new(CFG, Deck::shuffled(rng)).expect("s");
             let mut guard = 0;
             while !s.is_terminal() && guard < 400 {
                 guard += 1;
-                let obs = Observables::view(&s, Player::from_usize(s.to_act()));
-                let a = if s.to_act() == 0 {
-                    let a = agent.act(&obs, rng);
+                let to_act = s.to_act();
+                // Action decision uses the actor's view (correct — the
+                // acting agent sees its own cards).
+                let actor_obs = Observables::view(&s, Player::from_usize(to_act));
+                let a = if to_act == AGENT_SEAT {
+                    let a = agent.act(&actor_obs, rng);
                     if let Some(t) = &agent.last_trace {
                         out.push_str(&format!("{};", t.action));
                     }
-                    agent.on_public_action(&obs, Player::from_usize(s.to_act()), a);
                     a
                 } else {
-                    let a = villain.act(&obs, rng);
-                    agent.on_public_action(&obs, Player::from_usize(s.to_act()), a);
-                    a
+                    villain.act(&actor_obs, rng)
                 };
+                // L-18 fix (2026-09-27): feed EVERY public action to the agent
+                // from the AGENT's perspective. The previous version passed
+                // `actor_obs` (viewed from `s.to_act()`'s seat) AND
+                // `Player::from_usize(s.to_act())` — so `player == obs.player`
+                // was ALWAYS true and the pipeline's own-action early-return
+                // fired on every action, hero or villain. The villain's
+                // actions never reached `agent.seq`, so this "sacred" replay
+                // test only ever exercised the hero's own decisions; the whole
+                // reason for having a seq (opponent modelling) was untested.
+                // The agent's own action is already recorded by `act()`, so
+                // the pipeline correctly no-ops on it; only the villain's
+                // action is actually written into the seq, via the agent-
+                // perspective view below.
+                let agent_obs = Observables::view(&s, Player::from_usize(AGENT_SEAT));
+                agent.on_public_action(&agent_obs, Player::from_usize(to_act), a);
                 s.apply(a).expect("legal");
             }
         }
@@ -627,4 +643,38 @@ fn exp013_r2_renorm_differs_from_substitute() {
     assert_eq!(ta.expert_missed, tb.expert_missed, "detection identical");
     assert_eq!(ta.robust_missed, tb.robust_missed);
     assert_eq!(ta.fallback_used, tb.fallback_used, "no misses -> same bit");
+}
+
+/// L-18 item-1 anti-regression (2026-09-27): feed a villain's action to the
+/// agent via `on_public_action` and prove it lands in the agent's `seq`.
+///
+/// Before this, the "sacred" replay test fed `actor_obs` (viewed from the
+/// actor's seat) — so `player == obs.player` was always true and the
+/// pipeline's own-action early-return discarded every villain feed. The
+/// test only ever exercised the hero's own actions.
+#[test]
+fn l18_villain_action_reaches_seq() {
+    use cham_core::engine::{Action, Street};
+    let mut agent = make_agent(AgentMode::full_search_off());
+    // Build a state where seat 0 is the agent and seat 1 acts first postflop.
+    let rng = &mut rng_from_seed(0xC0DE);
+    let mut s = State::new(CFG, Deck::shuffled(rng)).expect("s");
+    // Preflop: seat 0 calls, seat 1 checks → flop, seat 1 acts first.
+    s.apply(Action::Call).expect("call");
+    s.apply(Action::Check).expect("check");
+    assert_eq!(s.street(), Street::Flop);
+    assert_eq!(s.to_act(), 1, "BB acts first postflop");
+
+    // Record the seq length before the villain acts.
+    let before = agent.seq_for_tests().lens[Street::Flop.as_u8() as usize];
+
+    // Villain bets; the driver feeds it to the agent from the AGENT's view.
+    let agent_obs = Observables::view(&s, Player::from_usize(0));
+    agent.on_public_action(&agent_obs, Player::from_usize(1), Action::Bet { to: 200 });
+
+    let after = agent.seq_for_tests().lens[Street::Flop.as_u8() as usize];
+    assert!(
+        after > before,
+        "villain's flop bet must be recorded into the agent's seq (before={before} after={after})"
+    );
 }
