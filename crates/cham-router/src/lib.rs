@@ -23,7 +23,8 @@ pub use dataset::{
 };
 pub use features::{FeatureContract, FeatureInputs};
 pub use model::SoftmaxModel;
-pub use runtime::{N_EXPERTS, RouterRuntime};
+pub use runtime::{CHANGEPOINT_FORCE, ChangepointShield, N_EXPERTS, RouterRuntime};
+pub use runtime::enable_changepoint_global;
 pub use train::train_model;
 
 use thiserror::Error;
