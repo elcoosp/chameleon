@@ -140,8 +140,19 @@ impl Default for RbpConfig {
     /// recalibration is deferred to the M2 throughput spike (SPECS/11 fallback
     /// table). The machinery stays; `rbp_matches_full` pins no-corruption.
     fn default() -> Self {
+        // TEST-ONLY diagnostic (session 2026-09-27): CHAM_RBP_THETA0 lets the
+        // sb_internals test (and the CLI) override the pruning threshold
+        // without editing source. Unset → historical value 0.0 (which, per
+        // the code below, actually PRUNES on every zero-regret action — the
+        // comment above claims theta0 = 0 disables pruning; the condition
+        // `visits > theta_t` with theta0 = 0 is `visits > 0`, i.e. always
+        // true. Set to a huge number (e.g. 1e18) to genuinely disable.
+        let theta0 = std::env::var("CHAM_RBP_THETA0")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0);
         RbpConfig {
-            theta0: 0.0,
+            theta0,
             delta: 1.0,
         }
     }
@@ -245,6 +256,22 @@ impl<'a> Traversal<'a> {
                     }
                 }
             };
+            // EXPLORATION (session 2026-09-27): with probability ε, replace the
+            // opponent's σ with uniform over the legal slots. This forces the
+            // hero's regret-matching to keep seeing every opponent action, so
+            // CFR+'s regret floor doesn't permanently freeze an action at zero
+            // (the pure-strategy collapse diagnosed this session). Unset → 0.0,
+            // historical behavior bit-identical.
+            let eps: f64 = std::env::var("CHAM_EXPLORE_EPS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+            let dist: Vec<(Action, f64)> = if eps > 0.0 && cham_core::rng::next_f64(rng) < eps {
+                let n = dist.len().max(1) as f64;
+                dist.iter().map(|(a, _)| (*a, 1.0 / n)).collect()
+            } else {
+                dist
+            };
             let a = sample_action(&dist, rng);
             enc.record(&obs, Player::from_usize(p), a, seq);
             let out = state.apply(a).expect("sampled action is legal");
@@ -267,7 +294,17 @@ impl<'a> Traversal<'a> {
         // is skipped after a decaying visit threshold θ_t = θ0·δ^t; its subtree is
         // not sampled and its value is treated pessimistically (min of the rest),
         // which keeps its regret floored at 0. Fresh rows enumerate everything.
+        // RBP gate. `theta0 <= 0.0` DISABLES pruning entirely (the doc-comment
+        // contract — see RbpConfig::default). The previous form
+        //   `visits > theta_t` with theta0 = 0
+        // is `visits > 0`, i.e. TRUE from the first visit — so the "disabled"
+        // default actually pruned every zero-regret action always, which
+        // froze regret-matching+ into a pure strategy on the first few
+        // iterations (session 2026-09-27 SB-root internals dump: 3 of 4
+        // regrets pinned at 0, σ one-hot, avg == σ). Fix: skip the prune
+        // branch unconditionally when theta_t <= 0.0.
         let theta_t = self.rbp.theta0 * self.rbp.delta.powi(self.iteration.min(1 << 30) as i32);
+        let prune_enabled = theta_t > 0.0;
         let visits = self.table.visits(off, w_slots) as f64;
 
         let sigma = self.table.sigma_rms(off, w_slots);
@@ -275,7 +312,7 @@ impl<'a> Traversal<'a> {
         let mut computed: Vec<usize> = Vec::with_capacity(w_slots);
         for a in 0..w_slots {
             let zero_regret = self.table.regret(off, w_slots, a) <= 0.0;
-            if zero_regret && visits > theta_t && sigma[a] <= 0.0 {
+            if prune_enabled && zero_regret && visits > theta_t && sigma[a] <= 0.0 {
                 self.pruned_nodes += 1;
                 continue; // subtree skipped; v[a] filled below
             }
