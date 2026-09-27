@@ -26,7 +26,7 @@ impl Default for SearchConfig {
         SearchConfig {
             enabled: false, // search stays OFF until G4 (SPECS/06 §7 lockout)
             solver: SolverChoice::Rnr { p: 0.9 },
-            budget: crate::budget::SearchBudget::Iterations { iters: 400 },
+            budget: crate::budget::SearchBudget::Iterations { iters: 2000 },
             min_pot_bb: 8.0,
             river_only: true,
         }
