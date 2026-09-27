@@ -26,6 +26,8 @@ fn sb_root_internals() {
         bayes_session_block: 2000,
         regret_discount: 1.0,
         avg_gamma: 0.9,
+            checkpoint_every: 0,
+            checkpoint_dir: None,
     };
     let engine_cfg = EngineConfig::depth(100);
     let dir = tempfile::tempdir().unwrap();
