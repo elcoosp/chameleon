@@ -76,3 +76,6 @@ artifacts/avg-diag/
 artifacts/gamma-diag/
 artifacts/nopruning-diag/
 artifacts/seat-diag/
+artifacts/blueprints-tiny-honest/
+artifacts/agent-honest/
+artifacts/retrain-honest.log
