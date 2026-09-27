@@ -62,7 +62,6 @@ fn preflop_gating_pinned() {
     // Open size exactly 2.5bb (250), 3bet +3bb over the raise, 4bet ×2.2 (constants).
     let chart = CHART();
     let mut hero = ArchetypeAgent::point(ArchetypeId::Lag, chart);
-    let mut villain = CallBot;
     // SB opens a strong hand at 2.5bb: search seeds until we see the open size
     let mut found_open = None;
     'outer: for seed in 0..200u64 {
@@ -82,15 +81,16 @@ fn preflop_gating_pinned() {
                 }
             }
         }
-        let _ = (&mut hero, &mut villain);
     }
     assert!(
         found_open.is_some(),
         "LAG must open at 250 (2.5bb) sometimes"
     );
     assert_eq!(found_open.unwrap().1, 250);
-    // 3bet size = current raise + 300
-    let _ = chart;
+    // L-18b fix (2026-09-27): dropped `let _ = chart;` at the end (chart is
+    // already consumed by ArchetypeAgent::point above) and the unused
+    // `villain` / `let _ = (&mut hero, &mut villain);` — both were
+    // decoration, not part of the test's actual assertion.
 }
 
 // ---------- determinism / jitter ----------

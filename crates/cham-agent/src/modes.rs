@@ -45,6 +45,22 @@ impl AgentMode {
                     .into(),
             ));
         }
+        // L-19 fix (2026-09-27): `pipeline.rs` has no `RiverSearcher` field;
+        // the only writer of the decision-trace `search` slot is the hardcoded
+        // `search: None`. So `search_enabled = true` in a config loads,
+        // validates, and then yields NO search at every decision — the
+        // "silent fallback" symptom, on the very feature that is supposed to
+        // be opt-in. Until the searcher is wired into the pipeline, refuse
+        // loudly at load time instead of accepting-and-ignoring.
+        if self.search.enabled {
+            return Err(crate::AgentError::Loader(format!(
+                "search_enabled = true is not yet wired into the runtime \
+                 (pipeline hardcodes `search: None`); refusing rather than \
+                 silently playing the fallback strategy. Set \
+                 search_enabled = false, or complete the RiverSearcher wiring \
+                 (cham-agent/src/pipeline.rs)."
+            )));
+        }
         Ok(())
     }
 

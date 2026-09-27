@@ -388,7 +388,13 @@ fn pipeline_mode_matrix() {
         bad.validate().is_err(),
         "search_mode_lockout: no G4 ref → refuse"
     );
-    // with a ref it validates
+    // L-19 re-baseline (2026-09-27): a non-empty g4_ledger_ref used to make
+    // `search.enabled = true` validate, but the runtime hardcodes
+    // `search: None` in every decision trace (pipeline.rs), so "valid"
+    // meant "silently plays the fallback strategy". The validate() contract
+    // now REFUSES any enabled search until the RiverSearcher is wired in.
+    // Order matters: the empty-ref check runs first (still a clean G4
+    // refusal), and the not-wired check runs second for the non-empty case.
     let ok = AgentMode {
         routing: "mixture".into(),
         search: cham_agent::modes::SearchCfg {
@@ -398,7 +404,14 @@ fn pipeline_mode_matrix() {
         },
         fallback_mode: "renorm".into(),
     };
-    assert!(ok.validate().is_ok());
+    let err = ok
+        .validate()
+        .expect_err("L-19: enabled search must refuse until the searcher is wired");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("not yet wired") || msg.contains("RiverSearcher"),
+        "L-19 refusal message must point at the missing wiring, got: {msg}"
+    );
 }
 
 #[test]
