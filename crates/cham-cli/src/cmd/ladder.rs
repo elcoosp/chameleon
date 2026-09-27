@@ -160,12 +160,17 @@ fn run_opponent(
                 if let Some(p) = r.per_deal_profits {
                     cum_profits.extend(p);
                 }
-                se = r.se_mb;
                 vr = r.vr_factor;
                 deals_run += take;
                 done += take;
-                // recompute the running mean over ALL chunks so far
+                // M-12 fix (2026-09-27): the printed ± and the ledger CI must
+                // cover the SAME data as `mb`. The previous code took
+                // `se = r.se_mb` (the CURRENT CHUNK's SE — 250 deals) while
+                // `mb = mean(cum_profits)` covered every chunk so far. For a
+                // `--full` run (25k deals) the reported ± was ~10× too wide.
+                // Recompute both from the accumulated series.
                 mb = cham_eval::mean(&cum_profits);
+                se = cham_eval::se(&cum_profits);
                 if done < deals {
                     match cham_eval::sprrt(
                         &cum_profits,

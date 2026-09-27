@@ -61,8 +61,17 @@ impl Tracker {
         }
     }
 
+    /// Exponential-smoothing decay factor λ such that a value's weight halves
+    /// every `HALF_LIFE` hands: λ = 0.5^(1/HALF_LIFE) ≈ 0.98851.
+    ///
+    /// H-1 fix (2026-09-27): the previous form was `(0.5f64).ln() / HALF_LIFE`
+    /// = ln(0.5)/60 ≈ -0.0116 — the LOG of the intended λ, negative, so every
+    /// EWM stat (VPIP, PFR, 3bet, cbet, WTSD, aggression, ...) went negative
+    /// or overshot past 1. The 13-dimension feature vector fed into the
+    /// router was therefore out of range on every observation. See
+    /// docs/plans/chameleon-bug-report.md H-1.
     fn lam() -> f64 {
-        (0.5f64).ln() / HALF_LIFE
+        (0.5f64).powf(1.0 / HALF_LIFE)
     }
 
     fn ewm_update(&mut self, idx: usize, value: f64) {

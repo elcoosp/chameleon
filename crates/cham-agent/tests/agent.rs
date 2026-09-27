@@ -114,9 +114,12 @@ fn tracker_ewm_math() {
     let ph = ph_fold();
     t.observe_hand(&ph, -100, 0);
     assert_eq!(t.hands, 1);
-    // EWM: s ← 0.5·λ + 0·(1−λ); λ = ln(0.5)/60 → s = 0.5·0.9885 ≈ 0.494
-    let lam = (0.5f64).ln() / 60.0;
-    let expected = 0.5 * lam; // lam as multiplier: e^{ln .5/60} ≈ 0.98851
+    // EWM: s ← s·λ + x·(1−λ); λ = 0.5^(1/60) ≈ 0.98851 → s = 0.5·0.98851 ≈ 0.49426
+    // H-1 fix (2026-09-27): the test previously encoded the bug — it used
+    // `(0.5f64).ln() / 60.0` (the LOG, ≈ −0.0116) as if it were λ, which
+    // let the negative-λ code pass. Now matches the corrected tracker.
+    let lam = (0.5f64).powf(1.0 / 60.0);
+    let expected = 0.5 * lam;
     assert!(
         (t.ewm[0] - expected).abs() < 1e-6,
         "vpip ewm {} vs {expected}",

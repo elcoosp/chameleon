@@ -139,7 +139,11 @@ impl FamilyBAgent {
                     _ => 0.5,
                 };
                 let to = (frac * obs.pot as f64).floor() as i64;
-                let to = to.clamp(obs.min_raise_to.max(1), obs.max_raise_to);
+                // H-12 fix (2026-09-27): when an actor is checked to with
+                // < min_raise_to behind, min > max and `i64::clamp` PANICS.
+                // Guard exactly as the sibling `archetype.rs::size_to` does.
+                let lo = obs.min_raise_to.max(1).min(obs.max_raise_to);
+                let to = to.clamp(lo, obs.max_raise_to);
                 if is_legal(obs, Action::Bet { to }) {
                     return Action::Bet { to };
                 }

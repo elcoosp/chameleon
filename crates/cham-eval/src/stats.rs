@@ -136,10 +136,17 @@ pub fn sprrt(
     if delta1 <= delta0 {
         return Err(EvalError::Stats("delta1 must exceed delta0".into()));
     }
-    let sd = se(diffs).max(1e-9);
+    // H-10 fix (2026-09-27): Wald's normal-model LLR is
+    //   n·[(m−δ0)² − (m−δ1)²] / (2σ²)
+    // with σ the PER-OBSERVATION std. The previous code used `se(diffs)`
+    // (= σ/√n), which multiplies the LLR by n: a true +25 mb arm "AcceptH1"
+    // after ~481 diffs instead of ~231k; a true-zero arm "AcceptH0" after
+    // ~850 diffs instead of ~720k. Every SPRT stop in `ladder`/`ab` was
+    // therefore stopping on noise.
+    let sd = variance(diffs).sqrt().max(1e-9);
     let n = diffs.len() as f64;
     let m = mean(diffs);
-    // LLR ≈ n[(m − δ0)² − (m − δ1)²] / (2 sd²) — Wald's approximation
+    // LLR ≈ n[(m − δ0)² − (m − δ1)²] / (2σ²) — Wald's approximation
     let llr = n * ((m - delta0).powi(2) - (m - delta1).powi(2)) / (2.0 * sd * sd);
     let a = ((1.0 - beta) / alpha).ln();
     let b = (beta / (1.0 - alpha)).ln();
