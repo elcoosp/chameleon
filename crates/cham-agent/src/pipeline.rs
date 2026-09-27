@@ -40,6 +40,11 @@ pub struct ChameleonAgent {
     pub recorder: Option<Recorder>,
     // per-hand state
     hand_idx: u64,
+    /// Hero seat for the CURRENT hand (captured at first `act`), used by
+    /// `on_hand_end` to feed the tracker the correct opponent. In duplicate
+    /// matching the agent plays BOTH seats — the tracker must model the
+    /// opposite one, not hard-coded seat 0 (H-2, 2026-09-27).
+    hero_seat: Option<usize>,
     weights: [f64; 5],
     weights_fresh: bool,
     /// per-expert own-reach product for the current hand (π_k)
@@ -78,6 +83,7 @@ impl ChameleonAgent {
             tracker: Tracker::new(),
             recorder,
             hand_idx: 0,
+            hero_seat: None,
             weights: [0.0; 5],
             weights_fresh: false,
             reach: [1.0; 5],
@@ -134,8 +140,12 @@ impl ChameleonAgent {
             reach,
             argmax_k,
             seq,
+            hero_seat,
             ..
         } = self;
+        // H-2 fix: record the hero's seat for this hand so on_hand_end feeds
+        // the tracker the correct opponent (seat 1 - hero_seat), not 0.
+        *hero_seat = Some(obs.player.as_usize());
         let slots = encoder.slots(obs, seq);
         let n = slots.len();
         let w = *weights;
@@ -474,7 +484,12 @@ impl Agent for ChameleonAgent {
     }
 
     fn on_hand_end(&mut self, ph: &cham_core::engine::PublicHistory, hero_net: i64) {
-        self.tracker.observe_hand(ph, hero_net, 0);
+        // H-2 fix (2026-09-27): pass the ACTUAL hero seat recorded during the
+        // hand. The previous hardcoded `0` made the tracker model the agent
+        // itself in every seat-1 seating of duplicate matching. Default to 0
+        // only if `act` was never called (empty hand, shouldn't happen).
+        let hero_seat = self.hero_seat.take().unwrap_or(0);
+        self.tracker.observe_hand(ph, hero_net, hero_seat);
         self.hand_idx += 1;
         self.weights_fresh = false; // next hand re-derives weights
         self.seq = ActionSeq::default();
