@@ -102,12 +102,25 @@ fn play_seating(
             opp.on_public_action(&opp_obs, player, a);
         }
         log.push((street, player, a));
-        state
+        let outcome = state
             .apply(a)
             .map_err(|e| EvalError::Match(format!("illegal action: {e}")))?;
-        if allin_board.is_none() && state.stacks() == [0, 0] && !state.is_terminal() {
-            let n = state.board_len() as usize;
-            allin_board = Some(state.board()[..n].to_vec());
+        // H-11 fix (2026-09-27): the previous guard
+        //   `allin_board.is_none() && state.stacks()==[0,0] && !state.is_terminal()`
+        // was UNSATISFIABLE. Every path that zeroes both stacks calls
+        // `all_in_runout_terminal()` inside `apply_in_place`, which sets
+        // `hand_over = true`; `!state.is_terminal()` was therefore always
+        // false at this point, and `allin_board` was never populated — the
+        // whole VR layer was dead code. Now the engine reports the
+        // pre-runout board length on `ApplyOutcome`, which is what we use
+        // to reconstruct the board the agents actually saw at the all-in
+        // moment (the board array is append-only, so the first N cards are
+        // the pre-runout board).
+        if allin_board.is_none() {
+            if let Some(n) = outcome.runout_board_len {
+                let n = n as usize;
+                allin_board = Some(state.board()[..n].to_vec());
+            }
         }
     }
     let nets = state.payoffs();

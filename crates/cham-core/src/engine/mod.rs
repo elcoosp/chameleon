@@ -114,6 +114,20 @@ pub struct ApplyOutcome {
     pub street_dealt: bool,
     pub hand_over: bool,
     pub all_in_runout: bool,
+    /// H-11 fix (2026-09-27): when `all_in_runout` is true, this is the
+    /// board length at the moment the runout fired — i.e. the PRE-runout
+    /// board length (0 = preflop, 3 = flop, 4 = turn). Consumers (e.g.
+    /// `cham-eval::matcheng`'s all-in-EV adjustment) need this because by
+    /// the time `apply` returns, `all_in_runout_terminal()` has already
+    /// filled the board to 5 cards, so `state.board_len()` no longer tells
+    /// us how many were known at the all-in moment.
+    ///
+    /// The previous matcheng guard (`stacks()==[0,0] && !is_terminal()`)
+    /// was unsatisfiable for exactly this reason: every path that zeroes
+    /// both stacks calls `all_in_runout_terminal()` which sets
+    /// `hand_over = true` inside `apply_in_place`. The whole VR layer was
+    /// dead code.
+    pub runout_board_len: Option<u8>,
 }
 
 /// Full engine state. `Copy`, ≤ 128 bytes, no heap anywhere in its methods.
@@ -404,6 +418,7 @@ impl State {
             street_dealt: false,
             hand_over: false,
             all_in_runout: false,
+            runout_board_len: None,
         };
 
         match a {
@@ -462,6 +477,9 @@ impl State {
             if self.street == Street::River as u8 {
                 self.showdown_terminal();
             } else {
+                // H-11: capture the PRE-runout board length before
+                // all_in_runout_terminal fills to 5 cards.
+                out.runout_board_len = Some(self.board_len);
                 self.all_in_runout_terminal();
                 out.all_in_runout = true;
             }
@@ -473,6 +491,8 @@ impl State {
                 self.showdown_terminal();
                 out.hand_over = true;
             } else if self.stacks[0] == 0 || self.stacks[1] == 0 {
+                // H-11: capture the PRE-runout board length.
+                out.runout_board_len = Some(self.board_len);
                 self.all_in_runout_terminal();
                 out.all_in_runout = true;
             } else {
