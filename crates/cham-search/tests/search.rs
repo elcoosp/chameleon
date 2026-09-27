@@ -479,3 +479,33 @@ fn illegal_action_never() {
     }
     let _ = rng_from_seed(1);
 }
+
+#[test]
+fn multileaf_blend_wired_into_live_solve() {
+    // v7 Item 5.3 / B-7 (DeepStack): the blended leaf continuation is wired
+    // into the live solve path, not just unit-tested in prior.rs.
+    use cham_search::solve::blended_villain_prior;
+    // blend conserves mass, shifts Call/Fold mass up vs base, renormalizes
+    let base = vec![0.1, 0.3, 0.4, 0.2];
+    let acts = vec![
+        "fold".to_string(),
+        "call".to_string(),
+        "raise".to_string(),
+        "jam".to_string(),
+    ];
+    let b = blended_villain_prior(&base, &acts);
+    let t: f64 = b.iter().sum();
+    assert!((t - 1.0).abs() < 1e-12, "exact renormalization");
+    assert!(b[1] > base[1], "call-heavy component lifts Call");
+    assert!(b[0] > base[0], "fold-heavy component lifts Fold");
+    // shape mismatch falls back to base (never a lie)
+    let fb = blended_villain_prior(&[0.5, 0.5], &["check".to_string()]);
+    assert_eq!(fb, vec![0.5, 0.5]);
+    // live solve still green + deterministic with the blend in place
+    let (sg, prior) = spot();
+    let r = solve(&sg, &prior, &SolverChoice::Rnr { p: 0.9 }, 100).expect("solve");
+    assert!(r.lbr_gap.0.is_finite() && r.lbr_gap.1.is_finite());
+    // default budget raised to use the 250ms headroom (v7 Item 5.1)
+    let cfg = SearchConfig::default();
+    assert_eq!(cfg.budget.iters_cap(0), 2000, "default RNR iters raised 400 -> 2000");
+}
