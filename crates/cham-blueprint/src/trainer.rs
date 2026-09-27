@@ -58,6 +58,13 @@ pub struct TrainerConfig {
     /// with a default so old snapshots/configs keep parsing.
     #[serde(default = "default_avg_gamma")]
     pub avg_gamma: f32,
+    /// LBR convergence checkpoints (v7 Item 2): every N iters, write a
+    /// standalone snapshot to `<checkpoint_dir>/iter-<t>/table.snap`.
+    /// 0 = disabled (default; preserves historical behavior exactly).
+    #[serde(default)]
+    pub checkpoint_every: u64,
+    #[serde(default)]
+    pub checkpoint_dir: Option<std::path::PathBuf>,
 }
 
 pub fn default_regret_discount() -> f32 {
@@ -366,6 +373,23 @@ pub fn train_with_threads(
                     "threads": threads,
                 });
                 let _ = r.record(RecordKind::BpSnapshot, prov);
+            }
+            // v7 Item 2: LBR convergence checkpoints (independent of the
+            // rolling table.snap above — each checkpoint is self-contained).
+            if cfg.checkpoint_every > 0
+                && ((t + 1) % cfg.checkpoint_every == 0 || t + 1 == cfg.iters)
+            {
+                if let Some(cp_dir) = cfg.checkpoint_dir.as_ref() {
+                    let dir = cp_dir.join(format!("iter-{}", t + 1));
+                    if std::fs::create_dir_all(&dir).is_ok() {
+                        let bytes = table.snapshot();
+                        let tmp = dir.join("table.snap.tmp");
+                        let dst = dir.join("table.snap");
+                        if std::fs::write(&tmp, &bytes).is_ok() {
+                            let _ = std::fs::rename(&tmp, &dst);
+                        }
+                    }
+                }
             }
         }
     }
