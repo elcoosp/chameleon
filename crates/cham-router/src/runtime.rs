@@ -9,6 +9,29 @@ use crate::model::SoftmaxModel;
 
 pub const N_EXPERTS: usize = 5; // 4 specialists + robust
 
+/// Process-wide opt-in for the changepoint shield (v7 Item 6): set by the
+/// `--router-changepoint-shield` CLI flag via [`enable_changepoint_global`]
+/// so the flag threads through without `std::env::set_var` (which is
+/// `unsafe` in this toolchain and forbidden by the crate's `#![forbid]`).
+/// `RouterRuntime::new` enables the shield when this OR the
+/// `CHAM_ROUTER_CHANGEPOINT=1` env var is set.
+pub static CHANGEPOINT_FORCE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Enable the changepoint shield process-wide (CLI flag path).
+pub fn enable_changepoint_global() {
+    CHANGEPOINT_FORCE.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn changepoint_requested() -> bool {
+    if CHANGEPOINT_FORCE.load(std::sync::atomic::Ordering::SeqCst) {
+        return true;
+    }
+    std::env::var("CHAM_ROUTER_CHANGEPOINT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("on"))
+        .unwrap_or(false)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RouterRuntime {
     pub model: SoftmaxModel,
@@ -24,10 +47,115 @@ pub struct RouterRuntime {
     pub shield_z: f64,
     /// session vote counts per specialist (reset per session)
     dir_counts: [f64; N_EXPERTS - 1],
+    /// v7 Item 6: Bayesian online changepoint shield (Adams & MacKay 2007).
+    /// `None` = disabled (historical fixed-N0 behavior, bit-identical).
+    #[serde(default)]
+    changepoint: Option<ChangepointShield>,
     /// last hand's posterior variance per specialist (B2 confidence gate input)
     last_post_var: [f64; N_EXPERTS - 1],
     /// last hand's weights (trajectory/debug; reset per session)
     w_prev: [f64; N_EXPERTS],
+}
+
+/// Bayesian online changepoint shield (v7 Item 6 / B-8, Adams & MacKay
+/// 2007-style run-length posterior) layered on the Dirichlet fusion.
+///
+/// The stationary Dirichlet model assumes one opponent type per session; a
+/// switching manipulator violates that by construction, and no fixed N0 can
+/// distinguish "noisy but stationary" from "just switched" after the fact.
+/// This shield tracks P(run length = r | evidence): mass concentrating near
+/// r=0 means "the type just changed" → decay accumulated counts faster via
+/// [`ChangepointShield::effective_n0`]. O(1) amortized (history truncated at
+/// 200 hands). Deterministic (fixed arithmetic, no RNG).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChangepointShield {
+    /// prior P(type-switch per hand), e.g. 1/200.
+    pub hazard_rate: f64,
+    /// P(run length = r | evidence), index = run length (truncated).
+    run_length_posterior: Vec<f64>,
+    /// last hand's per-archetype predictive log-likelihood (for tests/debug).
+    last_loglik: Vec<f64>,
+    /// argmax vote of the last update (switch detection).
+    last_vote: Option<usize>,
+}
+
+impl Default for ChangepointShield {
+    fn default() -> Self {
+        Self::new(1.0 / 200.0)
+    }
+}
+
+impl ChangepointShield {
+    pub fn new(hazard_rate: f64) -> Self {
+        let h = hazard_rate.clamp(1e-6, 0.5);
+        let mut rl = vec![0.0; 200];
+        rl[0] = 1.0; // session starts with run length 0 with certainty
+        ChangepointShield { hazard_rate: h, run_length_posterior: rl, last_loglik: Vec::new(), last_vote: None }
+    }
+
+    /// Run-length recursion update on this hand's per-archetype evidence
+    /// log-likelihoods (one per specialist, any scale — normalized inside).
+    pub fn update(&mut self, hand_evidence_loglik: &[f64]) {
+        if hand_evidence_loglik.is_empty() { return; }
+        // predictive likelihoods from log-scale (softmax-normalized)
+        let m = hand_evidence_loglik.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let mut lik: Vec<f64> =
+            hand_evidence_loglik.iter().map(|&l| (l - m).exp()).collect();
+        let s: f64 = lik.iter().sum();
+        if s > 0.0 { for v in lik.iter_mut() { *v /= s; } }
+        // archetype-marginal likelihood for growth vs reset: use the max
+        // (best-explaining type) so a clean switch still registers.
+        let best = lik.iter().copied().fold(0.0f64, f64::max).max(1e-9);
+        let h = self.hazard_rate;
+        let n = self.run_length_posterior.len();
+        let mut next = vec![0.0; n];
+        // reset: P(r=0) ∝ hazard * Σ_r P(r) * lik
+        let total: f64 = self.run_length_posterior.iter().sum();
+        next[0] = h * total * best;
+        // growth: P(r+1) ∝ (1-hazard) * P(r) * lik
+        for r in 0..n - 1 {
+            next[r + 1] = (1.0 - h) * self.run_length_posterior[r] * best;
+        }
+        // evidence-sharpening: when the vote disagrees with the accumulated
+        // posterior mode, boost the reset mass (the "surprise" signal).
+        // Switch detector: a change in the argmax vote means the opponent's
+        // apparent type flipped — concentrate mass at run-length 0 so
+        // effective_n0() drops and the Dirichlet counts decay faster.
+        let vote = lik
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _)| i);
+        if let (Some(v), Some(lv)) = (vote, self.last_vote) {
+            if v != lv {
+                // repeated disagreement compounds: each switched-vote hand
+                // moves ~half the mass to r=0, so ~5 hands saturate.
+                let move_mass: f64 = self.run_length_posterior.iter().skip(5).sum::<f64>() * 0.5;
+                next[0] += move_mass;
+                for r in 5..n {
+                    next[r] *= 0.5;
+                }
+            }
+        }
+        self.last_vote = vote;
+        let tot: f64 = next.iter().sum();
+        if tot > 0.0 { for v in next.iter_mut() { *v /= tot; } }
+        self.run_length_posterior = next;
+        self.last_loglik = hand_evidence_loglik.to_vec();
+    }
+
+    /// Effective Dirichlet prior strength: sharpen (lower N0) when
+    /// run-length mass concentrates near 0. Floored at 0.1× so it never
+    /// fully forgets.
+    pub fn effective_n0(&self, base_n0: f64) -> f64 {
+        let p_recent: f64 = self.run_length_posterior.iter().take(5).sum();
+        base_n0 * (1.0 - p_recent).max(0.1)
+    }
+
+    /// P(run length < 5) — the "just switched" probability (tests/debug).
+    pub fn p_recent_change(&self) -> f64 {
+        self.run_length_posterior.iter().take(5).sum()
+    }
 }
 
 impl RouterRuntime {
@@ -47,7 +175,19 @@ impl RouterRuntime {
             dir_counts: [0.0; N_EXPERTS - 1],
             last_post_var: [0.0; N_EXPERTS - 1],
             w_prev: [0.0; N_EXPERTS],
+            changepoint: changepoint_requested().then(ChangepointShield::default),
         }
+    }
+
+    /// Enable the changepoint shield explicitly (v7 Item 6; also enabled
+    /// via `CHAM_ROUTER_CHANGEPOINT=1`). Chainable for the EXP-015 A/B.
+    pub fn with_changepoint_shield(mut self, hazard_rate: f64) -> Self {
+        self.changepoint = Some(ChangepointShield::new(hazard_rate));
+        self
+    }
+
+    pub fn changepoint_enabled(&self) -> bool {
+        self.changepoint.is_some()
     }
 
     /// Called ONCE PER HAND (hand start) with the hand-frozen features; result is
@@ -93,7 +233,16 @@ impl RouterRuntime {
             }
         }
         // Dirichlet-multinomial posterior: pseudo-counts + session votes.
-        let n0 = self.prior_strength.max(1e-9);
+        // v7 Item 6: the changepoint shield (when enabled) replaces the
+        // fixed N0 with effective_n0() — sharpens adaptation right after a
+        // detected type switch, matches base N0 when stationary.
+        let mut n0 = self.prior_strength.max(1e-9);
+        if let Some(cp) = self.changepoint.as_mut() {
+            // per-archetype evidence: log of the sharpened prior shares
+            let ll: Vec<f64> = prior.iter().map(|&p| p.max(1e-9).ln()).collect();
+            cp.update(&ll);
+            n0 = cp.effective_n0(self.prior_strength.max(1e-9));
+        }
         let c_total: f64 = self.dir_counts.iter().sum();
         let a0 = n0 + c_total;
         let mut w = [0f64; N_EXPERTS];
@@ -147,6 +296,9 @@ impl RouterRuntime {
         self.dir_counts = [0.0; N_EXPERTS - 1];
         self.last_post_var = [0.0; N_EXPERTS - 1];
         self.w_prev = [0.0; N_EXPERTS];
+        if let Some(cp) = self.changepoint.as_mut() {
+            *cp = ChangepointShield::new(cp.hazard_rate);
+        }
     }
 
     pub fn from_model_bytes(model_bytes: &[u8]) -> Result<RouterRuntime, RouterError> {
