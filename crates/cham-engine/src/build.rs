@@ -87,7 +87,7 @@ impl BuildParams {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct MetaOut {
+pub(crate) struct MetaOut {
     version: u32,
     river_eq_edges: Vec<f64>,
     flop: Option<StreetMeta>,
@@ -97,7 +97,7 @@ struct MetaOut {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct StreetMeta {
+pub(crate) struct StreetMeta {
     k: u32,
     orbits: u64,
     coverage: String,
