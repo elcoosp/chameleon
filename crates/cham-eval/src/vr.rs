@@ -1,8 +1,10 @@
 //! Variance reduction (SPECS/08 §4): all-in-EV adjustment + AIVAT-style
 //! known-opponent baseline, both validated by measured variance factors.
 
-use cham_core::card::{Card, Hand2};
-use cham_core::eval::{Range, evaluate7};
+// L-14 follow-up (2026-09-27): `Card` and `evaluate7` were only used by the
+// deleted `allin_ev_adjusted`; `Range` remains in use by `preflop_equity`.
+use cham_core::card::Hand2;
+use cham_core::eval::Range;
 
 // L-14 fix (2026-09-27): `allin_ev_adjusted` was DELETED. Its body returned
 // `hero_net * eq` — NOT an EV replacement (`eq × pot − invest` is; see
