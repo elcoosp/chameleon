@@ -212,32 +212,45 @@ fn reach_gadget_safety() {
 
 #[test]
 fn solver_matches_independent_oracles() {
-    // The LP/support-enumeration oracle vs FMBR on a matrix-ized spot:
-    // hero: [bet, check] × villain: [fold, call] — payoff matrix built by hand.
-    // Matrix (hero row payoff, bb): villain folds to bet (hero +1 pot share),
-    // calls with winner...
-    // Construct the canonical 2x2 bluffing game:
-    //                 villain: fold   call
-    //   hero:  bet               +1     ±(depends)
-    //          check            0      ±
-    // With hero strong (wins at showdown): bet: villain folds → +1; calls → +1.
-    // With hero weak: bet: fold → +1 (bluff), call → −1; check: 0 / −1.
-    // The exact Nash of this game is computed by the oracle and matched by FMBR
-    // on the corresponding collapsed subgame.
-    let m = vec![
-        vec![1.0, 1.0],  // strong: bet → fold +1, call +1
-        vec![1.0, -1.0], // weak: bet → fold +1 (bluff), call −1
-        vec![0.0, 1.0],  // strong: check → check 0, ... (3 rows for 2 cols is degenerate)
-    ];
-    let m2 = vec![vec![1.0, 1.0], vec![1.0, -1.0]];
-    let (v, _p, _q) = solve_matrix(&m2).expect("LP oracle solves 2×2");
-    // Nash value of the bluffing matrix: hero bets strong always; weak bluffs at the
-    // indifference frequency. Value must lie in [0, 1].
-    assert!((0.0..=1.0).contains(&v), "oracle value in range: {v}");
-    let m3 = vec![vec![1.0, 1.0], vec![1.0, -1.0]];
-    let (v2, _, _) = solve_matrix(&m3).expect("deterministic");
-    assert_eq!(v, v2, "oracle deterministic");
-    let _ = m;
+    // C-5 fix (2026-09-27): the previous version of this test asserted only
+    // `0.0 <= v <= 1.0` — a range the OLD broken oracle (row-only
+    // verification + maximize-over-pairs) also satisfied for every one of
+    // these matrices. The exact Nash values below are the anti-regression
+    // pin: if the oracle ever drifts back to "return matrix max", the
+    // matching-pennies case fails loudly (broken oracle: v=1.0, correct: 0.0).
+    use cham_search::oracle::{
+        reference_matrix_2x2, reference_matrix_2x2_pure, reference_matrix_3x3_rps,
+    };
+
+    // Matching pennies: unique equilibrium at p = q = [0.5, 0.5], value 0.0.
+    let a = reference_matrix_2x2();
+    let (v, p, q) = solve_matrix(&a).expect("matching pennies solvable");
+    assert!(
+        v.abs() < 1e-9,
+        "matching-pennies value must be 0.0, got {v}"
+    );
+    assert!((p[0] - 0.5).abs() < 1e-6, "p must be uniform, got {p:?}");
+    assert!((q[0] - 0.5).abs() < 1e-6, "q must be uniform, got {q:?}");
+
+    // Pure matrix [[1,1],[1,-1]]: row 0 weakly dominates, value 1.0.
+    let b = reference_matrix_2x2_pure();
+    let (vb, _, _) = solve_matrix(&b).expect("pure matrix solvable");
+    assert!((vb - 1.0).abs() < 1e-9, "pure-matrix value must be 1.0, got {vb}");
+
+    // RPS 3×3: value 0.0 (uniform mix both sides).
+    let rps = reference_matrix_3x3_rps();
+    let (vrps, _, _) = solve_matrix(&rps).expect("RPS solvable");
+    assert!(vrps.abs() < 1e-9, "RPS value must be 0.0, got {vrps}");
+
+    // Constant matrix: every cell 3.0 → value is 3.0, p = q = uniform.
+    let c = vec![vec![3.0, 3.0], vec![3.0, 3.0]];
+    let (vc, _, _) = solve_matrix(&c).expect("constant matrix solvable");
+    assert!((vc - 3.0).abs() < 1e-9, "constant matrix value must be 3.0, got {vc}");
+
+    // Determinism: same input → same output.
+    let (v2, _, _) = solve_matrix(&a).expect("determinism");
+    assert_eq!(v, v2, "oracle must be deterministic");
+
     // FMBR on the corresponding subgame must also bet strong hands always:
     let hero_classes = collapse_to_classes(vec![(0.5, 0.9), (0.5, 0.1)], 2);
     let villain_classes = collapse_to_classes(vec![(0.5, 0.5)], 1);
