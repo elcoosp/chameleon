@@ -116,6 +116,12 @@ pub fn averaging_weight(t: u64, total: u64, robust: bool) -> f64 {
 /// [`averaging_weight`] with an explicit strategy-sum discount γ (v3 §3.1).
 /// `gamma = 1.0` is pure delayed-linear averaging (no recency tilt).
 pub fn averaging_weight_gamma(t: u64, total: u64, robust: bool, gamma: f32) -> f64 {
+    // Diagnostic (session 2026-09-27): CHAM_AVG_UNIFORM=1 makes the average
+    // window uniform (w=1 for all t). The default keeps linear-averaging
+    // with γ decay. Unset → historical behavior, bit-identical.
+    if std::env::var("CHAM_AVG_UNIFORM").as_deref() == Ok("1") {
+        return 1.0;
+    }
     let d = total / 4;
     let base = if t > d { (t - d) as f64 } else { 0.0 };
     if robust {
@@ -231,7 +237,16 @@ pub fn train_with_threads(
 
         let iter_rng: &mut Rng = &mut child(cfg.train_seed, &format!("iter{t}"));
         let hero_seat = if robust {
-            (t % 2) as usize
+            // Diagnostic override (session 2026-09-27): force a specific
+            // updating seat for the SB-vs-BB exploitability investigation.
+            // Unset → historical (t % 2) alternation, bit-identical.
+            match std::env::var("CHAM_FORCE_SEAT")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                Some(s) if s < 2 => s,
+                _ => (t % 2) as usize,
+            }
         } else {
             cham_core::rng::pick(iter_rng, 2)
         };
