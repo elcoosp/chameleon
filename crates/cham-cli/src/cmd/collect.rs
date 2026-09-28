@@ -121,13 +121,20 @@ fn build_agent(bundle: &str, routing: &str) -> cham_agent::ChameleonAgent {
     .expect("agent")
 }
 
+/// Play one hand with `hero` at `hero_seat`. The opponent plays the other
+/// seat. This must ALTERNATE across sessions (see
+/// docs/plans/INSTRUMENT-SEAT-ASYMMETRY-2026-09-29.md): running hero only
+/// at SB biases the tracker toward the preflop-second-actor slice of the
+/// opponent's behaviour and kills 9 of 20 router features.
 #[allow(clippy::too_many_arguments)]
 fn play_one_hand(
     hero: &mut cham_agent::ChameleonAgent,
     opp: &mut Box<dyn Agent>,
     engine_cfg: EngineConfig,
     hand_seed: u64,
+    hero_seat: usize,
 ) -> i64 {
+    let opp_seat = 1 - hero_seat;
     let mut hero_rng: Rng = child(hand_seed, "h");
     let deck = Deck::shuffled(&mut child(hand_seed, "d"));
     let mut state = State::new(engine_cfg, deck).expect("state");
@@ -137,12 +144,13 @@ fn play_one_hand(
         guard += 1;
         let p = state.to_act();
         let obs = Observables::view(&state, Player::from_usize(p));
-        let a = if p == 0 {
+        let a = if p == hero_seat {
             hero.act(&obs, &mut hero_rng)
         } else {
             opp.act(&obs, &mut hero_rng)
         };
-        let hero_obs = Observables::view(&state, Player::from_usize(0));
+        // Feed to hero from HERO's view, BEFORE apply (matches MatchRunner).
+        let hero_obs = Observables::view(&state, Player::from_usize(hero_seat));
         hero.on_public_action(&hero_obs, Player::from_usize(p), a);
         log.push((state.street(), Player::from_usize(p), a));
         state.apply(a).expect("legal");
@@ -161,8 +169,8 @@ fn play_one_hand(
         result_sb: payoffs[0],
     };
     let ph = PublicHistory::from(&hh);
-    hero.on_hand_end(&ph, payoffs[0]);
-    payoffs[0]
+    hero.on_hand_end(&ph, payoffs[hero_seat]);
+    payoffs[hero_seat]
 }
 
 fn run_real(out: &str, bundle: &str, sessions: u64, hands: u64, max_rows: usize) -> i32 {
@@ -179,6 +187,11 @@ fn run_real(out: &str, bundle: &str, sessions: u64, hands: u64, max_rows: usize)
             }
             let session_id = next_session;
             next_session = next_session.wrapping_add(1);
+            // Alternate hero seat per session: SB (0) on even sessions,
+            // BB (1) on odd. This is required so the tracker sees the
+            // opponent's full action menu, not just the preflop-second
+            // slice. See INSTRUMENT-SEAT-ASYMMETRY-2026-09-29.md.
+            let hero_seat = (s % 2) as usize;
             let mut hero = build_agent(bundle, "argmax");
             let opp_spec = cham_opponents::OpponentSpec::parse(opp_id).expect("opp spec");
             let mut opp: Box<dyn Agent> = cham_opponents::factory::build(
@@ -190,7 +203,7 @@ fn run_real(out: &str, bundle: &str, sessions: u64, hands: u64, max_rows: usize)
                     break;
                 }
                 let hand_seed = 0xC011EC7u64 ^ ((k as u64) << 40) ^ (s << 24) ^ h;
-                let _ = play_one_hand(&mut hero, &mut opp, engine_cfg, hand_seed);
+                let _ = play_one_hand(&mut hero, &mut opp, engine_cfg, hand_seed, hero_seat);
                 let feats = hero.tracker_features().to_vec();
                 all_rows.push(RbinRow {
                     features: feats,
