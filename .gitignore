@@ -104,3 +104,11 @@ artifacts/dcfr-gamma-honest.log
 # Router sweeps (2026-09-28) — regenerable via `collect` + `train-router`
 /artifacts/router_rows.rbin
 /artifacts/routers/
+
+# Parallel-trainer measurement logs (2026-09-29)
+/artifacts/assemble-full.log
+/artifacts/bench-50M.log
+/artifacts/instrument*.log
+/artifacts/mixture-lbr.log
+/artifacts/router_rows_real*.rbin
+/artifacts/train-router-real*.log

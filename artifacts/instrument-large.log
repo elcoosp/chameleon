@@ -1,5 +1,0 @@
-  arch:nit: 30000 rows cumulative
-  arch:tag: 60000 rows cumulative
-  arch:lag: 90000 rows cumulative
-  arch:station: 120000 rows cumulative
-instrument: 120000 rows -> /Users/adm/Documents/Repos/chameleon/artifacts/router_rows_real_large.rbin
