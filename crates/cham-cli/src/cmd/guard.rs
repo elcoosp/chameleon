@@ -8,13 +8,14 @@
 
 /// Agent names that require the trained `artifacts/agent` bundle (mirrors
 /// `play`'s routing set in `cmd::play`: every one of these loads blueprints).
-const TRAINED_AGENTS: [&str; 9] = [
+const TRAINED_AGENTS: [&str; 10] = [
     "full",
     "no-search",
     "full-no-search",
     "argmax",
     "full-argmax",
     "no-search-argmax",
+    "full-mixture",
     "robust-only",
     "bayes",
     "mixture",

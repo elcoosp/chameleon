@@ -14,14 +14,20 @@ use cham_router::model::SoftmaxModel;
 /// must stay in sync with `cmd::play::run`).
 pub fn routing_for(agent: &str) -> &str {
     match agent {
-        // ROUTING-FINDING 2026-09-28: on the current untrained-router bundle,
-        // argmax dominates mixture by 2x on every opponent. `full` still maps
-        // to `mixture` for compatibility, but `full-argmax` (and the shorter
-        // `argmax`) give the winning routing without waiting for a trained
-        // router.bin. Ship `full-argmax` for now; switch `full` back to
-        // mixture once a trained router beats argmax in a head-to-head.
-        "full" | "no-search" | "full-no-search" => "mixture",
+        // SOTA 2026-09-28 (docs/plans/SOTA-2026-09-28.md): argmax routing
+        // beats mixture on the current bundle — aggregate +6 567 vs +3 184
+        // mb/seating (mixture + synthetic router: +4 388; robust-only:
+        // much worse). `full` now maps to argmax so the shipped default is
+        // the measured-best configuration.
+        //
+        // Use `full-mixture` to get the historical mixture behavior
+        // (reach-weighted blend of 5 experts, sharpened-softmax weights).
+        // That will become the right default again once `collect` produces
+        // real (not synthetic) router training data; see
+        // docs/plans/ROUTER-TRAINING-GAP-2026-09-28.md.
+        "full" | "no-search" | "full-no-search" => "argmax",
         "full-argmax" | "argmax" | "no-search-argmax" => "argmax",
+        "full-mixture" | "mixture" => "mixture",
         "robust-only" => "robust-only",
         "bayes" => "bayes",
         other => other,
