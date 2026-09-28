@@ -281,7 +281,11 @@ pub fn build_street(
     // the river quantiles land in ONE meta.json; return the artifact path here.
     let meta_path = out_dir.join("meta.json");
     if !meta_path.exists() {
-        write_meta(out_dir, &edges, None)?;
+        // PERF (2026-09-29): the meta's river_eq_edges is the RUNTIME
+        // bucketing edge list (river_eq_bins+1 entries), not the CDF
+        // feature edges above. See `river_quantile_edges`.
+        let river_edges = river_quantile_edges(cfg, params.quantile_sample);
+        write_meta(out_dir, &river_edges, None)?;
     }
     let meta: MetaOut = {
         let text = std::fs::read_to_string(&meta_path)?;
@@ -491,11 +495,29 @@ fn sample_orbits(board_len: usize, n: usize, seed: u64) -> Vec<u64> {
 }
 
 /// Global equal-mass equity quantile edges over random (combo, board) pairs.
-pub fn equity_quantile_edges(n: u32, seed: u64) -> Vec<f64> {
-    let mut eqs: Vec<f64> = Vec::with_capacity(n as usize);
-    for it in 0..n {
-        // independent stream per draw — autocorrelated decks inflate the order-
-        // statistic noise and quantile bins drift (measured: −4σ populations)
+/// Empirical quantile edges of river equity, from `n_draws` random full
+/// boards. Returns `n_bins + 1` edges (0.0, ..., 1.0). The seed labels the
+/// per-draw RNG so the same `(n_draws, seed)` gives the same edges.
+///
+/// PERF (2026-09-29): this used to be `equity_quantile_edges(n, seed)` which
+/// ALWAYS returned CDF_BINS+1 = 17 edges regardless of what the caller
+/// wanted. Two consumers with different bin requirements were conflated:
+///
+///   * `features_for` / `histo_fingerprint` need CDF_BINS+1 = 17 edges (the
+///     CDF feature vector is exactly `[f32; CDF_BINS]`).
+///   * `RiverBucketer::bin` needs `river_eq_bins + 1` edges (the river
+///     hand-strength bucketing dimension, 64 for the full config, 16 for
+///     tiny). It was reading 17 and treating them as the river buckets.
+///
+/// The two coincide for the tiny config (both 16) and diverge for the full
+/// config (CDF=16, river=64). The fix is to split the function.
+pub fn quantile_edges(n_draws: u32, n_bins: u32, seed: u64) -> Vec<f64> {
+    assert!(n_bins >= 1, "quantile_edges: n_bins must be >= 1");
+    let mut eqs: Vec<f64> = Vec::with_capacity(n_draws as usize);
+    for it in 0..n_draws {
+        // independent stream per draw — autocorrelated decks inflate the
+        // order-statistic noise and quantile bins drift (measured: −4σ
+        // populations)
         let mut rng = child(seed, &format!("q{it}"));
         let mut deck: Vec<u8> = (0..52).collect();
         for i in (1..52).rev() {
@@ -504,15 +526,15 @@ pub fn equity_quantile_edges(n: u32, seed: u64) -> Vec<f64> {
         }
         let hand = Hand2::new(Card(deck[0]), Card(deck[1]));
         let board: Vec<Card> = (0..5).map(|i| Card(deck[2 + i])).collect();
-        // exact enumeration on a complete board (continuous values — MC with small
-        // iters quantizes equities and collapses quantile bins)
+        // exact enumeration on a complete board (continuous values — MC with
+        // small iters quantizes equities and collapses quantile bins)
         let range = Range::all();
         let (w, t) = cham_core::eval::equity_exact(hand, &range, &board);
         eqs.push(w + t / 2.0);
     }
     eqs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let bins = CDF_BINS as u32;
-    let mut edges = Vec::with_capacity(bins as usize + 1);
+    let bins = n_bins as usize;
+    let mut edges = Vec::with_capacity(bins + 1);
     edges.push(0.0);
     for b in 1..bins {
         let idx = ((b as f64 / bins as f64) * eqs.len() as f64) as usize;
@@ -520,6 +542,25 @@ pub fn equity_quantile_edges(n: u32, seed: u64) -> Vec<f64> {
     }
     edges.push(1.0);
     edges
+}
+
+/// CDF feature edges: always `CDF_BINS + 1` = 17 edges. Used by
+/// `features_for` / `histo_fingerprint`.
+///
+/// Kept for backward compatibility with the existing call sites.
+pub fn equity_quantile_edges(n_draws: u32, seed: u64) -> Vec<f64> {
+    quantile_edges(n_draws, CDF_BINS as u32, seed)
+}
+
+/// River bucketing edges: `cfg.buckets.river_eq_bins + 1` edges. Used by
+/// `finalize_meta` to stamp the runtime river buckets into `meta.json`.
+///
+/// Before (2026-09-29) `finalize_meta` used `equity_quantile_edges`, so a
+/// config requesting 64 river bins got 17 stamped instead. The runtime
+/// `RiverBucketer` then bucketed 64-bin river hands through 17 edges and
+/// warned loudly on load (the L-2 diagnostic that surfaced this).
+pub fn river_quantile_edges(cfg: &AbstractionConfig, n_draws: u32) -> Vec<f64> {
+    quantile_edges(n_draws, cfg.buckets.river_eq_bins, 0xC1)
 }
 
 /// Exact next-street CDF feature for one orbit (v3 §4.1, A2): the potential-aware
@@ -796,8 +837,13 @@ pub fn finalize_meta(
     out_dir: &Path,
     params: BuildParams,
 ) -> Result<(), crate::EngineError> {
-    let _ = cfg;
-    let edges = equity_quantile_edges(params.quantile_sample, 0xC1);
+    // PERF (2026-09-29): meta.json's `river_eq_edges` is the RUNTIME river
+    // bucketing edge list, whose length must be `river_eq_bins + 1`. The
+    // previous code stamped CDF_BINS+1 edges here, so a config asking for
+    // 64 river bins got 17 stamped. Tiny's config happens to use 16 for
+    // both — which is why the bug was invisible until the full bundle's
+    // RiverBucketer::new assertion fired (L-2 fix, 2026-09-27).
+    let edges = river_quantile_edges(cfg, params.quantile_sample);
     let path = out_dir.join("meta.json");
     let mut meta: MetaOut = if path.exists() {
         serde_json::from_str(&std::fs::read_to_string(&path)?)

@@ -815,3 +815,36 @@ fn key_format_is_pinned() {
         assert_eq!(key2.0, GOLDEN_FLOP, "flop-seq key changed");
     }
 }
+
+/// PERF (2026-09-29) regression: `quantile_edges` must produce
+/// `n_bins + 1` edges, and `river_quantile_edges` must respect the config's
+/// `river_eq_bins` (was CDF_BINS regardless, which broke the full bundle's
+/// 64-bin river bucketing and made its meta.json internally inconsistent).
+#[test]
+fn quantile_edges_respects_bin_count() {
+    use cham_engine::build::{equity_quantile_edges, quantile_edges, river_quantile_edges};
+    use cham_engine::config::AbstractionConfig;
+
+    // Small n_draws for speed — the shape is what we pin, not the values.
+    const N: u32 = 200;
+
+    let e17 = quantile_edges(N, 16, 0xA1);
+    assert_eq!(e17.len(), 17, "16 bins -> 17 edges");
+    assert_eq!(e17[0], 0.0);
+    assert_eq!(e17[16], 1.0);
+
+    let e65 = quantile_edges(N, 64, 0xA1);
+    assert_eq!(e65.len(), 65, "64 bins -> 65 edges");
+    assert_eq!(e65[0], 0.0);
+    assert_eq!(e65[64], 1.0);
+
+    // equity_quantile_edges keeps its CDF_BINS contract.
+    let cdf = equity_quantile_edges(N, 0xA1);
+    assert_eq!(cdf.len(), 17, "equity_quantile_edges -> CDF_BINS+1");
+
+    // river_quantile_edges follows the config.
+    let tiny = AbstractionConfig::tiny();
+    let full = AbstractionConfig::full();
+    assert_eq!(river_quantile_edges(&tiny, N).len(), 16 + 1);
+    assert_eq!(river_quantile_edges(&full, N).len(), 64 + 1);
+}
