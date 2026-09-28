@@ -1,20 +1,49 @@
-//! `chameleon collect` (SPECS/05 §4): builds the binary router dataset from
-//! instrumented ladder sessions — one row per hand, session-clustered splits,
-//! out-of-family rows labeled (family governance).
+//! `chameleon collect` (SPECS/05 §4): build the binary router dataset.
+//!
+//! Two modes:
+//!
+//! * **Synthetic** (default): the original `TrackerStub` produces a feature
+//!   vector whose class is encoded directly in one dimension. The resulting
+//!   model passes its gates by reading the answer key; the gate is vacuous.
+//!   Kept for smoke tests and CI.
+//!
+//! * **Real** (`--real`): runs the shipped agent against the four archetypes
+//!   through the actual engine, records its per-hand tracker features, and
+//!   labels the row with the archetype. This is the honest training set for
+//!   the router; its gate FAILS at 0.761 top-1 / 0.45 TAG recall because the
+//!   20-dim feature vector does not separate TAG from LAG.
+//!   See docs/plans/ROUTER-FAILS-ON-REAL-DATA-2026-09-29.md.
 
+use cham_core::card::Deck;
+use cham_core::engine::config::EngineConfig;
+use cham_core::engine::history::{HandHistory, PublicHistory};
+use cham_core::engine::{Action, State};
+use cham_core::obs::{Agent, Observables, Player};
+use cham_core::rng::{Rng, child};
 use cham_router::dataset::RbinRow;
+use std::path::Path;
 
-pub fn run(out: &str, max_rows: usize) -> i32 {
-    // instrumented sessions: jittered archetypes playing each other produce the
-    // labeled rows (family A) — the labels come from the session spec, not inference
+pub fn run(
+    out: &str,
+    max_rows: usize,
+    real: bool,
+    bundle: &str,
+    sessions: u64,
+    hands: u64,
+) -> i32 {
+    if real {
+        return run_real(out, bundle, sessions, hands, max_rows);
+    }
+    run_synthetic(out, max_rows)
+}
+
+// ---------------- synthetic (stub) ----------------
+
+fn run_synthetic(out: &str, max_rows: usize) -> i32 {
     let mut rows: Vec<RbinRow> = Vec::new();
     let mut session_id = 1u16;
     let mut rng = cham_core::rng::rng_from_seed(0xC011EC7);
     for arch in 0..4usize {
-        // 625 sessions × 200 hands × 4 archetypes = 500k rows. The contractual
-        // hyperparameters (minibatch 512, lr 0.05 halved per 10 epochs, ≤ 100
-        // epochs) need ~10⁵ gradient steps to reach the well-calibrated optimum
-        // — at the real 2M-row scale that comes free; the stub matches it here.
         for _session in 0..625 {
             let mut t = TrackerStub {
                 hands: 60 + (session_id as u64 * 17) % 400,
@@ -24,10 +53,6 @@ pub fn run(out: &str, max_rows: usize) -> i32 {
                     break;
                 }
                 let features = t.next_features(&mut rng, arch);
-                // Family governance (SPECS/05 §4): out-of-family rows (family B
-                // here) may ONLY live in C-split sessions — derive the family
-                // from the session's split, never assign family per-session-id
-                // blindly (the loader refuses A/B rows labeled out-of-family).
                 let family = if cham_router::dataset::split_of_session(session_id)
                     == cham_router::dataset::SESSION_C
                 {
@@ -45,15 +70,12 @@ pub fn run(out: &str, max_rows: usize) -> i32 {
             session_id += 1;
         }
     }
-    // deterministic subsample beyond the cap
     if rows.len() > max_rows {
         rows.truncate(max_rows);
     }
-    // session splits are computed by session_id (A/B-dev/B-test/C); family-C rows
-    // labeled so the loader refuses them for A/B-dev (governance)
     match cham_router::write_dataset(std::path::Path::new(out), &rows, 20) {
         Ok(()) => {
-            println!("collect: {} rows → {out}", rows.len());
+            println!("collect (synthetic): {} rows -> {out}", rows.len());
             crate::cmd::EXIT_OK
         }
         Err(e) => {
@@ -63,14 +85,143 @@ pub fn run(out: &str, max_rows: usize) -> i32 {
     }
 }
 
-/// Deterministic feature synthesizer (stand-in for the full instrumented session
-/// driver; the real producer is `ladder --instrument` at M3).
+// ---------------- real (instrumented) ----------------
+
+fn build_agent(bundle: &str, routing: &str) -> cham_agent::ChameleonAgent {
+    let loaded = cham_agent::loader::load_agent(Path::new(bundle), routing, 100)
+        .expect("load_agent");
+    let mode = cham_agent::modes::AgentMode {
+        routing: routing.to_string(),
+        search: cham_agent::modes::SearchCfg {
+            enabled: false,
+            solver: "Rnr".into(),
+            g4_ledger_ref: String::new(),
+        },
+        fallback_mode: "renorm".into(),
+    };
+    let router = match std::fs::read(Path::new(bundle).join("router.bin")) {
+        Ok(b) => cham_router::runtime::RouterRuntime::from_model_bytes(&b).expect("router"),
+        Err(_) => cham_router::runtime::RouterRuntime::new(
+            cham_router::model::SoftmaxModel::new(20, 4),
+            0.7,
+            8.0,
+            0.5,
+            -1.5,
+        ),
+    };
+    cham_agent::ChameleonAgent::new(
+        mode,
+        loaded.encoder,
+        router,
+        loaded.experts,
+        loaded.robust,
+        loaded.bayes,
+        None,
+    )
+    .expect("agent")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn play_one_hand(
+    hero: &mut cham_agent::ChameleonAgent,
+    opp: &mut Box<dyn Agent>,
+    engine_cfg: EngineConfig,
+    hand_seed: u64,
+) -> i64 {
+    let mut hero_rng: Rng = child(hand_seed, "h");
+    let deck = Deck::shuffled(&mut child(hand_seed, "d"));
+    let mut state = State::new(engine_cfg, deck).expect("state");
+    let mut log: Vec<(cham_core::engine::Street, Player, Action)> = Vec::new();
+    let mut guard = 0;
+    while !state.is_terminal() && guard < 400 {
+        guard += 1;
+        let p = state.to_act();
+        let obs = Observables::view(&state, Player::from_usize(p));
+        let a = if p == 0 {
+            hero.act(&obs, &mut hero_rng)
+        } else {
+            opp.act(&obs, &mut hero_rng)
+        };
+        let hero_obs = Observables::view(&state, Player::from_usize(0));
+        hero.on_public_action(&hero_obs, Player::from_usize(p), a);
+        log.push((state.street(), Player::from_usize(p), a));
+        state.apply(a).expect("legal");
+    }
+    let payoffs = state.payoffs();
+    let n = state.board_len() as usize;
+    let mut board = [cham_core::card::Card(0); 5];
+    board[..n].copy_from_slice(&state.board()[..n]);
+    let hh = HandHistory {
+        seed: hand_seed,
+        actions: log,
+        cfg: engine_cfg,
+        holes: [state.hole(0), state.hole(1)],
+        board,
+        board_len: state.board_len(),
+        result_sb: payoffs[0],
+    };
+    let ph = PublicHistory::from(&hh);
+    hero.on_hand_end(&ph, payoffs[0]);
+    payoffs[0]
+}
+
+fn run_real(out: &str, bundle: &str, sessions: u64, hands: u64, max_rows: usize) -> i32 {
+    let opponents = ["arch:nit", "arch:tag", "arch:lag", "arch:station"];
+    let engine_cfg = EngineConfig::depth(100);
+    let mut all_rows: Vec<RbinRow> = Vec::new();
+    let mut next_session: u16 = 1;
+
+    for (k, opp_id) in opponents.iter().enumerate() {
+        let label = k as u8;
+        for s in 0..sessions {
+            if all_rows.len() >= max_rows {
+                break;
+            }
+            let session_id = next_session;
+            next_session = next_session.wrapping_add(1);
+            let mut hero = build_agent(bundle, "argmax");
+            let opp_spec = cham_opponents::OpponentSpec::parse(opp_id).expect("opp spec");
+            let mut opp: Box<dyn Agent> = cham_opponents::factory::build(
+                &opp_spec,
+                cham_opponents::PercentileChart::global(),
+            );
+            for h in 0..hands {
+                if all_rows.len() >= max_rows {
+                    break;
+                }
+                let hand_seed = 0xC011EC7u64 ^ ((k as u64) << 40) ^ (s << 24) ^ h;
+                let _ = play_one_hand(&mut hero, &mut opp, engine_cfg, hand_seed);
+                let feats = hero.tracker_features().to_vec();
+                all_rows.push(RbinRow {
+                    features: feats,
+                    label,
+                    session_id,
+                    family: 0,
+                });
+            }
+        }
+        eprintln!("  {opp_id}: {} rows cumulative", all_rows.len());
+    }
+
+    match cham_router::write_dataset(Path::new(out), &all_rows, 20) {
+        Ok(()) => {
+            println!("collect (real): {} rows -> {out}", all_rows.len());
+            crate::cmd::EXIT_OK
+        }
+        Err(e) => {
+            eprintln!("collect: {e}");
+            crate::cmd::EXIT_FAIL
+        }
+    }
+}
+
+/// Deterministic synthetic feature synthesizer (see module doc).
 struct TrackerStub {
     hands: u64,
 }
 
 impl TrackerStub {
-    fn next_features(&mut self, rng: &mut cham_core::rng::Rng, arch: usize) -> Vec<f32> {
+    fn next_features(&mut self, rng: &mut Rng, arch: usize) -> Vec<f32> {
         let mut f = vec![0.5f32; 20];
         for (i, v) in f.iter_mut().enumerate() {
             let x = cham_core::rng::next_f64(rng);
@@ -78,12 +229,6 @@ impl TrackerStub {
                 as f32;
         }
         f[0] = cham_router::features::maturity_feature(self.hands) as f32;
-        // class signal: archetype k elevates its signature EWM stat (dims 1..=4
-        // map to vpip/pfr/three_bet/call_3bet in the SPECS/05 §2 contract) so the
-        // dataset has learnable structure. The REAL producer at M3 is
-        // instrumented play (`ladder --instrument`) — this stub exists so the
-        // collect → train-router → ladder cycle is exercisable end-to-end at the
-        // scale the contractual hyperparameters need (minibatch 512 × lr 0.05).
         let sig = 1 + (arch % 4);
         f[sig] = (f[sig] + 0.45).min(1.0);
         f

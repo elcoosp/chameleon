@@ -116,6 +116,22 @@ enum Command {
         out: String,
         #[arg(long, default_value = "2000000")]
         max_rows: usize,
+        /// Produce REAL instrumented features by playing the shipped agent
+        /// against the archetypes, instead of the synthetic TrackerStub.
+        /// The stub encodes the label in the features and its gate is
+        /// vacuous; `--real` is the honest pipeline (see
+        /// docs/plans/ROUTER-FAILS-ON-REAL-DATA-2026-09-29.md).
+        #[arg(long)]
+        real: bool,
+        /// Bundle to load for --real (default artifacts/agent).
+        #[arg(long, default_value = "artifacts/agent")]
+        bundle: String,
+        /// Sessions per opponent for --real.
+        #[arg(long, default_value = "60")]
+        sessions: u64,
+        /// Hands per session for --real.
+        #[arg(long, default_value = "500")]
+        hands: u64,
     },
     /// Tier 1 probe (LBR proxy, coverage, router calibration)
     Probe {
@@ -349,7 +365,14 @@ fn main() -> anyhow::Result<()> {
             checkpoint_every,
         ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
-        Command::Collect { out, max_rows } => cmd::collect::run(&out, max_rows),
+        Command::Collect {
+            out,
+            max_rows,
+            real,
+            bundle,
+            sessions,
+            hands,
+        } => cmd::collect::run(&out, max_rows, real, &bundle, sessions, hands),
         Command::Probe {
             agent,
             diag_fallback,
