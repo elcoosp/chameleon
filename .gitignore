@@ -120,3 +120,5 @@ artifacts/dcfr-gamma-honest.log
 /artifacts/qtest2-*/
 /artifacts/qtest2-*.log
 /artifacts/qtest2-lbr.log
+/artifacts/qtest3-*/
+/artifacts/qtest2-lbr.log
