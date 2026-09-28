@@ -87,3 +87,6 @@ artifacts/dcfr-gamma-honest.log
 
 # stray file from a shell redirect (2026-09-27)
 /0
+# Competitiveness sweeps (2026-09-28)
+/artifacts/blueprints-retrain-tiny*/
+/artifacts/retrain-tiny-*.log
