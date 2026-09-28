@@ -150,7 +150,20 @@ pub fn averaging_weight_gamma(t: u64, total: u64, robust: bool, gamma: f32) -> f
     if std::env::var("CHAM_AVG_UNIFORM").as_deref() == Ok("1") {
         return 1.0;
     }
-    let d = total / 4;
+    // CHAM_AVG_DELAY overrides the delay fraction of the strategy-average
+    // window. Default is 1/4 (historical). 0 disables the delay entirely:
+    // w_t = t, the standard Linear CFR+ weight from Brown & Sandholm 2019.
+    // This is the next ablation after the γ=1.0 fix (which was worth 40%
+    // on seat 0; see docs/plans/AVG-GAMMA-FINDING-2026-09-28.md).
+    let d = if let Ok(s) = std::env::var("CHAM_AVG_DELAY") {
+        if let Ok(n) = s.parse::<u64>() {
+            n
+        } else {
+            total / 4
+        }
+    } else {
+        total / 4
+    };
     let base = if t > d { (t - d) as f64 } else { 0.0 };
     if robust {
         // Underflow tripwire (2026-09-28): `γ^(T−t)` underflows to 0 in f64
