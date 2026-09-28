@@ -44,8 +44,19 @@ pub fn run(rows_path: &str, out: &str) -> i32 {
         return crate::cmd::EXIT_FAIL;
     }
     let model_json = serde_json::to_vec_pretty(&model).unwrap_or_default();
+    // Write BOTH filenames:
+    //   * `model.bin` — the historical name train-router has always used
+    //   * `router.bin` — the name hero/play/probe/audit_buckets look for when
+    //     loading a bundle (`cmd/hero.rs:73` etc.)
+    // Before this, `train-router` wrote only `model.bin`, so a freshly
+    // trained router was NEVER picked up by any agent construction path —
+    // the fallback (deterministic small init) served every measurement.
     if let Err(e) = std::fs::write(out_dir.join("model.bin"), &model_json) {
         eprintln!("write model: {e}");
+        return crate::cmd::EXIT_FAIL;
+    }
+    if let Err(e) = std::fs::write(out_dir.join("router.bin"), &model_json) {
+        eprintln!("write router: {e}");
         return crate::cmd::EXIT_FAIL;
     }
     let _ = std::fs::write(
