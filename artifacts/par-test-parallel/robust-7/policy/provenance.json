@@ -1,0 +1,15 @@
+{
+  "abstraction_hash": 8078057981912287418,
+  "artifact_hash": 14131338693890212524,
+  "mode": "Robust",
+  "opponent_id": null,
+  "depth_bb": 100,
+  "iters": 10000,
+  "train_seed": 7,
+  "thread_mode": "Hogwild",
+  "threads": 4,
+  "parent": null,
+  "wall_s": 0.736449792,
+  "infosets": 3965,
+  "created_unix": 1790623276
+}

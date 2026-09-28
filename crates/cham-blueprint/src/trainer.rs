@@ -309,7 +309,58 @@ pub fn train_with_threads(
     // — averaging weights and cadence checks use it, not the local count.
     let start = table.last_iter();
     let total_iters = start + cfg.iters;
-    for t in start..total_iters {
+
+    // PERF (2026-09-29): dispatch to the parallel trainer when the caller
+    // requested it. Currently Robust-only — the other modes need the same
+    // treatment but involve additional stateful pieces (bayes blocks,
+    // per-iteration opponent construction) that benefit less from
+    // Hogwild. `deterministic` mode is never parallel (contract).
+    //
+    // Warmup = min(20% of this call's iterations, 50 000). The warmup's job
+    // is to populate the table with every infoset the walk will see; the
+    // parallel phase then only touches existing rows. If warmup is too
+    // small, workers skip subtrees that would have been created later —
+    // this is the same effect as a sample-starved run on those infosets,
+    // and it self-corrects on the next warmup interval (per resume).
+    let parallel_requested = thread_mode != ThreadMode::Deterministic
+        && threads > 1
+        && robust
+        && !matches!(mode, TrainMode::ExploitBayes { .. });
+    if parallel_requested {
+        let warmup_iters = (cfg.iters / 5).min(50_000).max(1);
+        eprintln!(
+            "cham-blueprint: parallel Robust trainer — mode={thread_mode:?} \
+             threads={threads} warmup={warmup_iters} total={total_iters}"
+        );
+        train_robust_parallel(
+            &mut table,
+            cfg,
+            engine_cfg,
+            enc,
+            threads,
+            start,
+            total_iters,
+            warmup_iters,
+            &mut seat_histogram,
+        )?;
+        // Snapshots and provenance are still emitted by the same
+        // post-loop path below; set last_iter and skip the single-threaded
+        // loop entirely.
+        table.set_last_iter(total_iters);
+        // Fall through to the snapshot + provenance code below by skipping
+        // the single-threaded loop. We do that with an early guard on the
+        // loop's range: start==total_iters means zero iterations.
+        //
+        // (Cannot `return` here because the snapshot record path below is
+        // part of the contract.)
+    }
+
+    // When parallel ran, this range is empty and the single-threaded loop
+    // is a no-op. The final snapshot (below) and provenance (after) still
+    // fire, using the shared table's accumulated state.
+    let loop_start = if parallel_requested { total_iters } else { start };
+    let loop_end = total_iters;
+    for t in loop_start..loop_end {
         // ---- ExploitBayes session blocks: hidden type + belief bin ----
         if let TrainMode::ExploitBayes {
             families,
@@ -588,6 +639,145 @@ pub fn train_with_threads(
     let prov_path = out_dir.join("provenance.json");
     std::fs::write(&prov_path, serde_json::to_vec_pretty(&prov)?)?;
     Ok((table, prov))
+}
+
+
+/// PERF (2026-09-29): parallel Hogwild trainer for Robust mode.
+///
+/// The single-threaded loop in [`train_with_threads`] works in any mode;
+/// this function is used when `thread_mode != Deterministic && threads > 1
+/// && mode == Robust`. It runs in two phases:
+///
+/// 1. **Warmup.** Single-threaded. Runs the first `warmup_iters` iterations
+///    with `allow_insert = true` to populate the table. Any key seen during
+///    the warmup will be present for the parallel phase.
+/// 2. **Hogwild.** Spawns `threads` worker threads under a
+///    `std::thread::scope`; each worker draws iteration indices from a
+///    shared `AtomicU64`, walks one hand with `allow_insert = false` and
+///    writes through atomic CAS-adds (the storage layer is already
+///    thread-safe for updates). Keys not present are skipped for that
+///    iteration; the next run's warmup slice will insert them.
+///
+/// Determinism: deliberately NOT deterministic — Hogwild trades
+/// reproducibility for wall-clock speed (Niu et al. 2011). Only the
+/// `Hogwild` and `Snapbatch` thread modes reach here.
+///
+/// Averaging weights: `w_t` is computed from the shared atomic counter `t`,
+/// so the strategy-sum schedule is independent of worker interleaving.
+#[allow(clippy::too_many_arguments)]
+fn train_robust_parallel(
+    table: &mut RegretTable,
+    cfg: &TrainerConfig,
+    engine_cfg: EngineConfig,
+    enc: &cham_engine::Encoder,
+    threads: u32,
+    start: u64,
+    total_iters: u64,
+    warmup_iters: u64,
+    seat_histogram: &mut [u64; 2],
+) -> Result<(), BlueprintError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    // ---- Phase 1: warmup (single-threaded, allow_insert=true) ----
+    let warmup_end = (start + warmup_iters).min(total_iters);
+    {
+        let mut enc_w = enc.clone();
+        let mut dummy = DummyOpponent;
+        for t in start..warmup_end {
+            let iter_rng = &mut child(cfg.train_seed, &format!("warm{t}"));
+            let hero_seat = (t % 2) as usize;
+            seat_histogram[hero_seat] += 1;
+            let w_t = averaging_weight_gamma(t, total_iters, true, cfg.avg_gamma);
+            let mut state = State::new(engine_cfg, Deck::shuffled(iter_rng))
+                .map_err(|e| BlueprintError::Training(format!("engine: {e}")))?;
+            let mut seq = ActionSeq::default();
+            let mut walker = Traversal {
+                table: crate::traversal::TableRef::Exclusive(table),
+                opp: &mut dummy,
+                rbp: RbpConfig::default(),
+                iteration: t,
+                total_iters,
+                mode: TrainModeTag::Robust,
+                hero_nodes: 0,
+                pruned_nodes: 0,
+                regret_discount: cfg.regret_discount,
+                allow_insert: true,
+            };
+            walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, iter_rng);
+        }
+    }
+
+    // ---- Phase 2: parallel Hogwild (allow_insert=false, shared table) ----
+    if warmup_end >= total_iters {
+        return Ok(());
+    }
+    let counter = AtomicU64::new(warmup_end);
+    let total_iters_local = total_iters;
+    let regret_discount = cfg.regret_discount;
+    let avg_gamma = cfg.avg_gamma;
+    let train_seed = cfg.train_seed;
+    let per_worker_hist: std::sync::Mutex<[u64; 2]> = std::sync::Mutex::new([0, 0]);
+
+    std::thread::scope(|scope| {
+        for _worker_id in 0..threads {
+            let counter_ref = &counter;
+            let table_ref: &RegretTable = table;
+            let enc_ref = enc;
+            let per_worker_hist_ref = &per_worker_hist;
+            scope.spawn(move || {
+                // Each worker owns its encoder clone (independent eq/fallback
+                // caches) and its own RNG stream.
+                let mut enc_w = enc_ref.clone();
+                                let mut dummy = DummyOpponent;
+                let mut local_hist = [0u64; 2];
+                loop {
+                    let t = counter_ref.fetch_add(1, Ordering::Relaxed);
+                    if t >= total_iters_local {
+                        break;
+                    }
+                    let hero_seat = (t % 2) as usize;
+                    local_hist[hero_seat] += 1;
+                    let w_t = averaging_weight_gamma(t, total_iters_local, true, avg_gamma);
+                    // Per-iteration deterministic deck: label by the global
+                    // iteration index so the deck stream is independent of
+                    // worker interleaving.
+                    let deck = Deck::shuffled(&mut child(train_seed, &format!("d{t}")));
+                    let mut state = match State::new(engine_cfg, deck) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    let mut seq = ActionSeq::default();
+                    let mut walker = Traversal {
+                        table: crate::traversal::TableRef::Shared(table_ref),
+                        opp: &mut dummy,
+                        rbp: RbpConfig::default(),
+                        iteration: t,
+                        total_iters: total_iters_local,
+                        mode: TrainModeTag::Robust,
+                        hero_nodes: 0,
+                        pruned_nodes: 0,
+                        regret_discount,
+                        allow_insert: false,
+                    };
+                    // Use a fresh child RNG per iteration (deterministic label
+                    // by global index) so parallel and serial streams would
+                    // agree on the per-iteration seed even though workers
+                    // race on the write side.
+                    let mut it_rng = child(train_seed, &format!("iter{t}"));
+                    walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, &mut it_rng);
+                }
+                let mut h = per_worker_hist_ref.lock().expect("hist mutex");
+                h[0] += local_hist[0];
+                h[1] += local_hist[1];
+            });
+        }
+    });
+
+    let h = per_worker_hist.lock().expect("hist mutex");
+    seat_histogram[0] += h[0];
+    seat_histogram[1] += h[1];
+    table.set_last_iter(total_iters);
+    Ok(())
 }
 
 /// Robust-mode placeholder opponent (never consulted: the traversal samples the
