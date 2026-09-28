@@ -1,0 +1,15 @@
+{
+  "epochs": 100,
+  "final_loss_b_dev": 0.059890266177222054,
+  "top1_b_dev": 1.0,
+  "top1_b_test": 1.0,
+  "ece_b_test": 0.05531098008551116,
+  "ece_family_c": 0.055618397306039645,
+  "per_class_recall": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "gates_passed": true
+}

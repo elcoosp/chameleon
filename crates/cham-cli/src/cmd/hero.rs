@@ -82,7 +82,16 @@ pub fn build_chameleon_with_router(
             }
         }
         Err(_) => {
-            let (temp, n0, beta, z) = overrides.unwrap_or((0.7, 8.0, 0.5, -1.5));
+            // Also honor CHAM_ROUTER_TEMP / CHAM_ROUTER_N0 in the fallback
+            // path so a bundle without `router.bin` can still be tested at
+            // different sharpening values.
+            let (mut temp, mut n0, beta, z) = overrides.unwrap_or((0.7, 8.0, 0.5, -1.5));
+            if let Ok(v) = std::env::var("CHAM_ROUTER_TEMP").unwrap_or_default().parse::<f64>() {
+                temp = v;
+            }
+            if let Ok(v) = std::env::var("CHAM_ROUTER_N0").unwrap_or_default().parse::<f64>() {
+                n0 = v;
+            }
             cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), temp, n0, beta, z)
         }
     };

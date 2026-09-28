@@ -342,6 +342,25 @@ impl RouterRuntime {
     pub fn from_model_bytes(model_bytes: &[u8]) -> Result<RouterRuntime, RouterError> {
         let model: SoftmaxModel = serde_json::from_slice(model_bytes)?;
         model.validate()?;
-        Ok(RouterRuntime::new(model, 0.7, 8.0, 0.5, -1.5))
+        // CHAM_ROUTER_TEMP / CHAM_ROUTER_N0 allow experiments on router
+        // sharpening without recompiling or adding CLI flags. Default
+        // values (0.7, 8.0) are the historical constants.
+        //
+        // Why this matters: the sharpening is `prior ∝ p^(1/T)`, so smaller
+        // T pushes the mixture toward a one-hot (argmax-like) choice. The
+        // 2026-09-28 routing comparison showed argmax beating mixture by
+        // ~2 bb/seating on 6/9 opponents. If sharper temperature closes the
+        // gap without the argmax pitfall (one wrong pick, no hedge), we
+        // have a principled middle ground. See
+        // docs/plans/ROUTING-FINDING-2026-09-28.md.
+        let temp = std::env::var("CHAM_ROUTER_TEMP")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.7);
+        let n0 = std::env::var("CHAM_ROUTER_N0")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(8.0);
+        Ok(RouterRuntime::new(model, temp, n0, 0.5, -1.5))
     }
 }
