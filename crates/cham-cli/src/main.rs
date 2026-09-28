@@ -79,8 +79,15 @@ enum Command {
         /// DCFR positive-regret discount (1.0 = CFR+ classic; try 0.9)
         #[arg(long, default_value = "1.0")]
         regret_discount: f32,
-        /// DCFR strategy-sum discount γ (v3 §3.1 α/γ split; 0.9 = historical)
-        #[arg(long, default_value = "0.9")]
+        /// DCFR strategy-sum discount γ (v3 §3.1 α/γ split).
+        ///
+        /// Default 1.0 (Linear CFR+, no decay). The historical 0.9 default
+        /// was measured 2026-09-28 to cost 55% worse LBR on seat 0: at
+        /// γ=0.9, `γ^(T−t)` underflows to 0 in f64 for `T−t ≳ 700`, so the
+        /// averaging window collapses to the last few hundred iterations
+        /// of a still-oscillating CFR+ iterate. Prefer 1.0, or ≥ 0.9999 if
+        /// you want recency. See `cham_blueprint::default_avg_gamma`.
+        #[arg(long, default_value = "1.0")]
         avg_gamma: f32,
         /// Reuse a cached blueprint with identical inputs (V2 A/B speedup)
         #[arg(long)]
