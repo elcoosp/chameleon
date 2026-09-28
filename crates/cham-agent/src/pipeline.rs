@@ -147,6 +147,14 @@ impl ChameleonAgent {
     /// Used to produce REAL router training data from instrumented sessions
     /// (as opposed to `collect`'s synthetic stub). Same computation as
     /// `start_hand_if_needed` uses; safe to call mid-hand.
+    /// PERF (2026-09-29): the honest opponent-only feature vector — 10
+    /// raw action frequencies that are a function of the opponent's
+    /// behaviour, not of the (opponent, hero-policy) pair. See
+    /// docs/plans/ROUTER-FEATURE-LEAK-2026-09-29.md.
+    pub fn opponent_only_features(&self) -> [f64; 10] {
+        self.tracker.raw_opponent_frequencies()
+    }
+
     pub fn tracker_features(&self) -> [f32; 20] {
         let inputs = cham_router::features::FeatureInputs {
             hands_seen: self.tracker.hands,
