@@ -1,1 +1,0 @@
-cham-blueprint: WARNING — trainer is single-threaded; requested threads=8 mode=Deterministic but no worker pool is implemented. Recording effective_threads=1 in provenance (M-6). Artifact correctness is unaffected.

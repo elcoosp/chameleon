@@ -90,3 +90,13 @@ artifacts/dcfr-gamma-honest.log
 # Competitiveness sweeps (2026-09-28)
 /artifacts/blueprints-retrain-tiny*/
 /artifacts/retrain-tiny-*.log
+
+# Competitive-measurement sweeps and backups (2026-09-28)
+/artifacts/agent-honest-pregamma/
+/artifacts/blueprints-seed-sweep/
+/artifacts/blueprints-retrain-tiny-50M*/
+/artifacts/seed-sweep-*.log
+/artifacts/retrain-tiny-bundle.log
+/artifacts/retrain-tiny-500k-newdefault.log
+/artifacts/retrain-tiny-500k-d0.log
+/artifacts/retrain-tiny-50M-v2.log
