@@ -100,3 +100,7 @@ artifacts/dcfr-gamma-honest.log
 /artifacts/retrain-tiny-500k-newdefault.log
 /artifacts/retrain-tiny-500k-d0.log
 /artifacts/retrain-tiny-50M-v2.log
+
+# Router sweeps (2026-09-28) — regenerable via `collect` + `train-router`
+/artifacts/router_rows.rbin
+/artifacts/routers/
