@@ -135,6 +135,14 @@ impl ChameleonAgent {
         &self.seq
     }
 
+    /// Test/measurement companion to `seq_for_tests`: overwrite the internal
+    /// action sequence so an external caller (e.g. an LBR harness walking
+    /// the same tree) can keep the agent's infoset keys in sync with the
+    /// harness's own recursion.
+    pub fn set_seq_for_tests(&mut self, seq: cham_engine::encoder::ActionSeq) {
+        self.seq = seq;
+    }
+
     /// Mixture LBR measurement hook (2026-09-28): produce the same
     /// per-action probability distribution that `act_impl` would sample
     /// from, WITHOUT sampling and WITHOUT advancing any per-hand state
@@ -177,7 +185,7 @@ impl ChameleonAgent {
         let robust_sigma: Option<Vec<f64>> = self.robust.strategy(obs, encoder, seq);
 
         let mut mix = vec![0.0f64; n];
-        let mut fallback_bit = false;
+        let mut _fallback_bit = false;
         if legacy_substitute {
             let mut weight_mass = 0.0;
             for k in 0..4 {
@@ -187,8 +195,8 @@ impl ChameleonAgent {
                 let sigma = match expert_sigma[k].as_ref() {
                     Some(s) => s.clone(),
                     None => match robust_sigma.as_ref() {
-                        Some(s) => { fallback_bit = true; s.clone() }
-                        None => { fallback_bit = true; vec![1.0 / n as f64; n] }
+                        Some(s) => { _fallback_bit = true; s.clone() }
+                        None => { _fallback_bit = true; vec![1.0 / n as f64; n] }
                     },
                 };
                 let pi = reach[k];
@@ -200,7 +208,7 @@ impl ChameleonAgent {
             {
                 let sigma = match robust_sigma.as_ref() {
                     Some(s) => s.clone(),
-                    None => { fallback_bit = true; vec![1.0 / n as f64; n] }
+                    None => { _fallback_bit = true; vec![1.0 / n as f64; n] }
                 };
                 weight_mass += w[4] * reach[4];
                 for a in 0..n {
@@ -208,7 +216,7 @@ impl ChameleonAgent {
                 }
             }
             if weight_mass <= 1e-12 {
-                fallback_bit = true;
+                _fallback_bit = true;
                 mix = vec![0.0; n];
                 for k in 0..4 {
                     if w[k] <= 1e-9 { continue; }
@@ -221,7 +229,7 @@ impl ChameleonAgent {
             }
             let total: f64 = mix.iter().sum();
             if total <= 1e-12 {
-                fallback_bit = true;
+                _fallback_bit = true;
                 mix = vec![1.0 / n as f64; n];
             } else {
                 for v in mix.iter_mut() { *v /= total; }
@@ -237,7 +245,7 @@ impl ChameleonAgent {
             let reach_mass_zero = mass <= 1e-12;
             let any_tier = (0..4).any(|k| expert_sigma[k].is_some()) || robust_sigma.is_some();
             if !any_tier {
-                fallback_bit = true;
+                _fallback_bit = true;
                 mix = vec![1.0 / n as f64; n];
             } else if reach_mass_zero {
                 let mut m2 = 0.0;
@@ -270,7 +278,6 @@ impl ChameleonAgent {
                 let total: f64 = mix.iter().sum();
                 if total > 1e-12 { for v in mix.iter_mut() { *v /= total; } }
             }
-            fallback_bit = fallback_bit; // (R2 non-legacy doesn't use this bit)
         }
 
         // dispatch matching act_impl's routing mode
