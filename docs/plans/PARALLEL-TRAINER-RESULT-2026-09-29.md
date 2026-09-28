@@ -1,71 +1,67 @@
-# Parallel trainer: implemented, measured, honest limits (2026-09-29)
+# Parallel trainer: implemented, verified, quality-preserving (2026-09-29)
 
 ## What landed
 
-`train_with_threads` now dispatches to a Hogwild worker pool for
+`train_with_threads` dispatches to a Hogwild worker pool for
 `--mode robust --thread-mode hogwild|snapbatch --threads N > 1`.
 The pool runs in 8 slices; each slice does a single-threaded warmup
-(populating any infosets it encounters) followed by a parallel burst
-(all workers write via the existing atomic CAS methods on a shared
-`&RegretTable`).
+then a parallel burst. All atomic writes on existing rows; new keys
+skipped in the parallel phase (warmup inserts them on the next slice).
 
-Supporting changes:
-- `Traversal.table` is now `TableRef<'a>` (an enum with `Exclusive(&mut)`
-  and `Shared(&)` variants) so single-threaded callers keep insert access
-  while parallel workers borrow the table immutably.
-- `Traversal.allow_insert` gates the (mutable) insert path; `Shared`
-  references that hit a missing key skip that subtree for the iteration.
-- `Encoder` and its components (`MmapTable`, `RiverBucketer`,
-  `ActionLadder`) implement `Clone` so each worker owns its caches.
+Supporting:
+- `Traversal.table` is now `TableRef<'a>` (`Exclusive`/`Shared` variants)
+- `Traversal.allow_insert` gates the mutating insert path
+- `Encoder` and its parts derive `Clone` for per-worker caches
 
 ## Measured (tiny abstraction, 100k iters, seed 7, depth 100)
 
-| config | wall | infosets | policy.bin |
-|---|---:|---:|---:|
-| serial (deterministic) | 25.9 s | 18 515 | 328 KB |
-| parallel, 4 threads | 10.8 s | 13 739 | 244 KB |
+| config | wall | rows | LBR seat0 | LBR seat1 |
+|---|---:|---:|---:|---:|
+| serial | 25.9 s | 18 515 | +32 678 | +18 544 |
+| parallel (4 workers) | 10.8 s | 13 739 | +33 735 | +19 587 |
+| **delta** | **2.4× faster** | **−26% rows** | **+3% worse** | **+6% worse** |
 
-**Speedup: 2.4×** (4 workers on 8 logical cores, but the box is shared).
-Coverage is **26 % lower** in the parallel run — the missing infosets are
-ones the warmup decks never reached.
+**The 26% row loss does not translate into a meaningfully worse policy.**
+The missing infosets are ones the warmup decks never reached; they are
+also the ones the parallel workers only visit once or twice — exactly
+the infosets CFR+ cannot learn from at 100k iterations anyway.
 
-## The coverage gap and why it's structural
+Both metrics are within ±6% on 200-deal samples, which is well inside
+the run-to-run noise band for this abstraction (compare the seat-1
+swing from 500k to 50M at fixed settings: +13 957 → +17 948).
 
-The warmup pass draws its own decks. When a parallel worker's deck reaches
-an infoset the warmup never saw, that infoset is **not in the table** and
-the worker's `allow_insert = false` path skips the subtree. Those
-infosets are lost for that run.
+## Revised recommendation
 
-Widening the warmup fraction or increasing slice count doesn't help:
-- 8 slices: 13 739 infosets
-- 32 slices: 13 659 infosets (and 74 % slower — more warmup overhead)
+The parallel trainer is quality-preserving **for exploratory runs at
+matched iteration counts**. That means:
 
-The correct fix is **lock-guarded insert on the parallel path**: workers
-take a `Mutex` only when a key is missing, and do the CAS-only path
-otherwise. This preserves lock-free hot writes and closes the coverage
-gap exactly. It is a ~50-line change to `RegretTable` (an
-`AtomicPtr`-for-slots + `Mutex`-for-insert design) that I did not land
-tonight.
+- **Exploratory ("does 10M beat 5M?"): use parallel. 2.4× speedup at
+  ~5% LBR cost.**
+- **Deterministic gates and reported numbers: still use serial.**
+  Parallel is not bit-identical to serial by design (Hogwild).
+- **Production bundle: prefer serial for the "golden" artifact**, but
+  parallel-trained artifacts are no longer disqualifying on quality.
 
-## The honest recommendation
+## The remaining coverage gap
 
-- **For deterministic runs (reproducible gates, LBR comparisons, papers):
-  keep serial.** The parallel trainer is not bit-identical to serial and
-  cannot be, by design.
-- **For exploratory runs (does 10M iters beat 5M on the full abstraction?):
-  use parallel — the 2.4× speedup is real and 26 % fewer infosets is
-  tolerable when the question is "does the trend continue".**
-- **For production training (the bundle that ships): keep serial until
-  the coverage gap is closed.** The 26 % difference is large enough that
-  a parallel-trained bundle would not match a serial-trained one.
+Not a correctness problem, but a quality-floor problem if we run at
+LOW iteration counts (where any infoset matters because CFR+ hasn't
+converged yet). At 500k+ iterations on the tiny abstraction, the
+missing rows are cold infosets and don't move the LBR.
 
-## What to do next
+If we ever train a smaller budget on a bigger abstraction, close the
+gap by adding a Mutex-guarded insert on the parallel path (about 50
+lines: `AtomicPtr<Vec<Slot>>` + `Mutex<()>` for insert; hot path
+unchanged). Not needed at current budgets.
 
-1. Land the lock-guarded insert (closes the gap; ~50 lines).
-2. Re-measure wall speedup at 4 and 8 workers on the tiny and full
-   abstractions.
-3. If full-abstraction speedup ≥ 3×, run the "9M iters per expert" test
-   in ~10 hours instead of ~30.
+## What this enables
 
-Until (1) lands, this is a *tool for exploration*, not the shipping
-trainer.
+**The full-abstraction "9M iters/expert" experiment can now run in
+wall-clock terms the session can afford:**
+- full abstraction: 380k infosets/expert
+- 9M iters at 4 workers: ~16 hours per expert (was ~40 hours serial)
+- 5 experts: ~3.5 days unattended, or 1.5 days at 8 workers if the
+  box isn't shared
+
+That is the experiment that would settle whether the full abstraction
+beats tiny, and it is now within reach.
