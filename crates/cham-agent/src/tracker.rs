@@ -178,18 +178,23 @@ impl Tracker {
                     let _ = increment;
                     // PERF (2026-09-29): raw opponent aggression counters.
                     if is_opp {
+                        // On street 0, EVERY raise (open or 3bet+) is a
+                        // preflop raise. Postflop aggression is counted
+                        // only on streets 1..=3.
                         match street {
-                            0 => {
-                                if raises_this_street == 0 {
-                                    self.opp_preflop_raises += 1;
-                                } else {
-                                    self.opp_postflop_raises += 1;
-                                    self.opp_preflop_raises += 1;
-                                }
+                            0 => self.opp_preflop_raises += 1,
+                            1 => {
+                                self.opp_flop_bets += 1;
+                                self.opp_postflop_raises += 1;
                             }
-                            1 => self.opp_flop_bets += 1,
-                            2 => self.opp_turn_bets += 1,
-                            3 => self.opp_river_bets += 1,
+                            2 => {
+                                self.opp_turn_bets += 1;
+                                self.opp_postflop_raises += 1;
+                            }
+                            3 => {
+                                self.opp_river_bets += 1;
+                                self.opp_postflop_raises += 1;
+                            }
                             _ => {}
                         }
                     }
