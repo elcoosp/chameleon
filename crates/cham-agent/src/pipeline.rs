@@ -143,6 +143,23 @@ impl ChameleonAgent {
         self.seq = seq;
     }
 
+    /// 20-dim router feature vector as of the last hand boundary.
+    /// Used to produce REAL router training data from instrumented sessions
+    /// (as opposed to `collect`'s synthetic stub). Same computation as
+    /// `start_hand_if_needed` uses; safe to call mid-hand.
+    pub fn tracker_features(&self) -> [f32; 20] {
+        let inputs = cham_router::features::FeatureInputs {
+            hands_seen: self.tracker.hands,
+            ewm: self.tracker.shrunk_ewm(),
+            opportunity: self.tracker.opportunity_features(),
+            trend_z: self.tracker.trend_z() / 3.0,
+            hands_since_showdown: self.tracker.hands_since_showdown_feature(),
+        };
+        cham_router::features::from_inputs(&inputs)
+            .map(|f| f.0)
+            .unwrap_or([0.5; 20])
+    }
+
     /// Mixture LBR measurement hook (2026-09-28): produce the same
     /// per-action probability distribution that `act_impl` would sample
     /// from, WITHOUT sampling and WITHOUT advancing any per-hand state
