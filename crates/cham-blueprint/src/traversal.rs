@@ -157,8 +157,46 @@ impl Default for RbpConfig {
 
 /// One traversal context: bound to a table + encoder; the opponent is an
 /// `Agent` consumed ONLY through `action_probs` in Exploit modes (normative).
+/// How a `Traversal` accesses the `RegretTable`.
+///
+/// PERF (2026-09-29): the parallel trainer needs multiple workers to share
+/// one table, but `Traversal` historically took `&mut RegretTable` because
+/// `entry_or_insert` may grow the slot array. All the atomic update
+/// methods (`regret_add_cfr_plus`, `strat_add`, `add_weight`, `add_visit`)
+/// already take `&self` (they CAS into `AtomicU32` cells), so reads and
+/// updates are safe under a shared reference. Only insert needs `&mut`.
+///
+/// `Exclusive` = single-threaded path; full access, insert allowed.
+/// `Shared`    = parallel worker; reads + atomic updates only. A key that
+///               is not yet in the table is skipped for that iteration
+///               (the next warmup slice will insert it).
+pub enum TableRef<'a> {
+    Exclusive(&'a mut RegretTable),
+    Shared(&'a RegretTable),
+}
+
+impl<'a> TableRef<'a> {
+    /// Read-only view (works for both variants).
+    #[inline]
+    pub fn as_ref(&self) -> &RegretTable {
+        match self {
+            TableRef::Exclusive(t) => t,
+            TableRef::Shared(t) => t,
+        }
+    }
+    /// Insert a row, growing the table if needed. Returns None on a
+    /// `Shared` reference (parallel workers cannot grow the table).
+    #[inline]
+    pub fn entry_or_insert(&mut self, key: u64, w: usize) -> Option<(u32, usize)> {
+        match self {
+            TableRef::Exclusive(t) => Some(t.entry_or_insert(key, w)),
+            TableRef::Shared(_) => None,
+        }
+    }
+}
+
 pub struct Traversal<'a> {
-    pub table: &'a mut RegretTable,
+    pub table: TableRef<'a>,
     pub opp: &'a mut dyn Agent,
     pub rbp: RbpConfig,
     pub iteration: u64,
@@ -169,6 +207,16 @@ pub struct Traversal<'a> {
     pub pruned_nodes: u64,
     /// DCFR regret discount (1.0 = pure CFR+). Applied at add_regret.
     pub regret_discount: f32,
+    /// PERF (2026-09-29): when false, a hero node whose key is absent from
+    /// the table is skipped (no `entry_or_insert` call) and its subtree is
+    /// not sampled. This is the precondition for parallel (Hogwild) training:
+    /// the table's `add_*` methods take `&self` (atomic CAS), but
+    /// `entry_or_insert` takes `&mut self` (it may grow the slot array).
+    /// A single-threaded warmup pass populates the table; parallel workers
+    /// then only touch existing rows. New infosets discovered during the
+    /// parallel phase are effectively ignored for that iteration; the next
+    /// warmup interval catches them.
+    pub allow_insert: bool,
 }
 
 impl<'a> Traversal<'a> {
@@ -226,9 +274,9 @@ impl<'a> Traversal<'a> {
                 let slots = enc.slots(&obs, seq);
                 let key = enc.key_for(&obs, seq, &slots);
                 let w_slots = slots.len();
-                match self.table.find(key.0) {
+                match self.table.as_ref().find(key.0) {
                     Some(off) => {
-                        let sigma = self.table.sigma_rms(off, w_slots);
+                        let sigma = self.table.as_ref().sigma_rms(off, w_slots);
                         sigma
                             .iter()
                             .enumerate()
@@ -283,7 +331,21 @@ impl<'a> Traversal<'a> {
         let slots = enc.slots(&obs, seq);
         let key = enc.key_for(&obs, seq, &slots);
         let w_slots = slots.len();
-        let (off, _w) = self.table.entry_or_insert(key.0, w_slots);
+        // PERF (2026-09-29): in parallel (allow_insert=false) mode, missing
+        // keys are simply skipped — the row will be created in the next
+        // warmup slice.
+        let off = match self.table.as_ref().find(key.0) {
+            Some(off) => off,
+            None => {
+                if !self.allow_insert {
+                    return 0.0;
+                }
+                match self.table.entry_or_insert(key.0, w_slots) {
+                    Some((off, _w)) => off,
+                    None => return 0.0,
+                }
+            }
+        };
         self.hero_nodes += 1;
 
         // Regret-based pruning (Pluribus trick, adapted to RM+ — decision D-011):
@@ -302,13 +364,13 @@ impl<'a> Traversal<'a> {
         // branch unconditionally when theta_t <= 0.0.
         let theta_t = self.rbp.theta0 * self.rbp.delta.powi(self.iteration.min(1 << 30) as i32);
         let prune_enabled = theta_t > 0.0;
-        let visits = self.table.visits(off, w_slots) as f64;
+        let visits = self.table.as_ref().visits(off, w_slots) as f64;
 
-        let sigma = self.table.sigma_rms(off, w_slots);
+        let sigma = self.table.as_ref().sigma_rms(off, w_slots);
         let mut v = [0f64; 12];
         let mut computed: Vec<usize> = Vec::with_capacity(w_slots);
         for a in 0..w_slots {
-            let zero_regret = self.table.regret(off, w_slots, a) <= 0.0;
+            let zero_regret = self.table.as_ref().regret(off, w_slots, a) <= 0.0;
             if prune_enabled && zero_regret && visits > theta_t && sigma[a] <= 0.0 {
                 self.pruned_nodes += 1;
                 continue; // subtree skipped; v[a] filled below
@@ -333,13 +395,13 @@ impl<'a> Traversal<'a> {
         // regret-matching+ floors at zero (SPECS/04 §4; pinned by rm_plus_floors).
         // Writes go through the sink: direct (bit-exact) or snapbatch-buffered.
         for a in 0..w_slots {
-            sink.add_regret(self.table, off, a, (v[a] - v_bar) as f32);
+            sink.add_regret(self.table.as_ref(), off, a, (v[a] - v_bar) as f32);
         }
         for a in 0..w_slots {
-            sink.add_strat(self.table, off, w_slots, a, (w_t * sigma[a]) as f32);
+            sink.add_strat(self.table.as_ref(), off, w_slots, a, (w_t * sigma[a]) as f32);
         }
-        sink.add_weight(self.table, off, w_slots, w_t as f32);
-        sink.add_visit(self.table, off, w_slots);
+        sink.add_weight(self.table.as_ref(), off, w_slots, w_t as f32);
+        sink.add_visit(self.table.as_ref(), off, w_slots);
         v_bar
     }
 }

@@ -28,7 +28,7 @@ fn bench_mccfr_iter(c: &mut Criterion) {
                         .expect("s");
                 let mut seq = ActionSeq::default();
                 let mut walker = cham_blueprint::traversal::Traversal {
-                    table: black_box(&mut table),
+                    table: cham_blueprint::traversal::TableRef::Exclusive(black_box(&mut table)),
                     opp: &mut opp,
                     rbp: cham_blueprint::traversal::RbpConfig::default(),
                     iteration: t,
@@ -37,6 +37,7 @@ fn bench_mccfr_iter(c: &mut Criterion) {
                     hero_nodes: 0,
                     pruned_nodes: 0,
                     regret_discount: 1.0,
+                    allow_insert: true,
                 };
                 acc += walker.walk(&mut state, (t % 2) as usize, 1.0, &mut seq, &mut enc, rng);
             }

@@ -147,7 +147,7 @@ fn exploit_enumeration_estimator() {
     let mut state = river_state();
     let mut seq = ActionSeq::default();
     let mut walker = Traversal {
-        table: &mut table,
+        table: cham_blueprint::traversal::TableRef::Exclusive(&mut table),
         opp: &mut opp,
         rbp: RbpConfig {
             theta0: 0.0,
@@ -159,6 +159,7 @@ fn exploit_enumeration_estimator() {
         hero_nodes: 0,
         pruned_nodes: 0,
         regret_discount: 1.0,
+        allow_insert: true,
     };
     let v = walker.walk(&mut state, 1, 1.0, &mut seq, &mut enc, rng);
     let _ = v;
@@ -365,7 +366,7 @@ fn rbp_matches_full() {
             let mut state = State::new(CFG, Deck::shuffled(rng)).expect("s");
             let mut seq = ActionSeq::default();
             let mut walker = Traversal {
-                table: &mut table,
+                table: cham_blueprint::traversal::TableRef::Exclusive(&mut table),
                 opp: &mut opp,
                 rbp: RbpConfig {
                     theta0,
@@ -377,6 +378,7 @@ fn rbp_matches_full() {
                 hero_nodes: 0,
                 pruned_nodes: 0,
                 regret_discount: 1.0,
+                allow_insert: true,
             };
             walker.walk(&mut state, (t % 2) as usize, 1.0, &mut seq, &mut enc, rng);
         }
@@ -450,7 +452,7 @@ fn delayed_averaging_monotone() {
         let mut seq = ActionSeq::default();
         let w_t = cham_blueprint::averaging_weight(t, total, false);
         let mut walker = Traversal {
-            table: &mut table,
+            table: cham_blueprint::traversal::TableRef::Exclusive(&mut table),
             opp: &mut opp,
             rbp: RbpConfig::default(),
             iteration: t,
@@ -459,6 +461,7 @@ fn delayed_averaging_monotone() {
             hero_nodes: 0,
             pruned_nodes: 0,
             regret_discount: 1.0,
+            allow_insert: true,
         };
         walker.walk(&mut state, 0, w_t, &mut seq, &mut enc, rng);
         if (t + 1) % 400 == 0 {
@@ -954,7 +957,7 @@ fn warmstart_exact_keys_and_beats_cold() {
             let mut seq = ActionSeq::default();
             let w_t = cham_blueprint::averaging_weight(t, 5_000, false);
             let mut walker = Traversal {
-                table: &mut table,
+                table: cham_blueprint::traversal::TableRef::Exclusive(&mut table),
                 opp: &mut opp,
                 rbp: RbpConfig::default(),
                 iteration: t,
@@ -963,6 +966,7 @@ fn warmstart_exact_keys_and_beats_cold() {
                 hero_nodes: 0,
                 pruned_nodes: 0,
                 regret_discount: 1.0,
+                allow_insert: true,
             };
             walker.walk(&mut state, (t % 2) as usize, w_t, &mut seq, &mut enc, rng);
         }
@@ -1228,7 +1232,7 @@ fn external_sampling_strat_sum_has_no_reach_factor() {
     let mut state = river_state();
     let mut seq = ActionSeq::default();
     let mut walker = Traversal {
-        table: &mut table,
+        table: cham_blueprint::traversal::TableRef::Exclusive(&mut table),
         opp: &mut opp,
         rbp: RbpConfig {
             theta0: 0.0,
@@ -1240,6 +1244,7 @@ fn external_sampling_strat_sum_has_no_reach_factor() {
         hero_nodes: 0,
         pruned_nodes: 0,
         regret_discount: 1.0,
+        allow_insert: true,
     };
     let _ = walker.walk(&mut state, 1, w_t, &mut seq, &mut enc, rng);
 
@@ -1413,7 +1418,7 @@ fn direct_sink_weight_and_visit_accumulate() {
     let mut state = river_state();
     let mut seq = ActionSeq::default();
     let mut walker = Traversal {
-        table: &mut table,
+        table: cham_blueprint::traversal::TableRef::Exclusive(&mut table),
         opp: &mut opp,
         rbp: RbpConfig {
             theta0: 0.0,
@@ -1425,6 +1430,7 @@ fn direct_sink_weight_and_visit_accumulate() {
         hero_nodes: 0,
         pruned_nodes: 0,
         regret_discount: 1.0,
+        allow_insert: true,
     };
     let _ = walker.walk(&mut state, 1, w_t, &mut seq, &mut enc, rng);
 
@@ -1461,7 +1467,7 @@ fn rbp_gate_semantics() {
             let mut state = State::new(CFG, Deck::shuffled(rng)).expect("s");
             let mut seq = ActionSeq::default();
             let mut walker = Traversal {
-                table: &mut table,
+                table: cham_blueprint::traversal::TableRef::Exclusive(&mut table),
                 opp: &mut opp,
                 rbp: RbpConfig { theta0, delta: 1.0 },
                 iteration: t,
@@ -1470,6 +1476,7 @@ fn rbp_gate_semantics() {
                 hero_nodes: 0,
                 pruned_nodes: 0,
                 regret_discount: 1.0,
+                allow_insert: true,
             };
             walker.walk(&mut state, (t % 2) as usize, 1.0, &mut seq, &mut enc, rng);
             total_pruned += walker.pruned_nodes;

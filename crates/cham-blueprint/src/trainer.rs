@@ -457,7 +457,7 @@ pub fn train_with_threads(
             let mut sink = SnapBatchSink::with_discount(cfg.regret_discount);
             {
                 let mut walker = Traversal {
-                    table: &mut table,
+                    table: crate::traversal::TableRef::Exclusive(&mut table),
                     opp: opp_dyn,
                     rbp: RbpConfig::default(),
                     iteration: t,
@@ -466,6 +466,7 @@ pub fn train_with_threads(
                     hero_nodes: 0,
                     pruned_nodes: 0,
                     regret_discount: cfg.regret_discount,
+                    allow_insert: true,
                 };
                 walker.walk_with_sink(
                     &mut state, hero_seat, w_t, &mut seq, enc, iter_rng, &mut sink,
@@ -474,7 +475,7 @@ pub fn train_with_threads(
             sink.flush(&table);
         } else {
             let mut walker = Traversal {
-                table: &mut table,
+                table: crate::traversal::TableRef::Exclusive(&mut table),
                 opp: opp_dyn,
                 rbp: RbpConfig::default(),
                 iteration: t,
@@ -483,6 +484,7 @@ pub fn train_with_threads(
                 hero_nodes: 0,
                 pruned_nodes: 0,
                 regret_discount: cfg.regret_discount,
+                allow_insert: true,
             };
             walker.walk(&mut state, hero_seat, w_t, &mut seq, enc, iter_rng);
         }

@@ -1,0 +1,1 @@
+train-router: rows=120000 epochs=100 loss_b_dev=0.8034 top1_b_dev=0.761 top1_b_test=0.719 ece_b_test=0.207 ece_family_c=0.158 recall=[0.8061666666666667, 0.453, 0.7903529411764706, 0.9508571428571428] gates=FAIL
