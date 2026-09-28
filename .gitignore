@@ -122,3 +122,9 @@ artifacts/dcfr-gamma-honest.log
 /artifacts/qtest2-lbr.log
 /artifacts/qtest3-*/
 /artifacts/qtest2-lbr.log
+# Router data collection runs (2026-09-29)
+/artifacts/collect-real-*.log
+/artifacts/router_real_*.rbin
+/artifacts/par-5M.log
+/artifacts/par-5M-lbr.log
+/artifacts/full-parallel-robust.log
