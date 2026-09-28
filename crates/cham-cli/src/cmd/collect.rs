@@ -30,9 +30,10 @@ pub fn run(
     bundle: &str,
     sessions: u64,
     hands: u64,
+    raw_opponent: bool,
 ) -> i32 {
     if real {
-        return run_real(out, bundle, sessions, hands, max_rows);
+        return run_real(out, bundle, sessions, hands, max_rows, raw_opponent);
     }
     run_synthetic(out, max_rows)
 }
@@ -172,7 +173,14 @@ fn play_one_hand(
     payoffs[hero_seat]
 }
 
-fn run_real(out: &str, bundle: &str, sessions: u64, hands: u64, max_rows: usize) -> i32 {
+fn run_real(
+    out: &str,
+    bundle: &str,
+    sessions: u64,
+    hands: u64,
+    max_rows: usize,
+    raw_opponent: bool,
+) -> i32 {
     let opponents = ["arch:nit", "arch:tag", "arch:lag", "arch:station"];
     let engine_cfg = EngineConfig::depth(100);
     let mut all_rows: Vec<RbinRow> = Vec::new();
@@ -203,7 +211,16 @@ fn run_real(out: &str, bundle: &str, sessions: u64, hands: u64, max_rows: usize)
                 }
                 let hand_seed = 0xC011EC7u64 ^ ((k as u64) << 40) ^ (s << 24) ^ h;
                 let _ = play_one_hand(&mut hero, &mut opp, engine_cfg, hand_seed, hero_seat);
-                let feats = hero.tracker_features().to_vec();
+                let feats: Vec<f32> = if raw_opponent {
+                    // PERF (2026-09-29): the honest opponent-only vector —
+                    // 10 raw action frequencies that are a pure function
+                    // of the opponent's behaviour, not of the (opponent,
+                    // hero-policy) pair. See
+                    // docs/plans/ROUTER-FEATURE-LEAK-2026-09-29.md.
+                    hero.opponent_only_features().iter().map(|&x| x as f32).collect()
+                } else {
+                    hero.tracker_features().to_vec()
+                };
                 all_rows.push(RbinRow {
                     features: feats,
                     label,

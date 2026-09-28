@@ -132,6 +132,12 @@ enum Command {
         /// Hands per session for --real.
         #[arg(long, default_value = "500")]
         hands: u64,
+        /// For --real: emit the 10-dim opponent-only feature vector
+        /// (raw action frequencies) instead of the 20-dim
+        /// opportunity-gated vector. Fixes the (opponent, hero-policy)
+        /// leak. See docs/plans/ROUTER-FEATURE-LEAK-2026-09-29.md.
+        #[arg(long)]
+        raw_opponent: bool,
     },
     /// Tier 1 probe (LBR proxy, coverage, router calibration)
     Probe {
@@ -372,7 +378,8 @@ fn main() -> anyhow::Result<()> {
             bundle,
             sessions,
             hands,
-        } => cmd::collect::run(&out, max_rows, real, &bundle, sessions, hands),
+            raw_opponent,
+        } => cmd::collect::run(&out, max_rows, real, &bundle, sessions, hands, raw_opponent),
         Command::Probe {
             agent,
             diag_fallback,

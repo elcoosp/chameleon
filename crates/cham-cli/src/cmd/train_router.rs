@@ -8,10 +8,15 @@ pub fn run(rows_path: &str, out: &str) -> i32 {
             return crate::cmd::EXIT_FAIL;
         }
     };
-    if nf != 20 {
-        eprintln!("expected 20 features, found {nf}");
+    // PERF (2026-09-29): accept any feature count. The 20-dim
+    // opportunity-gated vector has been shown to be (opponent,hero)-
+    // dependent; the honest 10-dim opponent-only vector is the intended
+    // replacement. See docs/plans/ROUTER-FEATURE-LEAK-2026-09-29.md.
+    if nf == 0 {
+        eprintln!("dataset has 0 features");
         return crate::cmd::EXIT_FAIL;
     }
+    eprintln!("train-router: {nf} features");
     // Spec gate (SPECS/05 §4): the trainer refuses any archetype with < 2k rows
     // in the A split. The library check is relaxed to unit-scale so fixtures can
     // exercise the training math; the PRODUCTION entry point enforces the real

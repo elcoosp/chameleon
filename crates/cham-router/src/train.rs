@@ -50,7 +50,12 @@ pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), Rout
             )));
         }
     }
-    let mut model = SoftmaxModel::new(20, 4);
+    // PERF (2026-09-29): derive the feature dimension from the data
+    // instead of hardcoding 20. Enables the 10-feature opponent-only
+    // vector (see docs/plans/ROUTER-FEATURE-LEAK-2026-09-29.md) to train
+    // without a router-side change.
+    let n_features = a.first().map(|r| r.features.len()).unwrap_or(20);
+    let mut model = SoftmaxModel::new(n_features, 4);
     let mut lr = LR0;
     let mut best_loss = f64::INFINITY;
     let mut best_epoch = 0usize;
