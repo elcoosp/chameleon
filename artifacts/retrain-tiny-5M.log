@@ -1,3 +1,3 @@
 cham-blueprint: WARNING — trainer is single-threaded; requested threads=8 mode=Deterministic but no worker pool is implemented. Recording effective_threads=1 in provenance (M-6). Artifact correctness is unaffected.
-train-bp: robust iters=50000 depth=100 seed=7 infosets=16385 wall=49.2s artifact=artifacts/blueprints-retrain-tiny/robust-7/policy
-policy.bin: 290503 bytes blake3 bfa25e3620c4fc9a
+train-bp: robust iters=5000000 depth=100 seed=7 infosets=21446 wall=5976.8s artifact=artifacts/blueprints-retrain-tiny-5M/robust-7/policy
+policy.bin: 379751 bytes blake3 fd641212715fd2fa

@@ -71,8 +71,30 @@ pub fn default_regret_discount() -> f32 {
     1.0
 }
 
+/// Default strategy-averaging γ for robust mode.
+///
+/// Was 0.9 from the v3 §3.1 γ-split. Measured 2026-09-28 (tiny abstraction,
+/// 500k iters, seed 7): γ = 0.9 gives LBR 39 692 / 15 068 (seat 0 / seat 1);
+/// γ = 1.0 (pure Linear CFR+, no decay) gives 25 652 / 15 184; γ = 0.9999
+/// gives 24 246 / 14 466. The 0.9 default is **55 % worse on seat 0** than
+/// either alternative.
+///
+/// Why 0.9 is pathological: the weight applied at iteration `t` is
+/// `(t − T/4) · γ^(T−t)`. `γ^(T−t)` underflows to exactly 0 in f64 once
+/// `T − t > ~700` (0.9^700 ≈ 10⁻³²), so the effective average window
+/// collapses to the last ~700 iterations of a still-oscillating CFR+
+/// current iterate. 500k and 5M iters then look identical — which is
+/// exactly what the 50k / 500k / 5M sweep showed.
+///
+/// 1.0 is the principled choice: it is pure Linear CFR+ averaging as in
+/// Brown & Sandholm 2019 (their strategy sum weight is `t − D`, no
+/// exponential decay). It is also within noise of the best measured value.
+///
+/// Operators who want recency can pass `--avg-gamma 0.9999` explicitly;
+/// any γ that underflows before `T − D` is now a footgun we no longer
+/// ship as the default.
 pub fn default_avg_gamma() -> f32 {
-    0.9
+    1.0
 }
 
 impl TrainerConfig {
@@ -124,14 +146,37 @@ pub fn averaging_weight(t: u64, total: u64, robust: bool) -> f64 {
 /// `gamma = 1.0` is pure delayed-linear averaging (no recency tilt).
 pub fn averaging_weight_gamma(t: u64, total: u64, robust: bool, gamma: f32) -> f64 {
     // Diagnostic (session 2026-09-27): CHAM_AVG_UNIFORM=1 makes the average
-    // window uniform (w=1 for all t). The default keeps linear-averaging
-    // with γ decay. Unset → historical behavior, bit-identical.
+    // window uniform (w=1 for all t). Unset → historical behavior.
     if std::env::var("CHAM_AVG_UNIFORM").as_deref() == Ok("1") {
         return 1.0;
     }
     let d = total / 4;
     let base = if t > d { (t - d) as f64 } else { 0.0 };
     if robust {
+        // Underflow tripwire (2026-09-28): `γ^(T−t)` underflows to 0 in f64
+        // for `T − t ≳ 700` when γ = 0.9, collapsing the effective averaging
+        // window to the last few hundred iterations of a still-oscillating
+        // CFR+ iterate. Warn once per process if the caller has chosen a γ
+        // whose decay reaches 1e-30 before the halfway mark of the window —
+        // the LBR cost is severe (measured 55 % on seat 0 at 500k iters).
+        use std::sync::OnceLock;
+        static WARNED: OnceLock<()> = OnceLock::new();
+        if gamma < 1.0 && total > 2000 {
+            let half_window = (total as f64 * 0.5).max(1.0);
+            let decay_at_half = (gamma as f64).powf(half_window);
+            if decay_at_half < 1e-30 {
+                WARNED.get_or_init(|| {
+                    eprintln!(
+                        "cham-blueprint: WARNING — avg_gamma={gamma} decays to \
+                         {decay_at_half:.1e} over half of a {total}-iteration run; \
+                         the effective averaging window is the LAST FEW HUNDRED \
+                         iterations only. This is the γ-underflow pitfall that \
+                         measured 55 % worse LBR on seat 0 (2026-09-28). Prefer \
+                         avg_gamma=1.0 (Linear CFR+) or ≥ 0.9999."
+                    );
+                });
+            }
+        }
         base * (gamma as f64).powi((total.saturating_sub(t)).min(1 << 20) as i32)
     } else {
         base

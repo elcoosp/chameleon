@@ -2,16 +2,16 @@
   "mode": "Robust",
   "opponent_id": null,
   "depth_bb": 100,
-  "iters": 100,
-  "train_seed": 3,
+  "iters": 500000,
+  "train_seed": 7,
   "thread_mode": "Deterministic",
   "threads": 1,
-  "abstraction_hash": 0,
-  "infosets": 440,
-  "wall_s": 0.058607833,
+  "abstraction_hash": 8078057981912287418,
+  "infosets": 20993,
+  "wall_s": 447.707063125,
   "parent": null,
   "seat_histogram": [
-    50,
-    50
+    250000,
+    250000
   ]
 }
