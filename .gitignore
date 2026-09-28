@@ -112,3 +112,8 @@ artifacts/dcfr-gamma-honest.log
 /artifacts/mixture-lbr.log
 /artifacts/router_rows_real*.rbin
 /artifacts/train-router-real*.log
+
+# Parallel-trainer quality tests (2026-09-29)
+/artifacts/par-test-*/
+/artifacts/qtest-*/
+/artifacts/qtest-*.log
