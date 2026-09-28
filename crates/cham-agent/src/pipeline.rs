@@ -135,6 +135,173 @@ impl ChameleonAgent {
         &self.seq
     }
 
+    /// Mixture LBR measurement hook (2026-09-28): produce the same
+    /// per-action probability distribution that `act_impl` would sample
+    /// from, WITHOUT sampling and WITHOUT advancing any per-hand state
+    /// (encoder seq, reach, tracker weights). Callers that want to measure
+    /// the shipped policy's exploitability (LBR harnesses) need this —
+    /// `cham_core::obs::Agent::action_probs` cannot supply it because it
+    /// takes `&self` and needs the stateful seq.
+    ///
+    /// Determinism: uses `start_hand_if_needed` (idempotent) but does NOT
+    /// call `encoder.record`, so calling this method twice on the same
+    /// state returns bit-identical results and does not perturb the
+    /// pipeline's own action sequence.
+    ///
+    /// Matches `act_impl`'s mixture composition exactly for routing modes
+    /// `mixture`, `argmax`, and `robust-only`. `bayes` routing is not
+    /// covered (it consumes the bayes blueprint on the pipeline path);
+    /// callers needing bayes should use the `argmax`-style branch.
+    pub fn action_distribution(
+        &mut self,
+        obs: &Observables<'_>,
+    ) -> Option<Vec<(cham_core::engine::Action, f64)>> {
+        self.start_hand_if_needed();
+        let encoder = &mut self.encoder;
+        let seq = &self.seq;
+        let slots = encoder.slots(obs, seq);
+        let n = slots.len();
+        if n == 0 {
+            return None;
+        }
+        let w = self.weights;
+        let reach = self.reach;
+        let legacy_substitute = self.mode.fallback_mode == "substitute"
+            || std::env::var("CHAM_FALLBACK_MODE").as_deref() == Ok("substitute");
+
+        // gather per-tier strategies (no substitution)
+        let mut expert_sigma: Vec<Option<Vec<f64>>> = Vec::with_capacity(4);
+        for k in 0..4 {
+            expert_sigma.push(self.experts[k].strategy(obs, encoder, seq));
+        }
+        let robust_sigma: Option<Vec<f64>> = self.robust.strategy(obs, encoder, seq);
+
+        let mut mix = vec![0.0f64; n];
+        let mut fallback_bit = false;
+        if legacy_substitute {
+            let mut weight_mass = 0.0;
+            for k in 0..4 {
+                if w[k] <= 1e-9 {
+                    continue;
+                }
+                let sigma = match expert_sigma[k].as_ref() {
+                    Some(s) => s.clone(),
+                    None => match robust_sigma.as_ref() {
+                        Some(s) => { fallback_bit = true; s.clone() }
+                        None => { fallback_bit = true; vec![1.0 / n as f64; n] }
+                    },
+                };
+                let pi = reach[k];
+                weight_mass += w[k] * pi;
+                for a in 0..n {
+                    mix[a] += w[k] * pi * sigma.get(a).copied().unwrap_or(0.0);
+                }
+            }
+            {
+                let sigma = match robust_sigma.as_ref() {
+                    Some(s) => s.clone(),
+                    None => { fallback_bit = true; vec![1.0 / n as f64; n] }
+                };
+                weight_mass += w[4] * reach[4];
+                for a in 0..n {
+                    mix[a] += w[4] * reach[4] * sigma.get(a).copied().unwrap_or(0.0);
+                }
+            }
+            if weight_mass <= 1e-12 {
+                fallback_bit = true;
+                mix = vec![0.0; n];
+                for k in 0..4 {
+                    if w[k] <= 1e-9 { continue; }
+                    let sigma = expert_sigma[k].as_ref().cloned()
+                        .unwrap_or_else(|| vec![1.0 / n as f64; n]);
+                    for a in 0..n {
+                        mix[a] += w[k] * sigma.get(a).copied().unwrap_or(0.0);
+                    }
+                }
+            }
+            let total: f64 = mix.iter().sum();
+            if total <= 1e-12 {
+                fallback_bit = true;
+                mix = vec![1.0 / n as f64; n];
+            } else {
+                for v in mix.iter_mut() { *v /= total; }
+            }
+        } else {
+            // R2 semantics: drop missed, renormalize, fallback only if empty
+            let mut mass = 0.0;
+            for k in 0..4 {
+                if w[k] <= 1e-9 || expert_sigma[k].is_none() { continue; }
+                mass += w[k] * reach[k];
+            }
+            if robust_sigma.is_some() { mass += w[4] * reach[4]; }
+            let reach_mass_zero = mass <= 1e-12;
+            let any_tier = (0..4).any(|k| expert_sigma[k].is_some()) || robust_sigma.is_some();
+            if !any_tier {
+                fallback_bit = true;
+                mix = vec![1.0 / n as f64; n];
+            } else if reach_mass_zero {
+                let mut m2 = 0.0;
+                for k in 0..4 {
+                    if w[k] <= 1e-9 { continue; }
+                    if let Some(s) = expert_sigma[k].as_ref() {
+                        for a in 0..n { mix[a] += w[k] * s.get(a).copied().unwrap_or(0.0); }
+                        m2 += w[k];
+                    }
+                }
+                if let Some(s) = robust_sigma.as_ref() {
+                    for a in 0..n { mix[a] += w[4] * s.get(a).copied().unwrap_or(0.0); }
+                    m2 += w[4];
+                }
+                if m2 > 1e-12 { for v in mix.iter_mut() { *v /= m2; } }
+            } else {
+                for k in 0..4 {
+                    if w[k] <= 1e-9 { continue; }
+                    if let Some(s) = expert_sigma[k].as_ref() {
+                        for a in 0..n {
+                            mix[a] += w[k] * reach[k] * s.get(a).copied().unwrap_or(0.0);
+                        }
+                    }
+                }
+                if let Some(s) = robust_sigma.as_ref() {
+                    for a in 0..n {
+                        mix[a] += w[4] * reach[4] * s.get(a).copied().unwrap_or(0.0);
+                    }
+                }
+                let total: f64 = mix.iter().sum();
+                if total > 1e-12 { for v in mix.iter_mut() { *v /= total; } }
+            }
+            fallback_bit = fallback_bit; // (R2 non-legacy doesn't use this bit)
+        }
+
+        // dispatch matching act_impl's routing mode
+        let dist: Vec<f64> = match self.mode.routing.as_str() {
+            "robust-only" => robust_sigma
+                .clone()
+                .unwrap_or_else(|| vec![1.0 / n as f64; n]),
+            "argmax" => {
+                let k = self.argmax_k.unwrap_or(0);
+                expert_sigma[k].clone().unwrap_or_else(|| {
+                    robust_sigma
+                        .clone()
+                        .unwrap_or_else(|| vec![1.0 / n as f64; n])
+                })
+            }
+            "bayes" => {
+                // bayes path is not modeled here (needs bayes blueprint + its
+                // own strategy decode); return None so the caller falls back.
+                return None;
+            }
+            _ => mix,
+        };
+        Some(
+            slots
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (s.action, dist.get(i).copied().unwrap_or(0.0)))
+                .collect(),
+        )
+    }
+
     fn act_impl(&mut self, obs: &Observables<'_>, rng: &mut Rng) -> Action {
         let Self {
             mode,
