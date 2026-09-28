@@ -332,6 +332,29 @@ pub fn train_with_threads(
             "cham-blueprint: parallel Robust trainer — mode={thread_mode:?} \
              threads={threads} warmup={warmup_iters} total={total_iters}"
         );
+        // Per-slice checkpoints: snapshot the table to disk so a crash
+        // doesn't lose the whole parallel run. Uses the same atomic
+        // write (tmp+rename) as the outer loop.
+        let snap_path = out_dir.join("table.snap");
+        let checkpoint = |t: &RegretTable, iter: u64| -> Result<(), BlueprintError> {
+            let bytes = t.snapshot();
+            let tmp = snap_path.with_extension("tmp");
+            std::fs::write(&tmp, &bytes)?;
+            std::fs::rename(&tmp, &snap_path)?;
+            if let Some(r) = rec.as_deref_mut() {
+                let prov = serde_json::json!({
+                    "iters": iter,
+                    "infosets": t.len(),
+                    "bytes": std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0),
+                    "wall_s": t0.elapsed().as_secs_f64(),
+                    "thread_mode": format!("{thread_mode:?}"),
+                    "threads": effective_threads,
+                    "threads_requested": threads,
+                });
+                let _ = r.record(RecordKind::BpSnapshot, prov);
+            }
+            Ok(())
+        };
         train_robust_parallel(
             &mut table,
             cfg,
@@ -342,6 +365,7 @@ pub fn train_with_threads(
             total_iters,
             warmup_iters,
             &mut seat_histogram,
+            checkpoint,
         )?;
         // Snapshots and provenance are still emitted by the same
         // post-loop path below; set last_iter and skip the single-threaded
@@ -654,7 +678,7 @@ pub fn train_with_threads(
 /// reproducibility for wall-clock speed (Niu et al. 2011). Only the
 /// `Hogwild` and `Snapbatch` thread modes reach here.
 #[allow(clippy::too_many_arguments)]
-fn train_robust_parallel(
+fn train_robust_parallel<F>(
     table: &mut RegretTable,
     cfg: &TrainerConfig,
     engine_cfg: EngineConfig,
@@ -664,7 +688,11 @@ fn train_robust_parallel(
     total_iters: u64,
     _warmup_iters: u64,
     seat_histogram: &mut [u64; 2],
-) -> Result<(), BlueprintError> {
+    mut checkpoint: F,
+) -> Result<(), BlueprintError>
+where
+    F: FnMut(&RegretTable, u64) -> Result<(), BlueprintError>,
+{
     use std::sync::atomic::{AtomicU64, Ordering};
 
     const N_SLICES: u64 = 8;
@@ -775,6 +803,12 @@ fn train_robust_parallel(
             seat_histogram[0] += h[0];
             seat_histogram[1] += h[1];
         }
+
+        // PERF (2026-09-29): checkpoint at the end of every slice. With 8
+        // slices over a 14-hour run, the worst-case loss on a crash is ~2
+        // hours. Without this the parallel trainer produced NO intermediate
+        // snapshot — a crash at hour 13 lost everything.
+        checkpoint(table, slice_end)?;
 
         slice_start = slice_end;
     }
