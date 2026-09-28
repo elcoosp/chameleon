@@ -641,29 +641,18 @@ pub fn train_with_threads(
     Ok((table, prov))
 }
 
-
 /// PERF (2026-09-29): parallel Hogwild trainer for Robust mode.
 ///
-/// The single-threaded loop in [`train_with_threads`] works in any mode;
-/// this function is used when `thread_mode != Deterministic && threads > 1
-/// && mode == Robust`. It runs in two phases:
-///
-/// 1. **Warmup.** Single-threaded. Runs the first `warmup_iters` iterations
-///    with `allow_insert = true` to populate the table. Any key seen during
-///    the warmup will be present for the parallel phase.
-/// 2. **Hogwild.** Spawns `threads` worker threads under a
-///    `std::thread::scope`; each worker draws iteration indices from a
-///    shared `AtomicU64`, walks one hand with `allow_insert = false` and
-///    writes through atomic CAS-adds (the storage layer is already
-///    thread-safe for updates). Keys not present are skipped for that
-///    iteration; the next run's warmup slice will insert them.
+/// Sliced design: the training range is divided into `N_SLICES` slices; each
+/// slice runs a brief single-threaded warmup (populating any new infosets it
+/// encounters) followed by a parallel burst (all workers write atomically
+/// via the shared table). New keys introduced in slice K's parallel phase
+/// are inserted by slice K+1's warmup; over the whole run the table
+/// converges to full coverage.
 ///
 /// Determinism: deliberately NOT deterministic — Hogwild trades
 /// reproducibility for wall-clock speed (Niu et al. 2011). Only the
 /// `Hogwild` and `Snapbatch` thread modes reach here.
-///
-/// Averaging weights: `w_t` is computed from the shared atomic counter `t`,
-/// so the strategy-sum schedule is independent of worker interleaving.
 #[allow(clippy::too_many_arguments)]
 fn train_robust_parallel(
     table: &mut RegretTable,
@@ -673,109 +662,123 @@ fn train_robust_parallel(
     threads: u32,
     start: u64,
     total_iters: u64,
-    warmup_iters: u64,
+    _warmup_iters: u64,
     seat_histogram: &mut [u64; 2],
 ) -> Result<(), BlueprintError> {
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    // ---- Phase 1: warmup (single-threaded, allow_insert=true) ----
-    let warmup_end = (start + warmup_iters).min(total_iters);
-    {
-        let mut enc_w = enc.clone();
-        let mut dummy = DummyOpponent;
-        for t in start..warmup_end {
-            let iter_rng = &mut child(cfg.train_seed, &format!("warm{t}"));
-            let hero_seat = (t % 2) as usize;
-            seat_histogram[hero_seat] += 1;
-            let w_t = averaging_weight_gamma(t, total_iters, true, cfg.avg_gamma);
-            let mut state = State::new(engine_cfg, Deck::shuffled(iter_rng))
-                .map_err(|e| BlueprintError::Training(format!("engine: {e}")))?;
-            let mut seq = ActionSeq::default();
-            let mut walker = Traversal {
-                table: crate::traversal::TableRef::Exclusive(table),
-                opp: &mut dummy,
-                rbp: RbpConfig::default(),
-                iteration: t,
-                total_iters,
-                mode: TrainModeTag::Robust,
-                hero_nodes: 0,
-                pruned_nodes: 0,
-                regret_discount: cfg.regret_discount,
-                allow_insert: true,
-            };
-            walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, iter_rng);
-        }
-    }
+    const N_SLICES: u64 = 8;
 
-    // ---- Phase 2: parallel Hogwild (allow_insert=false, shared table) ----
-    if warmup_end >= total_iters {
+    let total_span = total_iters.saturating_sub(start);
+    if total_span == 0 {
         return Ok(());
     }
-    let counter = AtomicU64::new(warmup_end);
-    let total_iters_local = total_iters;
-    let regret_discount = cfg.regret_discount;
-    let avg_gamma = cfg.avg_gamma;
-    let train_seed = cfg.train_seed;
-    let per_worker_hist: std::sync::Mutex<[u64; 2]> = std::sync::Mutex::new([0, 0]);
+    let slice_len = (total_span + N_SLICES - 1) / N_SLICES;
+    let mut slice_start = start;
 
-    std::thread::scope(|scope| {
-        for _worker_id in 0..threads {
-            let counter_ref = &counter;
-            let table_ref: &RegretTable = table;
-            let enc_ref = enc;
-            let per_worker_hist_ref = &per_worker_hist;
-            scope.spawn(move || {
-                // Each worker owns its encoder clone (independent eq/fallback
-                // caches) and its own RNG stream.
-                let mut enc_w = enc_ref.clone();
-                                let mut dummy = DummyOpponent;
-                let mut local_hist = [0u64; 2];
-                loop {
-                    let t = counter_ref.fetch_add(1, Ordering::Relaxed);
-                    if t >= total_iters_local {
-                        break;
-                    }
-                    let hero_seat = (t % 2) as usize;
-                    local_hist[hero_seat] += 1;
-                    let w_t = averaging_weight_gamma(t, total_iters_local, true, avg_gamma);
-                    // Per-iteration deterministic deck: label by the global
-                    // iteration index so the deck stream is independent of
-                    // worker interleaving.
-                    let deck = Deck::shuffled(&mut child(train_seed, &format!("d{t}")));
-                    let mut state = match State::new(engine_cfg, deck) {
-                        Ok(s) => s,
-                        Err(_) => continue,
-                    };
-                    let mut seq = ActionSeq::default();
-                    let mut walker = Traversal {
-                        table: crate::traversal::TableRef::Shared(table_ref),
-                        opp: &mut dummy,
-                        rbp: RbpConfig::default(),
-                        iteration: t,
-                        total_iters: total_iters_local,
-                        mode: TrainModeTag::Robust,
-                        hero_nodes: 0,
-                        pruned_nodes: 0,
-                        regret_discount,
-                        allow_insert: false,
-                    };
-                    // Use a fresh child RNG per iteration (deterministic label
-                    // by global index) so parallel and serial streams would
-                    // agree on the per-iteration seed even though workers
-                    // race on the write side.
-                    let mut it_rng = child(train_seed, &format!("iter{t}"));
-                    walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, &mut it_rng);
-                }
-                let mut h = per_worker_hist_ref.lock().expect("hist mutex");
-                h[0] += local_hist[0];
-                h[1] += local_hist[1];
-            });
+    while slice_start < total_iters {
+        let slice_end = (slice_start + slice_len).min(total_iters);
+        let warmup_end = (slice_start + (slice_end - slice_start) / 5).min(slice_end);
+
+        // ---- Warmup burst (single-threaded, allow_insert=true) ----
+        {
+            let mut enc_w = enc.clone();
+            let mut dummy = DummyOpponent;
+            for t in slice_start..warmup_end {
+                let iter_rng = &mut child(cfg.train_seed, &format!("warm{t}"));
+                let hero_seat = (t % 2) as usize;
+                seat_histogram[hero_seat] += 1;
+                let w_t = averaging_weight_gamma(t, total_iters, true, cfg.avg_gamma);
+                let mut state = State::new(engine_cfg, Deck::shuffled(iter_rng))
+                    .map_err(|e| BlueprintError::Training(format!("engine: {e}")))?;
+                let mut seq = ActionSeq::default();
+                let mut walker = Traversal {
+                    table: crate::traversal::TableRef::Exclusive(table),
+                    opp: &mut dummy,
+                    rbp: RbpConfig::default(),
+                    iteration: t,
+                    total_iters,
+                    mode: TrainModeTag::Robust,
+                    hero_nodes: 0,
+                    pruned_nodes: 0,
+                    regret_discount: cfg.regret_discount,
+                    allow_insert: true,
+                };
+                walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, iter_rng);
+            }
         }
-    });
 
-    let h = per_worker_hist.lock().expect("hist mutex");
-    seat_histogram[0] += h[0];
-    seat_histogram[1] += h[1];
+        // ---- Parallel burst ----
+        if warmup_end < slice_end {
+            let counter = AtomicU64::new(warmup_end);
+            let slice_end_local = slice_end;
+            let regret_discount = cfg.regret_discount;
+            let avg_gamma = cfg.avg_gamma;
+            let train_seed = cfg.train_seed;
+            let per_worker_hist: std::sync::Mutex<[u64; 2]> = std::sync::Mutex::new([0, 0]);
+
+            std::thread::scope(|scope| {
+                for _worker_id in 0..threads {
+                    let counter_ref = &counter;
+                    let table_ref: &RegretTable = table;
+                    let enc_ref = enc;
+                    let per_worker_hist_ref = &per_worker_hist;
+                    scope.spawn(move || {
+                        let mut enc_w = enc_ref.clone();
+                        let mut dummy = DummyOpponent;
+                        let mut local_hist = [0u64; 2];
+                        loop {
+                            let t = counter_ref.fetch_add(1, Ordering::Relaxed);
+                            if t >= slice_end_local {
+                                break;
+                            }
+                            let hero_seat = (t % 2) as usize;
+                            local_hist[hero_seat] += 1;
+                            let w_t =
+                                averaging_weight_gamma(t, total_iters, true, avg_gamma);
+                            let deck = Deck::shuffled(&mut child(train_seed, &format!("d{t}")));
+                            let mut state = match State::new(engine_cfg, deck) {
+                                Ok(s) => s,
+                                Err(_) => continue,
+                            };
+                            let mut seq = ActionSeq::default();
+                            let mut walker = Traversal {
+                                table: crate::traversal::TableRef::Shared(table_ref),
+                                opp: &mut dummy,
+                                rbp: RbpConfig::default(),
+                                iteration: t,
+                                total_iters,
+                                mode: TrainModeTag::Robust,
+                                hero_nodes: 0,
+                                pruned_nodes: 0,
+                                regret_discount,
+                                allow_insert: false,
+                            };
+                            let mut it_rng = child(train_seed, &format!("iter{t}"));
+                            walker.walk(
+                                &mut state,
+                                hero_seat,
+                                w_t,
+                                &mut seq,
+                                &mut enc_w,
+                                &mut it_rng,
+                            );
+                        }
+                        let mut h = per_worker_hist_ref.lock().expect("hist mutex");
+                        h[0] += local_hist[0];
+                        h[1] += local_hist[1];
+                    });
+                }
+            });
+
+            let h = per_worker_hist.lock().expect("hist mutex");
+            seat_histogram[0] += h[0];
+            seat_histogram[1] += h[1];
+        }
+
+        slice_start = slice_end;
+    }
+
     table.set_last_iter(total_iters);
     Ok(())
 }
