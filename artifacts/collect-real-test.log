@@ -1,0 +1,5 @@
+  arch:nit: 300 rows cumulative
+  arch:tag: 600 rows cumulative
+  arch:lag: 900 rows cumulative
+  arch:station: 1200 rows cumulative
+collect (real): 1200 rows -> artifacts/router_real_small.rbin

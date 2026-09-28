@@ -134,7 +134,6 @@ fn play_one_hand(
     hand_seed: u64,
     hero_seat: usize,
 ) -> i64 {
-    let opp_seat = 1 - hero_seat;
     let mut hero_rng: Rng = child(hand_seed, "h");
     let deck = Deck::shuffled(&mut child(hand_seed, "d"));
     let mut state = State::new(engine_cfg, deck).expect("state");

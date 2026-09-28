@@ -37,6 +37,24 @@ pub struct Tracker {
     pub hands_since_showdown: u64,
     /// per-session accumulation only — never per-hand hidden cards
     pub total_net: i64,
+
+    // PERF (2026-09-29): raw unconditional opponent action counts for
+    // `raw_opponent_frequencies`. Incremented by `observe_hand` from
+    // the public action stream, independent of what the hero did.
+    pub opp_preflop_raises: u64,
+    pub opp_preflop_calls: u64,
+    pub opp_preflop_folds: u64,
+    pub opp_postflop_raises: u64,
+    pub opp_flop_bets: u64,
+    pub opp_turn_bets: u64,
+    pub opp_river_bets: u64,
+    pub opp_checks: u64,
+    pub opp_limps: u64,
+    pub opp_showdowns: u64,
+    pub opp_total_actions: u64,
+    pub reached_flop_count: u64,
+    pub reached_turn_count: u64,
+    pub reached_river_count: u64,
 }
 
 pub const EWM_VPIP: usize = 0;
@@ -119,14 +137,31 @@ impl Tracker {
             }
             let p = player.as_usize();
             let is_opp = p == opp;
+            // PERF (2026-09-29): raw unconditional counter — counts EVERY
+            // action the opponent takes, regardless of hero's own choices.
+            // These feed `raw_opponent_frequencies`, the honest substrate
+            // for router features (see the field docs at the struct).
+            if is_opp {
+                self.opp_total_actions += 1;
+            }
             match action {
                 cham_core::engine::Action::Fold => {
-                    if is_opp && street == 0 && raises_this_street == 0 {
-                        // fold to... nothing to track beyond vpip
+                    if is_opp && street == 0 {
+                        self.opp_preflop_folds += 1;
                     }
                 }
-                cham_core::engine::Action::Check => {}
+                cham_core::engine::Action::Check => {
+                    if is_opp {
+                        self.opp_checks += 1;
+                    }
+                }
                 cham_core::engine::Action::Call => {
+                    if is_opp && street == 0 {
+                        self.opp_preflop_calls += 1;
+                        if raises_this_street == 0 && last_level == 0 {
+                            self.opp_limps += 1;
+                        }
+                    }
                     if street == 0 {
                         voluntary = true;
                         if is_opp && raises_this_street == 0 {
@@ -141,6 +176,23 @@ impl Tracker {
                 cham_core::engine::Action::Bet { to } | cham_core::engine::Action::Raise { to } => {
                     let increment = *to - street_bet[p] - last_level.max(0);
                     let _ = increment;
+                    // PERF (2026-09-29): raw opponent aggression counters.
+                    if is_opp {
+                        match street {
+                            0 => {
+                                if raises_this_street == 0 {
+                                    self.opp_preflop_raises += 1;
+                                } else {
+                                    self.opp_postflop_raises += 1;
+                                    self.opp_preflop_raises += 1;
+                                }
+                            }
+                            1 => self.opp_flop_bets += 1,
+                            2 => self.opp_turn_bets += 1,
+                            3 => self.opp_river_bets += 1,
+                            _ => {}
+                        }
+                    }
                     if street == 0 {
                         voluntary = true;
                         if is_opp {
@@ -202,6 +254,10 @@ impl Tracker {
         });
         let reached_flop = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 1);
         let reached_turn = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 2);
+        let reached_river = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 3);
+        if reached_flop { self.reached_flop_count += 1; }
+        if reached_turn { self.reached_turn_count += 1; }
+        if reached_river { self.reached_river_count += 1; }
         let any_fold = ph
             .actions
             .iter()
@@ -291,6 +347,7 @@ impl Tracker {
         self.hands_since_showdown += 1;
         if reached_showdown {
             opp_showdown = true;
+            self.opp_showdowns += 1;
             self.hands_since_showdown = 0;
         }
         self.ewm_update(EWM_WTSD, if opp_showdown { 1.0 } else { 0.0 });
@@ -302,6 +359,56 @@ impl Tracker {
         self.ewm_update(EWM_AGGRESSION, if opp_aggressive { 1.0 } else { 0.0 });
         self.ewm_update(EWM_LIMP, if limped { 1.0 } else { 0.0 });
         let _ = opp_put_in;
+    }
+
+    /// PERF (2026-09-29): unconditional opponent frequencies for the router.
+    ///
+    /// The 13 EWM stats above are opportunity-gated: `EWM_3BET` only fires
+    /// when the hero opens, `EWM_CBET_FLOP` only when the opponent is the
+    /// preflop aggressor (which requires hero to limp/check first), etc.
+    /// That makes them functions of the (opponent, hero-policy) pair, not
+    /// of the opponent alone. Against a fixed hero policy this is fine; at
+    /// deployment against a new opponent it is a leak.
+    ///
+    /// This accessor returns raw action COUNTS (never zero unless the
+    /// opponent literally never took the action) that describe the
+    /// opponent independently of what hero did. They are the honest
+    /// substrate for an opponent classifier.
+    ///
+    /// See docs/plans/ROUTER-FEATURE-LEAK-2026-09-29.md.
+    pub fn raw_opponent_frequencies(&self) -> [f64; 10] {
+        // 10 unconditional frequencies, each in [0,1]:
+        //  [0] preflop_raise_freq   raises / hands
+        //  [1] preflop_call_freq    calls / hands
+        //  [2] preflop_fold_freq    folds / hands
+        //  [3] flop_bet_freq        flop bets / hands that reached flop
+        //  [4] turn_bet_freq
+        //  [5] river_bet_freq
+        //  [6] showdown_reach_freq  showdowns / hands
+        //  [7] avg_aggression       (bets+raises) / total actions taken
+        //  [8] avg_passivity       (checks+calls) / total actions taken
+        //  [9] limp_freq            preflop calls with no prior raise / hands
+        //
+        // Lifetime counts accumulated by `observe_hand`; initialised to 0
+        // and returned raw with no shrinkage. Callers apply maturity
+        // shrinkage themselves if they want.
+        let hands = self.hands.max(1) as f64;
+        let flops = self.reached_flop_count.max(1) as f64;
+        let turns = self.reached_turn_count.max(1) as f64;
+        let rivers = self.reached_river_count.max(1) as f64;
+        let total_actions = self.opp_total_actions.max(1) as f64;
+        [
+            self.opp_preflop_raises as f64 / hands,
+            self.opp_preflop_calls as f64 / hands,
+            self.opp_preflop_folds as f64 / hands,
+            self.opp_flop_bets as f64 / flops,
+            self.opp_turn_bets as f64 / turns,
+            self.opp_river_bets as f64 / rivers,
+            self.opp_showdowns as f64 / hands,
+            (self.opp_preflop_raises + self.opp_postflop_raises) as f64 / total_actions,
+            (self.opp_preflop_calls + self.opp_checks) as f64 / total_actions,
+            self.opp_limps as f64 / hands,
+        ]
     }
 
     /// Maturity-shrunk EWM stats for the router (SPECS/07 §2 formula).
