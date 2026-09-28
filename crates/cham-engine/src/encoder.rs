@@ -142,6 +142,7 @@ impl InfoSetKey {
 }
 
 /// The encoder: ladders + bucket tables + river bucketer + equity cache.
+#[derive(Clone)]
 pub struct Encoder {
     pub cfg: AbstractionConfig,
     pub ladder: ActionLadder,

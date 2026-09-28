@@ -43,6 +43,7 @@ pub const MISS_SENTINEL: u16 = 0xFFFF;
 /// M1-tiny artifacts are ≤ ~15 MB, so owned bytes are equivalent in practice; the
 /// full 110 MB turn table (M2) can enable a dedicated `#[allow(unsafe_code)]`
 /// mmap module behind a feature flag once a human signs off.
+#[derive(Clone)]
 pub struct MmapTable {
     bytes: Vec<u8>,
     view_len: u64,
@@ -106,6 +107,7 @@ impl MmapTable {
 }
 
 /// River bucketing: no table — exact equity quantile × texture (SPECS/02 §3).
+#[derive(Clone)]
 pub struct RiverBucketer {
     pub edges: Vec<f64>,
     pub texture_classes: u32,
