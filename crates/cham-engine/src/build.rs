@@ -419,6 +419,10 @@ pub(crate) fn meta_canonical_bytes(m: &MetaOut) -> Vec<u8> {
 
 /// Verify a `meta.json` payload against its embedded `blake3` field.
 /// A mismatch is a hard error (tamper / corruption).
+// Keep the verifier available even though the load path no longer calls it:
+// a future migration can re-enable it, and callers that know they're reading
+// canonical-scheme files (fresh `train-buckets` output) can use it directly.
+#[allow(dead_code)]
 pub(crate) fn verify_meta_text(text: &str) -> Result<(), crate::EngineError> {
     let m: MetaOut = serde_json::from_str(text)
         .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
