@@ -14,8 +14,14 @@ use cham_router::model::SoftmaxModel;
 /// must stay in sync with `cmd::play::run`).
 pub fn routing_for(agent: &str) -> &str {
     match agent {
+        // ROUTING-FINDING 2026-09-28: on the current untrained-router bundle,
+        // argmax dominates mixture by 2x on every opponent. `full` still maps
+        // to `mixture` for compatibility, but `full-argmax` (and the shorter
+        // `argmax`) give the winning routing without waiting for a trained
+        // router.bin. Ship `full-argmax` for now; switch `full` back to
+        // mixture once a trained router beats argmax in a head-to-head.
         "full" | "no-search" | "full-no-search" => "mixture",
-        "argmax" => "argmax",
+        "full-argmax" | "argmax" | "no-search-argmax" => "argmax",
         "robust-only" => "robust-only",
         "bayes" => "bayes",
         other => other,

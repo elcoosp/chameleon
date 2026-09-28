@@ -8,11 +8,13 @@
 
 /// Agent names that require the trained `artifacts/agent` bundle (mirrors
 /// `play`'s routing set in `cmd::play`: every one of these loads blueprints).
-const TRAINED_AGENTS: [&str; 7] = [
+const TRAINED_AGENTS: [&str; 9] = [
     "full",
     "no-search",
     "full-no-search",
     "argmax",
+    "full-argmax",
+    "no-search-argmax",
     "robust-only",
     "bayes",
     "mixture",
@@ -31,7 +33,8 @@ fn required_bundle_files() -> Vec<std::path::PathBuf> {
     let base: std::path::PathBuf = std::env::var("CHAM_AGENT_BUNDLE")
         .unwrap_or_else(|_| "artifacts/agent".to_string())
         .into();
-    let base = base.as_path();    let mut out = vec![base.join("abstraction.toml"), base.join("buckets")];
+    let base = base.as_path();
+    let mut out = vec![base.join("abstraction.toml"), base.join("buckets")];
     for i in 0..4 {
         out.push(base.join(format!("experts/{i}/policy.bin")));
     }
