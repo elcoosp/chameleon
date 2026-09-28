@@ -45,10 +45,16 @@ pub fn build_chameleon_with_router(
     depth_bb: i64,
     overrides: Option<(f64, f64, f64, f64)>,
 ) -> Result<ChameleonAgent, String> {
-    let bundle = std::path::Path::new("artifacts/agent");
+    // CHAM_AGENT_BUNDLE overrides the default `artifacts/agent` bundle path.
+    // Used by competitive-measurement scripts that retrain into a different
+    // directory (e.g. `artifacts/agent-honest`) so they can bench without
+    // swapping directories (which would corrupt the running training).
+    let bundle_path = std::env::var("CHAM_AGENT_BUNDLE")
+        .unwrap_or_else(|_| "artifacts/agent".to_string());
+    let bundle = std::path::Path::new(&bundle_path);
     let routing = routing_for(agent);
     let loaded = cham_agent::loader::load_agent(bundle, routing, depth_bb)
-        .map_err(|e| format!("artifact bundle under artifacts/agent not loadable: {e}"))?;
+        .map_err(|e| format!("artifact bundle under {bundle_path} not loadable: {e}"))?;
     let mode = AgentMode {
         routing: routing.to_string(),
         search: SearchCfg {

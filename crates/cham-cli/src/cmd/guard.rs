@@ -26,8 +26,12 @@ pub fn requires_trained_artifacts(agent: &str) -> bool {
 /// Required bundle files, mirroring `cham_agent::loader::load_agent`
 /// (`abstraction.toml` + buckets + 4 experts + robust).
 fn required_bundle_files() -> Vec<std::path::PathBuf> {
-    let base = std::path::Path::new("artifacts/agent");
-    let mut out = vec![base.join("abstraction.toml"), base.join("buckets")];
+    // Respect the CHAM_AGENT_BUNDLE override (see hero.rs) so the guard
+    // agrees with the loader about which bundle we are about to use.
+    let base: std::path::PathBuf = std::env::var("CHAM_AGENT_BUNDLE")
+        .unwrap_or_else(|_| "artifacts/agent".to_string())
+        .into();
+    let base = base.as_path();    let mut out = vec![base.join("abstraction.toml"), base.join("buckets")];
     for i in 0..4 {
         out.push(base.join(format!("experts/{i}/policy.bin")));
     }
