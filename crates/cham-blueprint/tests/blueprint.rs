@@ -160,6 +160,7 @@ fn exploit_enumeration_estimator() {
         pruned_nodes: 0,
         regret_discount: 1.0,
         allow_insert: true,
+        warmup_only: false,
     };
     let v = walker.walk(&mut state, 1, 1.0, &mut seq, &mut enc, rng);
     let _ = v;
@@ -379,6 +380,7 @@ fn rbp_matches_full() {
                 pruned_nodes: 0,
                 regret_discount: 1.0,
                 allow_insert: true,
+                warmup_only: false,
             };
             walker.walk(&mut state, (t % 2) as usize, 1.0, &mut seq, &mut enc, rng);
         }
@@ -462,6 +464,7 @@ fn delayed_averaging_monotone() {
             pruned_nodes: 0,
             regret_discount: 1.0,
             allow_insert: true,
+            warmup_only: false,
         };
         walker.walk(&mut state, 0, w_t, &mut seq, &mut enc, rng);
         if (t + 1) % 400 == 0 {
@@ -967,6 +970,7 @@ fn warmstart_exact_keys_and_beats_cold() {
                 pruned_nodes: 0,
                 regret_discount: 1.0,
                 allow_insert: true,
+                warmup_only: false,
             };
             walker.walk(&mut state, (t % 2) as usize, w_t, &mut seq, &mut enc, rng);
         }
@@ -1245,6 +1249,7 @@ fn external_sampling_strat_sum_has_no_reach_factor() {
         pruned_nodes: 0,
         regret_discount: 1.0,
         allow_insert: true,
+        warmup_only: false,
     };
     let _ = walker.walk(&mut state, 1, w_t, &mut seq, &mut enc, rng);
 
@@ -1431,6 +1436,7 @@ fn direct_sink_weight_and_visit_accumulate() {
         pruned_nodes: 0,
         regret_discount: 1.0,
         allow_insert: true,
+        warmup_only: false,
     };
     let _ = walker.walk(&mut state, 1, w_t, &mut seq, &mut enc, rng);
 
@@ -1477,6 +1483,7 @@ fn rbp_gate_semantics() {
                 pruned_nodes: 0,
                 regret_discount: 1.0,
                 allow_insert: true,
+                warmup_only: false,
             };
             walker.walk(&mut state, (t % 2) as usize, 1.0, &mut seq, &mut enc, rng);
             total_pruned += walker.pruned_nodes;

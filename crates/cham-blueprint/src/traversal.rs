@@ -217,6 +217,17 @@ pub struct Traversal<'a> {
     /// parallel phase are effectively ignored for that iteration; the next
     /// warmup interval catches them.
     pub allow_insert: bool,
+    /// WARMUP ONLY (2026-09-29): when true, this traversal INSERT-ONLY —
+    /// it walks the tree to discover and create rows but performs no
+    /// CFR+ updates at all.
+    ///
+    /// Why: the parallel trainer's warmup burst used to run FULL traversals
+    /// with allow_insert=true. Every slice therefore re-applied CFR+ updates
+    /// to rows that already carried accumulated state from previous slices —
+    /// reducing their strategy-sum mass in place. That is the likely cause
+    /// of the "tiny peaks at 5M" pattern: the more slices, the more the
+    /// accumulated sum is overwritten by warmup's redundant updates.
+    pub warmup_only: bool,
 }
 
 impl<'a> Traversal<'a> {
@@ -392,6 +403,11 @@ impl<'a> Traversal<'a> {
             }
         }
         let v_bar: f64 = (0..w_slots).map(|a| sigma[a] * v[a]).sum();
+        // WARMUP ONLY (2026-09-29): skip all CFR+ updates. The row was
+        // created above by entry_or_insert; the parallel phase fills it.
+        if self.warmup_only {
+            return v_bar;
+        }
         // regret-matching+ floors at zero (SPECS/04 §4; pinned by rm_plus_floors).
         // Writes go through the sink: direct (bit-exact) or snapbatch-buffered.
         for a in 0..w_slots {

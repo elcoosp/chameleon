@@ -1,0 +1,4 @@
+exploitability[bp depth=20 seat=0]: lbr +8315.86 mb/hand over 200 deals
+exploitability[bp depth=20 seat=1]: lbr +5201.72 mb/hand over 200 deals
+exploitability[bp depth=100 seat=0]: lbr +13808.87 mb/hand over 200 deals
+exploitability[bp depth=100 seat=1]: lbr +14955.85 mb/hand over 200 deals

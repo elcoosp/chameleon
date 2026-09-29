@@ -1,0 +1,11 @@
+=== 1000-deal LBR, 5M tiny ===
+exploitability[bp depth=20 seat=0]: lbr +7443.64 mb/hand over 1000 deals
+exploitability[bp depth=20 seat=1]: lbr +4660.37 mb/hand over 1000 deals
+exploitability[bp depth=100 seat=0]: lbr +13977.49 mb/hand over 1000 deals
+exploitability[bp depth=100 seat=1]: lbr +12858.18 mb/hand over 1000 deals
+=== 1000-deal LBR, 20M tiny ===
+exploitability[bp depth=20 seat=0]: lbr +7462.66 mb/hand over 1000 deals
+exploitability[bp depth=20 seat=1]: lbr +5950.98 mb/hand over 1000 deals
+exploitability[bp depth=100 seat=0]: lbr +13319.27 mb/hand over 1000 deals
+exploitability[bp depth=100 seat=1]: lbr +14705.79 mb/hand over 1000 deals
+DONE

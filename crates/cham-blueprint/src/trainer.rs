@@ -542,6 +542,7 @@ pub fn train_with_threads(
                     pruned_nodes: 0,
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
+                    warmup_only: false,
                 };
                 walker.walk_with_sink(
                     &mut state, hero_seat, w_t, &mut seq, enc, iter_rng, &mut sink,
@@ -560,6 +561,7 @@ pub fn train_with_threads(
                 pruned_nodes: 0,
                 regret_discount: cfg.regret_discount,
                 allow_insert: true,
+                warmup_only: false,
             };
             walker.walk(&mut state, hero_seat, w_t, &mut seq, enc, iter_rng);
         }
@@ -731,6 +733,8 @@ where
                     pruned_nodes: 0,
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
+                    // WARMUP: insert-only. No CFR+ updates.
+                    warmup_only: true,
                 };
                 walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, iter_rng);
             }
@@ -781,6 +785,7 @@ where
                                 pruned_nodes: 0,
                                 regret_discount,
                                 allow_insert: false,
+                                warmup_only: false,
                             };
                             let mut it_rng = child(train_seed, &format!("iter{t}"));
                             walker.walk(

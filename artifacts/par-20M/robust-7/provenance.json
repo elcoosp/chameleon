@@ -1,0 +1,17 @@
+{
+  "mode": "Robust",
+  "opponent_id": null,
+  "depth_bb": 100,
+  "iters": 20000000,
+  "train_seed": 7,
+  "thread_mode": "Hogwild",
+  "threads": 1,
+  "abstraction_hash": 8078057981912287418,
+  "infosets": 21447,
+  "wall_s": 6127.431080042,
+  "parent": null,
+  "seat_histogram": [
+    10000000,
+    10000000
+  ]
+}
