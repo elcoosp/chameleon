@@ -597,7 +597,37 @@ impl RegretTable {
     }
 
     /// Regret-matching+ strategy: σ(a) ∝ max(R_a, 0); uniform if all ≤ 0.
+    /// Regret-matching+ strategy, no exploration floor. Bit-identical to
+    /// the original; kept as the default call site.
     pub fn sigma_rms(&self, off: u32, w: usize) -> Vec<f64> {
+        self.sigma_rms_eps(off, w, 0.0)
+    }
+
+    /// Regret-matching+ strategy with an EXPLORATION FLOOR (2026-09-29).
+    ///
+    /// Every action gets at least `eps / w` probability mass, and the
+    /// remaining `1 - eps` is distributed by regret matching. When `eps`
+    /// is 0 this is bit-identical to the original `sigma_rms`.
+    ///
+    /// Why this exists: RM+ floors regrets at zero, so once the positive
+    /// part concentrates on a single action, that action is played with
+    /// probability 1 forever and no other action's regret ever rises
+    /// above zero again. The policy cannot re-explore. On the tiny
+    /// abstraction this happens by ~20M iterations: the fraction of
+    /// "soft" rows (max prob < 0.5) drops from 13.5 % at 500k to 2.3 %
+    /// at 50M, and the AVERAGE strategy collapses to match the frozen
+    /// current iterate (mean max prob 0.45 -> 0.86). Exploitability then
+    /// degrades on the seat that needs mixing (BB) while it keeps
+    /// improving on the seat that does not (SB).
+    ///
+    /// The floor keeps every action's regret channel alive, at the cost
+    /// of a small amount of intended policy spread. Standard CFR+ on
+    /// large games gets this implicitly from sampling noise; here the
+    /// training is deterministic per iteration, so the floor is explicit.
+    ///
+    /// See docs/plans/RM-PLUS-FREEZE-2026-09-29.md.
+    pub fn sigma_rms_eps(&self, off: u32, w: usize, eps: f64) -> Vec<f64> {
+        let eps = eps.clamp(0.0, 0.99);
         let mut pos = [0f64; 12];
         let mut total = 0.0;
         for a in 0..w {
@@ -607,10 +637,14 @@ impl RegretTable {
                 total += r;
             }
         }
+        let floor = eps / w as f64;
         if total <= 0.0 {
+            // All-zero regrets: uniform over actions is already the
+            // natural response, whether or not eps > 0.
             return vec![1.0 / w as f64; w];
         }
-        (0..w).map(|a| pos[a] / total).collect()
+        let free = (1.0 - eps).max(0.0);
+        (0..w).map(|a| floor + free * pos[a] / total).collect()
     }
 
     /// Current strategy from accumulated strat sums (for snapshots/inspection).
