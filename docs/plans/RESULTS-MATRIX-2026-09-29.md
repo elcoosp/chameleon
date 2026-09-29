@@ -1,4 +1,4 @@
-# Results matrix — every measured config (2026-09-29)
+# Results matrix — every measured config (updated 2026-09-29 evening)
 
 LBR at depth 100. Lower is better. Sample sizes noted per row.
 
@@ -15,12 +15,25 @@ LBR at depth 100. Lower is better. Sample sizes noted per row.
 | parallel 20M | 200 | 13 809 | 14 956 | 14 383 |
 | parallel 50M | 1000 | 13 572 | 16 346 | 14 959 |
 | parallel 50M | 200 | 13 886 | 17 008 | 15 447 |
+| parallel 20M delay0 (CHAM_AVG_DELAY=0) | 1000 | 13 431 | 13 618 | 13 524 |
+| parallel 20M avguniform (CHAM_AVG_UNIFORM=1) | 1000 | 13 977 | 13 133 | 13 555 |
+
+The two 20M schedule ablations (`delay0`, `avguniform`) both move BB by
+7–11% toward the 5M peak, at a small SB cost. Mean is a wash between
+them. See `AVG-DELAY-DELAY0-RESULT-2026-09-29.md` and
+`AVG-UNIFORM-RESULT-2026-09-29.md`.
 
 ### With the insert-only warmup fix (1fa3762) — no floor
 
 | config | deals | seat 0 | seat 1 | mean |
 |---|---:|---:|---:|---:|
 | parallel 20M warmfix | 1000 | 13 554 | 14 090 | 13 822 |
+| parallel 5M warmfix  | 1000 | 14 648 | 12 674 | 13 661 |
+
+Warmfix helps BB, hurts SB. At 5M the SB cost dominates and warmfix is
+a net loss; at 20M the BB recovery dominates and warmfix is a net win.
+See `WARMUP-FIX-RESULT-2026-09-29.md` (20M) and
+`WARMUP-FIX-AT-5M-2026-09-29.md` (5M).
 
 ### With an exploration floor (eps = 0.02)
 
@@ -28,6 +41,18 @@ LBR at depth 100. Lower is better. Sample sizes noted per row.
 |---|---:|---:|---:|---:|
 | parallel 5M eps=0.02 | 1000 | 14 910 | 12 551 | 13 731 |
 | parallel 20M eps=0.02 | 1000 | 13 682 | 13 652 | 13 667 |
+
+### With regret discount (DCFR)
+
+| config | deals | seat 0 | seat 1 | mean |
+|---|---:|---:|---:|---:|
+| parallel 20M alpha=0.9 | 1000 | 35 344 | 25 834 | 30 589 |
+| parallel 20M alpha=0.5 | 1000 | (pending) | (pending) | (pending) |
+
+Alpha=0.9 un-freezes the iterate (avg_near_frozen 60% → 11.9%,
+mean avg max_p 0.859 → 0.616) but destroys the policy. Un-freezing to
+random is worse than freezing to a decent equilibrium. See
+`DCFR-ALPHA09-NEGATIVE-2026-09-29.md`.
 
 ## Full abstraction (~380k infosets)
 
@@ -39,7 +64,14 @@ Matched-visits comparison (tiny-500k and full-9M both ~24 visits/infoset):
 - SB: full wins by 22%
 - BB: tiny wins by 2%
 
-## Medium abstraction (not measured — LBR log came back empty)
+## Medium abstraction (~84k infosets)
+
+| config | deals | seat 0 | seat 1 | mean |
+|---|---:|---:|---:|---:|
+| parallel 20M | 1000 | 13 237 | 14 021 | 13 629 |
+
+New SB SOTA at the 20M budget, but BB still collapsed. See
+`MEDIUM-20M-LBR-2026-09-29.md`.
 
 ## Baselines vs the archetype pool (ladder, not LBR)
 
@@ -52,26 +84,38 @@ Matched-visits comparison (tiny-500k and full-9M both ~24 visits/infoset):
 
 ## The frontier
 
-**Best LBR seat 0:** tiny 20M no-eps, 13 319 (1000 deals).
-**Best LBR seat 1:** tiny 5M no-eps, 12 050–12 858 (sample-dependent).
-**Best mean:** tiny 5M no-eps (13 417 at 1000 deals, 13 545 at 200).
-**Best against the pool:** tiny 500k argmax, +7 146 ladder mean.
+**Best LBR seat 0 at 1000 deals:** tiny 20M no-fix, 13 319.
+**Best LBR seat 1 at 1000 deals:** tiny 5M no-fix, 12 858.
+**Best LBR mean at 1000 deals:** tiny 5M no-fix, 13 417.
+**Best mean inside a single schedule:** delay0 13 524, avguniform 13 555.
 
-The **shipping candidate** is the tiny 5M no-eps robust policy. 47 min
-to train, minimizes mean LBR, and beats every other configuration on at
-least one seat.
+The **shipping candidate** is still the tiny 5M no-fix robust policy.
+47 min to train (parallel ~10 min), minimizes mean LBR.
+
+**The single most effective lever this session is the averaging
+schedule** (delay0 or avguniform): both reduce 20M BB from 14 706 to
+~13 100-13 600. Neither closes the gap to 12 858 alone.
 
 ## What didn't win
 
-- **Exploration floor (eps=0.02)** — helps at 20M (mean +2.5%), hurts at
-  5M (mean −1.4%). Makes the collapse slower but doesn't reverse it.
-  See `EXPLORATION-FLOOR-AT-20M-2026-09-29.md`.
+- **Exploration floor (eps=0.02)** — helps at 20M (mean −2.5%), hurts
+  at 5M (mean +2.4%). Slower collapse, no reversal. See
+  `EXPLORATION-FLOOR-AT-20M-2026-09-29.md` and
+  `EXPLORATION-FLOOR-NEGATIVE-2026-09-29.md`.
 
-- **Insert-only warmup fix** — 4% BB improvement at 20M, no change at 5M.
-  Real but small. See `WARMUP-FIX-RESULT-2026-09-29.md`.
+- **Insert-only warmup fix (1fa3762)** — 4% BB improvement at 20M;
+  +671 SB / −184 BB at 5M (net loss). See
+  `WARMUP-FIX-RESULT-2026-09-29.md` and `WARMUP-FIX-AT-5M-2026-09-29.md`.
 
-- **Full abstraction at 9M** — beats tiny-500k at matched visits/infoset,
-  but loses to tiny-5M on wall-clock terms.
+- **DCFR regret discount alpha=0.9** — un-freezes the iterate but
+  destroys the policy. 2.5x worse than no-fix on both seats. See
+  `DCFR-ALPHA09-NEGATIVE-2026-09-29.md`.
 
-- **Mixture routing, hedged routing** — all measured worse than plain
-  argmax against the archetype pool.
+- **Full abstraction at 9M** — beats tiny-500k at matched
+  visits/infoset, loses to tiny-5M on wall.
+
+- **Medium abstraction at 20M** — new SB SOTA at 20M, but inherits the
+  RM+ freeze on BB. See `MEDIUM-20M-LBR-2026-09-29.md`.
+
+- **Mixture routing, hedged routing** — measured worse than plain argmax
+  against the archetype pool.
