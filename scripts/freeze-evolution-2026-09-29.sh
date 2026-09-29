@@ -21,7 +21,7 @@ log "avg-delay done"
 
 # ---- Experiment 1: freeze evolution ----
 CKPT_DIR="artifacts/freeze-diag"
-if [ ! -f "${CKPT_DIR}/iter-20000000/table.snap" ]; then
+if [ ! -f "${CKPT_DIR}/checkpoints/iter-20000000/table.snap" ]; then
   log "freeze-diag: training 20M with checkpoints every 2M"
   rm -rf "${CKPT_DIR}"
   mkdir -p "${CKPT_DIR}"
