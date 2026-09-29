@@ -11,6 +11,7 @@ use cham_engine::config::AbstractionConfig;
 use cham_engine::encoder::{ActionSeq, Encoder};
 
 #[test]
+#[ignore = "diagnostic: trains 300k iters, no asserts. Run explicitly with `cargo nextest run -p cham-blueprint --run-ignored all -E 'test(sb_root_internals)'` or override SB_ITERS."]
 fn sb_root_internals() {
     let iters: u64 = std::env::var("SB_ITERS")
         .ok()
