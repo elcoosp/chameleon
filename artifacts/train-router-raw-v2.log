@@ -1,0 +1,2 @@
+train-router: 10 features
+train-router: rows=120000 epochs=100 loss_b_dev=0.9217 top1_b_dev=0.697 top1_b_test=0.797 ece_b_test=0.363 ece_family_c=0.248 recall=[0.7106666666666667, 0.515, 0.5844705882352941, 0.9791428571428571] gates=FAIL

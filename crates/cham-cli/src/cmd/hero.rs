@@ -28,6 +28,10 @@ pub fn routing_for(agent: &str) -> &str {
         "full" | "no-search" | "full-no-search" => "argmax",
         "full-argmax" | "argmax" | "no-search-argmax" => "argmax",
         "full-mixture" | "mixture" => "mixture",
+        // PERF (2026-09-29): hedge on router confidence. Argmax when the
+        // top weight is above CHAM_HEDGE_THRESHOLD (default 0.5), else
+        // fall back to the mixture.
+        "full-hedged" | "hedged" => "hedged",
         "robust-only" => "robust-only",
         "bayes" => "bayes",
         other => other,

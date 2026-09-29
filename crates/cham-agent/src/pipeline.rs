@@ -110,7 +110,7 @@ impl ChameleonAgent {
         let trend_z = self.tracker.trend_z();
         self.weights = self.router.weights_for_hand(&features, trend_z);
         self.reach = [1.0; 5];
-        self.argmax_k = if self.mode.routing == "argmax" {
+        self.argmax_k = if self.mode.routing == "argmax" || self.mode.routing == "hedged" {
             let mut best = 0usize;
             for (k, &w) in self.weights.iter().take(4).enumerate() {
                 if w > self.weights[best] {
@@ -317,6 +317,22 @@ impl ChameleonAgent {
                         .clone()
                         .unwrap_or_else(|| vec![1.0 / n as f64; n])
                 })
+            }
+            "hedged" => {
+                let k = self.argmax_k.unwrap_or(0);
+                let threshold = std::env::var("CHAM_HEDGE_THRESHOLD")
+                    .ok()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.5);
+                if w[k] >= threshold {
+                    expert_sigma[k].clone().unwrap_or_else(|| {
+                        robust_sigma
+                            .clone()
+                            .unwrap_or_else(|| vec![1.0 / n as f64; n])
+                    })
+                } else {
+                    mix.clone()
+                }
             }
             "bayes" => {
                 // bayes path is not modeled here (needs bayes blueprint + its
@@ -591,6 +607,43 @@ impl ChameleonAgent {
                     }
                 };
                 slots[argmax_of(&sigma)].action // bayes-greedy consumes NO rng
+            }
+            "hedged" => {
+                // PERF (2026-09-29): hedge on ROUTER CONFIDENCE, not on
+                // archetype identity. If the router is confident (top
+                // weight above a threshold), play that expert purely. If
+                // not, fall back to the mixture (which is a hedge against
+                // exactly the case the router can't decide).
+                //
+                // The motivation: argmax beats mixture on the ladder
+                // because mixture averages 3 wrong picks when the router
+                // is wrong. But argmax commits hard even when the router
+                // is uncertain. Hedged routing takes argmax's win when
+                // confident and mixture's hedge when not.
+                //
+                // Threshold via CHAM_HEDGE_THRESHOLD (default 0.5).
+                let threshold = std::env::var("CHAM_HEDGE_THRESHOLD")
+                    .ok()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.5);
+                let top = argmax_k.unwrap_or(0);
+                let top_weight = weights[top];
+                if top_weight >= threshold {
+                    // confident: play the top expert purely
+                    let sigma = match expert_sigma[top].as_ref() {
+                        Some(s) => s.clone(),
+                        None => robust_sigma
+                            .as_ref()
+                            .cloned()
+                            .unwrap_or_else(|| vec![1.0 / n as f64; n]),
+                    };
+                    tier_missed = expert_missed[top] && robust_sigma.is_none();
+                    slots[argmax_of(&sigma)].action
+                } else {
+                    // uncertain: fall back to the mixture
+                    tier_missed = mix_fallback;
+                    slots[sample_index(&mix, rng)].action
+                }
             }
             _ => {
                 tier_missed = mix_fallback; // mixture modes keep mixture bit

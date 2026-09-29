@@ -1,0 +1,8 @@
+exploitability[diag]: trained policy loaded from /Users/adm/Documents/Repos/chameleon/artifacts/blueprints-full-parallel/robust-7/policy
+exploitability[bp depth=20 seat=0]: lbr +8193.27 mb/hand over 200 deals
+exploitability[diag]: trained policy loaded from /Users/adm/Documents/Repos/chameleon/artifacts/blueprints-full-parallel/robust-7/policy
+exploitability[bp depth=20 seat=1]: lbr +4315.40 mb/hand over 200 deals
+exploitability[diag]: trained policy loaded from /Users/adm/Documents/Repos/chameleon/artifacts/blueprints-full-parallel/robust-7/policy
+exploitability[bp depth=100 seat=0]: lbr +18079.22 mb/hand over 200 deals
+exploitability[diag]: trained policy loaded from /Users/adm/Documents/Repos/chameleon/artifacts/blueprints-full-parallel/robust-7/policy
+exploitability[bp depth=100 seat=1]: lbr +14298.38 mb/hand over 200 deals
