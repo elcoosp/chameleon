@@ -1,4 +1,0 @@
-cham-blueprint: WARNING — trainer is single-threaded; requested threads=4 mode=Hogwild but no worker pool is implemented. Recording effective_threads=1 in provenance (M-6). Artifact correctness is unaffected.
-cham-blueprint: parallel Robust trainer — mode=Hogwild threads=4 warmup=50000 total=20000000
-train-bp: robust iters=20000000 depth=100 seed=7 infosets=41527 wall=8674.1s artifact=artifacts/par-medium-20M/robust-7/policy
-policy.bin: 735142 bytes blake3 6840807d3fc1ef31

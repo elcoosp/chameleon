@@ -1,6 +1,0 @@
-train-buckets: flop (k=64, sampled=20000)…
-train-buckets: turn (k=32)…
-flop.bin: 200024 bytes blake3 73f198bc2ade7b60
-turn.bin: 200024 bytes blake3 0827f430f693bad7
-meta.json: 2839 bytes blake3 abb4e2aa2bff984d
-train-buckets: done → artifacts/buckets-medium

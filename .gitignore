@@ -128,3 +128,16 @@ artifacts/dcfr-gamma-honest.log
 /artifacts/par-5M.log
 /artifacts/par-5M-lbr.log
 /artifacts/full-parallel-robust.log
+
+# Medium-abstraction and parallel-run artifacts (2026-09-29)
+/artifacts/buckets-medium/
+/artifacts/par-medium-*/
+/artifacts/par-50M*/
+/artifacts/par-coverage-test/
+/artifacts/par-revert-check/
+/artifacts/highsample-lbr.log
+/artifacts/par-20M-lbr.log
+/artifacts/par-medium-20M*.log
+/artifacts/par-50M.log
+/artifacts/overnight-2026-09-29-pipeline.log
+/artifacts/train-buckets-medium.log
