@@ -8,13 +8,13 @@ a net win). The 5M side had never been measured. Result:
 
 | variant | SB | BB | mean | wall |
 |---|---:|---:|---:|---:|
-| **5M no-fix** | 13 977 | 12 858 | **13 417** | 47 min |
-| **5M warmfix** | 14 648 | 12 674 | 13 661 | ~10 min |
+| **5M no-fix** | 13 977 | 12 858 | **13 417** | 47 min (serial) |
+| **5M warmfix** | 14 648 | 12 674 | 13 661 | ~10 min (parallel) |
 | **Δ** | **+671** | **−184** | **+244** | — |
 
 1000-deal LBR, depth 100, seed 7, tiny robust.
 
-Wall is not comparable to the older "47 min" 5M number: that was the
+Wall is not comparable to the "47 min" 5M number: that was the
 pre-parallel serial run. The warmfix 5M ran on the parallel trainer
 (~10 min at 4 workers).
 
@@ -31,14 +31,14 @@ with the RM+ freeze model:
   accumulated strategy mass on rows visited during warmup) slightly
   disturbs that sharpening.
 
-The two variants of the fix are therefore **asymmetric in the same
+The two sides of the fix are therefore **asymmetric in the same
 direction as the freeze itself**: BB gets better at the cost of SB.
 
 ## Comparison with 20M
 
 | iters | Δ SB | Δ BB | Δ mean |
 |---|---:|---:|---:|
-| 5M | **+671** | −184 | +244 |
+| 5M  | **+671** | −184 | +244 |
 | 20M | +235 | **−616** | −190 |
 
 At 5M, warmfix is a net loss on mean (the SB cost dominates). At 20M,
@@ -61,6 +61,13 @@ coupled: warmup matters when the freeze exists, not before.
 - `artifacts/par-5M-warmfix-lbr.stderr.log`
 - `artifacts/par-5M-warmfix-lbr.criterion.log`
 - `artifacts/par-5M-warmfix.log`
+
+## Note on the M-6 fix (landed da90405)
+
+The 5M warmfix was trained with the stale binary — this was BEFORE
+commit `da90405` landed, so its provenance still records `threads: 1`
+even though the parallel trainer ran. Future runs (the queued
+freeze-diag, the running dcfr-alpha) will record the actual pool size.
 
 ## Related
 
