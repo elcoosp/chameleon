@@ -1,0 +1,33 @@
+# MEDIUM abstraction: between tiny (21k infosets) and full (380k infosets).
+# Motivation (2026-09-29):
+#   * tiny  32/16/16  at 5M iters  -> 15 040 / 12 050  LBR
+#   * full 300/200/64 at 9M iters  -> 18 079 / 14 298  LBR
+#   * full wins per-visit (24 visits/infoset) but loses per-wall-second
+#     because it needs 10x the iters to reach tiny's visits/infoset.
+# Medium 64/32/32 is ~84k infosets. At 5M iters = 60 visits/infoset;
+# at 20M = 238 visits/infoset (matched to tiny's 5M point).
+# If medium at 20M beats tiny at 5M wall-for-wall, the sweet spot exists.
+version = 2
+
+spr_bands = [
+  0.3, 0.37104, 0.45874, 0.56723, 0.70122, 0.86668, 1.07134, 1.32414,
+  1.63654, 2.02247, 2.49981, 3.08914, 3.81757, 4.71752, 5.82902, 7.20363,
+  40.0,
+]
+seq_history_len = 8
+
+[buckets]
+preflop = "exact169"
+flop_k = 64
+turn_k = 32
+river_eq_bins = 32
+river_texture_classes = 4
+
+[ladder]
+preflop_open_bb = [2.5]
+raise_fracs = [1.0]
+flop_bet_fracs = [0.5]
+turn_bet_fracs = [0.5]
+river_bet_fracs = [0.5, 1.25]
+raises_per_street_cap = 1
+all_in_always = true
