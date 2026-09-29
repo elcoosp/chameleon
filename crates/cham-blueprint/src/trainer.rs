@@ -322,9 +322,17 @@ pub fn train_with_threads(
     // small, workers skip subtrees that would have been created later —
     // this is the same effect as a sample-starved run on those infosets,
     // and it self-corrects on the next warmup interval (per resume).
+    // Only parallelize when the run is long enough that the 8-slice
+    // warmup/parallel structure has room to work. Below this threshold,
+    // slice_len is so small that warmup rounds to zero and the parallel
+    // phase (allow_insert=false) can never create rows — the table stays
+    // empty. Small tests and short experiments fall through to the
+    // deterministic serial loop instead.
+    const MIN_PARALLEL_ITERS: u64 = 100_000;
     let parallel_requested = thread_mode != ThreadMode::Deterministic
         && threads > 1
         && robust
+        && cfg.iters >= MIN_PARALLEL_ITERS
         && !matches!(mode, TrainMode::ExploitBayes { .. });
     if parallel_requested {
         let warmup_iters = (cfg.iters / 5).min(50_000).max(1);
