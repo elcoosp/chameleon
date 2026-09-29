@@ -307,16 +307,38 @@ pub fn train_with_threads(
         }
     }
 
-    // M-6 fix (2026-09-27): the trainer is single-threaded. `Hogwild` and
-    // `Snapbatch` are implemented as storage strategies (relaxed CAS-adds,
-    // buffered writes) — they do NOT spawn worker threads, and `--threads`
-    // is only serialized into provenance. Recording the REQUESTED count
-    // without the workers existing is an auditability lie. Emit a loud
-    // warning and record the EFFECTIVE worker count (1).
-    let effective_threads: u32 = 1;
-    if threads > 1 || thread_mode != ThreadMode::Deterministic {
+    // Compute parallel_requested BEFORE the M-6 warning so we know
+    // whether the parallel Robust path (added 2026-09-28, commit
+    // 5c77401) will actually run. `robust` is used only for that
+    // decision today.
+    let robust = mode.tag() == TrainModeTag::Robust;
+    // Only parallelize when the run is long enough that the 8-slice
+    // warmup/parallel structure has room to work. Below this threshold,
+    // slice_len is so small that warmup rounds to zero and the parallel
+    // phase (allow_insert=false) can never create rows — the table stays
+    // empty. Small tests and short experiments fall through to the
+    // deterministic serial loop instead.
+    const MIN_PARALLEL_ITERS: u64 = 100_000;
+    let parallel_requested = thread_mode != ThreadMode::Deterministic
+        && threads > 1
+        && robust
+        && cfg.iters >= MIN_PARALLEL_ITERS
+        && !matches!(mode, TrainMode::ExploitBayes { .. });
+
+    // M-6 fix (2026-09-27, revised 2026-09-29): the serial path of this
+    // trainer is single-threaded (Hogwild/Snapbatch are storage
+    // strategies, not worker pools). But the Robust parallel path added
+    // on 2026-09-28 DOES spawn `threads` real workers via
+    // `train_robust_parallel`. The stale warning was firing even when the
+    // parallel path ran, and `effective_threads` was hardcoded to 1, so
+    // a 4-worker 20M run recorded `threads: 1` in its provenance — an
+    // auditability lie. This revision:
+    //   * emits the warning ONLY when the serial path will run,
+    //   * records the ACTUAL worker count for the parallel path.
+    let effective_threads: u32 = if parallel_requested { threads } else { 1 };
+    if (threads > 1 || thread_mode != ThreadMode::Deterministic) && !parallel_requested {
         eprintln!(
-            "cham-blueprint: WARNING — trainer is single-threaded; \
+            "cham-blueprint: WARNING — trainer is single-threaded on this path; \
              requested threads={threads} mode={thread_mode:?} but no worker \
              pool is implemented. Recording effective_threads=1 in \
              provenance (M-6). Artifact correctness is unaffected."
@@ -329,7 +351,6 @@ pub fn train_with_threads(
     };
     let t0 = std::time::Instant::now();
 
-    let robust = mode.tag() == TrainModeTag::Robust;
     let mut dummy = DummyOpponent;
     let mut seat_histogram = [0u64; 2];
 
@@ -364,18 +385,7 @@ pub fn train_with_threads(
     // small, workers skip subtrees that would have been created later —
     // this is the same effect as a sample-starved run on those infosets,
     // and it self-corrects on the next warmup interval (per resume).
-    // Only parallelize when the run is long enough that the 8-slice
-    // warmup/parallel structure has room to work. Below this threshold,
-    // slice_len is so small that warmup rounds to zero and the parallel
-    // phase (allow_insert=false) can never create rows — the table stays
-    // empty. Small tests and short experiments fall through to the
-    // deterministic serial loop instead.
-    const MIN_PARALLEL_ITERS: u64 = 100_000;
-    let parallel_requested = thread_mode != ThreadMode::Deterministic
-        && threads > 1
-        && robust
-        && cfg.iters >= MIN_PARALLEL_ITERS
-        && !matches!(mode, TrainMode::ExploitBayes { .. });
+    // (parallel_requested computed above, next to the M-6 warning.)
     if parallel_requested {
         let warmup_iters = (cfg.iters / 5).min(50_000).max(1);
         eprintln!(
