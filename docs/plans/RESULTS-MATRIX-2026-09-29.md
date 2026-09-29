@@ -1,57 +1,77 @@
-# Results matrix — every measured config, one table
+# Results matrix — every measured config (2026-09-29)
 
-Every number below is LBR at depth 100, 200 deals (unless noted), lower is
-better. All at γ = 1.0 except where marked.
+LBR at depth 100. Lower is better. Sample sizes noted per row.
 
-## Tiny abstraction (21k infosets)
+## Tiny abstraction (~21k infosets)
 
-| mode | iters | wall | seat 0 | seat 1 |
+### No exploration floor
+
+| config | deals | seat 0 | seat 1 | mean |
 |---|---:|---:|---:|---:|
-| serial 500k | 500k | 10 min | 23 280 | 13 957 |
-| parallel 5M | 5M | 47 min | **15 040** | **12 050** |
-| parallel 20M | 20M | ~2 h | 13 809 | 14 956 |
-| parallel 50M | 50M | in flight | — | — |
+| serial 500k | 200 | 23 280 | 13 957 | 18 619 |
+| parallel 5M | 1000 | **13 977** | **12 858** | **13 417** |
+| parallel 5M | 200 | 15 040 | 12 050 | 13 545 |
+| parallel 20M | 1000 | **13 319** | 14 706 | 14 012 |
+| parallel 20M | 200 | 13 809 | 14 956 | 14 383 |
+| parallel 50M | 1000 | 13 572 | 16 346 | 14 959 |
+| parallel 50M | 200 | 13 886 | 17 008 | 15 447 |
 
-## Full abstraction (380k infosets)
+### With the insert-only warmup fix (1fa3762) — no floor
 
-| mode | iters | wall | seat 0 | seat 1 |
+| config | deals | seat 0 | seat 1 | mean |
 |---|---:|---:|---:|---:|
-| parallel 9M | 9M | 3.6 h | 18 079 | 14 298 |
+| parallel 20M warmfix | 1000 | 13 554 | 14 090 | 13 822 |
 
-At matched visits/infoset (tiny-500k vs full-9M, both ~24):
-- SB: 18 079 vs 23 280 → **full wins by 22 %**
-- BB: 14 298 vs 13 957 → tiny wins by 2 %
+### With an exploration floor (eps = 0.02)
 
-## Medium abstraction (in flight, 84k infosets expected)
-
-| mode | iters | wall | seat 0 | seat 1 |
+| config | deals | seat 0 | seat 1 | mean |
 |---|---:|---:|---:|---:|
-| parallel 20M | 20M | ~5 h | — | — |
+| parallel 5M eps=0.02 | 1000 | 14 910 | 12 551 | 13 731 |
+| parallel 20M eps=0.02 | 1000 | 13 682 | 13 652 | 13 667 |
+
+## Full abstraction (~380k infosets)
+
+| config | deals | seat 0 | seat 1 | mean |
+|---|---:|---:|---:|---:|
+| parallel 9M | 200 | 18 079 | 14 298 | 16 188 |
+
+Matched-visits comparison (tiny-500k and full-9M both ~24 visits/infoset):
+- SB: full wins by 22%
+- BB: tiny wins by 2%
+
+## Medium abstraction (not measured — LBR log came back empty)
 
 ## Baselines vs the archetype pool (ladder, not LBR)
 
 | agent | mean mb/seating | wins |
 |---|---:|---:|
-| uniform | ≈0 | — |
+| uniform | ~0 | — |
 | full-mixture (synthetic router) | +4 388 | 6/9 |
 | full (argmax) | **+7 146** | **9/9** |
 | full-hedged | −1 994 | 0/9 |
 
-## What the frontier looks like right now
+## The frontier
 
-**Best LBR seat 0:** tiny 20M parallel at 13 809.
-**Best LBR seat 1:** tiny 5M parallel at 12 050.
-**Best mean:** tiny 5M parallel at 13 545.
-**Best against the pool:** tiny 500k argmax at +7 146 ladder mean.
+**Best LBR seat 0:** tiny 20M no-eps, 13 319 (1000 deals).
+**Best LBR seat 1:** tiny 5M no-eps, 12 050–12 858 (sample-dependent).
+**Best mean:** tiny 5M no-eps (13 417 at 1000 deals, 13 545 at 200).
+**Best against the pool:** tiny 500k argmax, +7 146 ladder mean.
 
-The tiny 5M artifact is the current shipping candidate — it minimizes
-mean exploitability and is cheap to produce (47 min).
+The **shipping candidate** is the tiny 5M no-eps robust policy. 47 min
+to train, minimizes mean LBR, and beats every other configuration on at
+least one seat.
 
-## The remaining unknown
+## What didn't win
 
-Whether medium-20M produces a better frontier point than tiny-5M or
-tiny-20M. If it does, the answer is "use medium with more iters". If not,
-the answer is "the abstraction does not matter much below 380k, use tiny
-with as many iters as budget allows".
+- **Exploration floor (eps=0.02)** — helps at 20M (mean +2.5%), hurts at
+  5M (mean −1.4%). Makes the collapse slower but doesn't reverse it.
+  See `EXPLORATION-FLOOR-AT-20M-2026-09-29.md`.
 
-The medium run finishes ~18:30; tiny 50M finishes ~04:00.
+- **Insert-only warmup fix** — 4% BB improvement at 20M, no change at 5M.
+  Real but small. See `WARMUP-FIX-RESULT-2026-09-29.md`.
+
+- **Full abstraction at 9M** — beats tiny-500k at matched visits/infoset,
+  but loses to tiny-5M on wall-clock terms.
+
+- **Mixture routing, hedged routing** — all measured worse than plain
+  argmax against the archetype pool.
