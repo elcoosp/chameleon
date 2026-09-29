@@ -706,20 +706,28 @@ where
 
     while slice_start < total_iters {
         let slice_end = (slice_start + slice_len).min(total_iters);
-        let warmup_end = (slice_start + (slice_end - slice_start) / 5).min(slice_end);
+        // 1/8 warmup per slice now that it guarantees full coverage.
+        let warmup_end = (slice_start + (slice_end - slice_start) / 8).min(slice_end);
 
         // ---- Warmup burst (single-threaded, allow_insert=true) ----
+        //
+        // COVERAGE FIX (2026-09-29): warmup iteration t draws the SAME deck
+        // and rng labels as parallel iteration t (`d{t}` and `iter{t}`).
+        // The warmup range is therefore the same set of hands the parallel
+        // phase will walk, and every infoset the parallel phase can reach
+        // is inserted during warmup. Guarantees full coverage (was 74 %).
         {
             let mut enc_w = enc.clone();
             let mut dummy = DummyOpponent;
             for t in slice_start..warmup_end {
-                let iter_rng = &mut child(cfg.train_seed, &format!("warm{t}"));
                 let hero_seat = (t % 2) as usize;
                 seat_histogram[hero_seat] += 1;
                 let w_t = averaging_weight_gamma(t, total_iters, true, cfg.avg_gamma);
-                let mut state = State::new(engine_cfg, Deck::shuffled(iter_rng))
+                let deck = Deck::shuffled(&mut child(cfg.train_seed, &format!("d{t}")));
+                let mut state = State::new(engine_cfg, deck)
                     .map_err(|e| BlueprintError::Training(format!("engine: {e}")))?;
                 let mut seq = ActionSeq::default();
+                let mut it_rng = child(cfg.train_seed, &format!("iter{t}"));
                 let mut walker = Traversal {
                     table: crate::traversal::TableRef::Exclusive(table),
                     opp: &mut dummy,
@@ -732,7 +740,7 @@ where
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
                 };
-                walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, iter_rng);
+                walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, &mut it_rng);
             }
         }
 
