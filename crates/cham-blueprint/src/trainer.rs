@@ -132,6 +132,13 @@ pub struct RunProvenance {
     pub parent: Option<String>,
     /// hero-seat draws during training (seat_randomized test / histograms)
     pub seat_histogram: [u64; 2],
+    /// Exploration floor used by this run (2026-09-29). 0.0 = no floor,
+    /// bit-identical to pre-2026-09-29 behavior. Recorded so a resumed
+    /// run can detect a mismatch and so provenance is auditable: a run
+    /// with eps > 0 produced a DIFFERENT artifact than one with eps = 0
+    /// from the same seed, and the ledger needs to see that.
+    #[serde(default)]
+    pub train_explore_eps: f64,
 }
 
 /// Delayed linear averaging weight (SPECS/04 §4): `w_t = max(0, t − D)`, `D = iters/4`;
@@ -704,6 +711,9 @@ pub fn train_with_threads(
         wall_s: t0.elapsed().as_secs_f64(),
         parent: None,
         seat_histogram,
+        // Read the process-wide floor (already set at startup from
+        // CHAM_TRAIN_EPS). Recorded for the same reason thread_mode is.
+        train_explore_eps: crate::table::train_explore_eps(),
     };
     let prov_path = out_dir.join("provenance.json");
     std::fs::write(&prov_path, serde_json::to_vec_pretty(&prov)?)?;
