@@ -17,7 +17,7 @@ use cham_rec::schema::RecordKind;
 
 use crate::BlueprintError;
 use crate::modes::{TrainMode, TrainModeTag};
-use crate::table::{RegretTable, ThreadMode};
+use crate::table::{RegretTable, ThreadMode, set_train_explore_eps};
 #[allow(unused_imports)]
 use crate::traversal::sample_index;
 use crate::traversal::{RbpConfig, SnapBatchSink, Traversal};
@@ -264,6 +264,41 @@ pub fn train_with_threads(
 ) -> Result<(RegretTable, RunProvenance), BlueprintError> {
     cfg.validate()?;
     std::fs::create_dir_all(out_dir)?;
+
+    // EXPLORATION FLOOR (2026-09-29): read CHAM_TRAIN_EPS and set the
+    // process-wide value read by `RegretTable::sigma_rms`. Default 0.0
+    // → bit-identical to pre-2026-09-29 behavior.
+    //
+    // Why: RM+ floors regrets at zero, so at high iteration counts the
+    // current iterate freezes one-hot and the averaged strategy follows
+    // it. Measured mean max prob of the average strategy climbs 0.45
+    // (500k) → 0.86 (20M) → 0.88 (50M). A concentrated average is
+    // trivially exploitable. A small floor (~0.02) keeps every action's
+    // regret channel alive. See docs/plans/RM-PLUS-FREEZE-2026-09-29.md.
+    if let Ok(s) = std::env::var("CHAM_TRAIN_EPS") {
+        match s.parse::<f64>() {
+            Ok(v) if (0.0..=0.5).contains(&v) => {
+                set_train_explore_eps(v);
+                if v > 0.0 {
+                    eprintln!("cham-blueprint: training exploration floor ε = {v}");
+                }
+            }
+            Ok(v) => {
+                eprintln!(
+                    "cham-blueprint: CHAM_TRAIN_EPS={v} out of range [0, 0.5]; \
+                     ignoring (floor stays {})",
+                    crate::table::train_explore_eps()
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "cham-blueprint: CHAM_TRAIN_EPS parse error ({e}); \
+                     floor stays {}",
+                    crate::table::train_explore_eps()
+                );
+            }
+        }
+    }
 
     // M-6 fix (2026-09-27): the trainer is single-threaded. `Hogwild` and
     // `Snapbatch` are implemented as storage strategies (relaxed CAS-adds,
