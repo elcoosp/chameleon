@@ -102,6 +102,11 @@ enum Command {
         /// `<out>/checkpoints/iter-<t>/table.snap` (0 = disabled, default)
         #[arg(long, default_value = "0")]
         checkpoint_every: u64,
+        /// Override the checkpoint directory (default: `<out>/checkpoints`).
+        /// Useful for freeze diagnostics that want to write into a
+        /// throwaway path (e.g. `artifacts/freeze-diag/checkpoints`).
+        #[arg(long)]
+        checkpoint_dir: Option<String>,
     },
     /// Train the router on a .rbin dataset (SPECS/05)
     TrainRouter {
@@ -351,6 +356,7 @@ fn main() -> anyhow::Result<()> {
             resume,
             cache_dir,
             checkpoint_every,
+            checkpoint_dir,
         } => cmd::train_bp::run(
             &mode,
             opponent.as_deref(),
@@ -369,6 +375,7 @@ fn main() -> anyhow::Result<()> {
             resume.as_deref(),
             cache_dir.as_deref(),
             checkpoint_every,
+            checkpoint_dir.as_deref(),
         ),
         Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
         Command::Collect {

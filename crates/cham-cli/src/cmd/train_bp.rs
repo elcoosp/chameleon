@@ -37,6 +37,7 @@ pub fn run(
     resume_from: Option<&str>,
     cache_dir: Option<&str>,
     checkpoint_every: u64,
+    checkpoint_dir: Option<&str>,
 ) -> i32 {
     if let Some(run_dir) = status {
         return print_status(run_dir);
@@ -94,7 +95,11 @@ pub fn run(
         avg_gamma,
         checkpoint_every,
         checkpoint_dir: if checkpoint_every > 0 {
-            Some(std::path::PathBuf::from(out).join("checkpoints"))
+            Some(
+                checkpoint_dir
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::path::PathBuf::from(out).join("checkpoints")),
+            )
         } else {
             None
         },
