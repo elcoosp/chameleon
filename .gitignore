@@ -146,3 +146,8 @@ artifacts/dcfr-gamma-honest.log
 /artifacts/par-20M/
 /artifacts/par-20M-warmfix.log
 /artifacts/par-50M-lbr.log
+
+# Broad: everything under artifacts/ is regenerable (measurement outputs,
+# trained bundles, benches). Explicitly tracked fixtures live under
+# crates/*/artifacts/ (which this doesn't match).
+/artifacts/
