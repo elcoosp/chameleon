@@ -74,7 +74,11 @@ fn run_synthetic(out: &str, max_rows: usize) -> i32 {
     if rows.len() > max_rows {
         rows.truncate(max_rows);
     }
-    match cham_router::write_dataset(std::path::Path::new(out), &rows, 20) {
+    match cham_router::write_dataset(
+        std::path::Path::new(out),
+        &rows,
+        rows.first().map(|r| r.features.len()).unwrap_or(20),
+    ) {
         Ok(()) => {
             println!("collect (synthetic): {} rows -> {out}", rows.len());
             crate::cmd::EXIT_OK
