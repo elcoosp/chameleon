@@ -353,6 +353,31 @@ fn hash_step(key: u64, mask: usize) -> usize {
     ((z as usize) & mask) | 1
 }
 
+/// Process-wide training exploration floor (2026-09-29).
+///
+/// Read by [`RegretTable::sigma_rms`] on every call. Set once at startup
+/// from the `CHAM_TRAIN_EPS` env var by the trainer (or by tests). The
+/// default is 0.0, which is bit-identical to the pre-2026-09-29 behavior.
+///
+/// Stored as `AtomicU64` holding an `f64::to_bits` value so it can be
+/// read from any thread without a lock. Fraction of probability forced
+/// uniform in regret matching+.
+///
+/// See docs/plans/RM-PLUS-FREEZE-2026-09-29.md.
+static TRAIN_EXPLORE_EPS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0.0f64.to_bits());
+
+/// Set the process-wide training exploration floor. Clamped to [0, 0.5).
+pub fn set_train_explore_eps(eps: f64) {
+    let clamped = eps.clamp(0.0, 0.5);
+    TRAIN_EXPLORE_EPS.store(clamped.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Current process-wide training exploration floor.
+pub fn train_explore_eps() -> f64 {
+    f64::from_bits(TRAIN_EXPLORE_EPS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 impl RegretTable {
     pub fn new(mode: ThreadMode) -> RegretTable {
         RegretTable::with_capacity(mode, 1024)
@@ -597,10 +622,11 @@ impl RegretTable {
     }
 
     /// Regret-matching+ strategy: σ(a) ∝ max(R_a, 0); uniform if all ≤ 0.
-    /// Regret-matching+ strategy, no exploration floor. Bit-identical to
-    /// the original; kept as the default call site.
+    /// Regret-matching+ strategy. Uses the process-wide exploration floor
+    /// set by [`set_train_explore_eps`] (default 0.0 → bit-identical to
+    /// the pre-2026-09-29 behavior).
     pub fn sigma_rms(&self, off: u32, w: usize) -> Vec<f64> {
-        self.sigma_rms_eps(off, w, 0.0)
+        self.sigma_rms_eps(off, w, train_explore_eps())
     }
 
     /// Regret-matching+ strategy with an EXPLORATION FLOOR (2026-09-29).
