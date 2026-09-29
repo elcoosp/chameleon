@@ -232,7 +232,11 @@ fn run_real(
         eprintln!("  {opp_id}: {} rows cumulative", all_rows.len());
     }
 
-    match cham_router::write_dataset(Path::new(out), &all_rows, 20) {
+    match cham_router::write_dataset(
+        Path::new(out),
+        &all_rows,
+        all_rows.first().map(|r| r.features.len()).unwrap_or(20),
+    ) {
         Ok(()) => {
             println!("collect (real): {} rows -> {out}", all_rows.len());
             crate::cmd::EXIT_OK
