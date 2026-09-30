@@ -380,6 +380,7 @@ fn pipeline_mode_matrix() {
     let modes = vec![
         AgentMode::full_search_off(),
         AgentMode::argmax(),
+        AgentMode::hedged(),
         AgentMode::robust_only(),
     ];
     for mode in modes {
