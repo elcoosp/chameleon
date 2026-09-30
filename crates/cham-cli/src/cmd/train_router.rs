@@ -1,6 +1,6 @@
 //! `chameleon train-router` (SPECS/05): softmax router training + gates.
 
-pub fn run(rows_path: &str, out: &str) -> i32 {
+pub fn run(rows_path: &str, out: &str, feature_set: &str) -> i32 {
     let (rows, nf) = match cham_router::read_dataset(std::path::Path::new(rows_path)) {
         Ok(r) => r,
         Err(e) => {
@@ -48,6 +48,13 @@ pub fn run(rows_path: &str, out: &str) -> i32 {
         eprintln!("mkdir: {e}");
         return crate::cmd::EXIT_FAIL;
     }
+    // 2026-09-30: fold temperature-scaling calibration into the model's
+    // weights so the runtime's forward() produces the calibrated softmax.
+    // Also record the feature set name so the agent pipeline can dispatch
+    // the right feature constructor at inference.
+    let model = model
+        .with_temperature(report.temperature)
+        .with_feature_set(feature_set.to_string());
     let model_json = serde_json::to_vec_pretty(&model).unwrap_or_default();
     // Write BOTH filenames:
     //   * `model.bin` — the historical name train-router has always used

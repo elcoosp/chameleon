@@ -114,6 +114,12 @@ enum Command {
         rows: String,
         #[arg(long, default_value = "artifacts/routers/v1")]
         out: String,
+        /// Feature set name to record on the model (2026-09-30). Determines
+        /// which feature vector the runtime dispatches at inference:
+        ///   opportunity-gated-20 (default), raw-opponent-10/11/19
+        /// See docs/plans/ROUTER-INTEGRATION-DESIGN-2026-09-30.md.
+        #[arg(long, default_value = "opportunity-gated-20")]
+        feature_set: String,
     },
     /// Build the binary router dataset from instrumented sessions (SPECS/05 §4)
     Collect {
@@ -391,7 +397,11 @@ fn main() -> anyhow::Result<()> {
             checkpoint_every,
             checkpoint_dir.as_deref(),
         ),
-        Command::TrainRouter { rows, out } => cmd::train_router::run(&rows, &out),
+        Command::TrainRouter {
+            rows,
+            out,
+            feature_set,
+        } => cmd::train_router::run(&rows, &out, &feature_set),
         Command::Collect {
             out,
             max_rows,
