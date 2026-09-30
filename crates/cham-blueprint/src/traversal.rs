@@ -178,6 +178,12 @@ pub enum TableRef<'a> {
 impl<'a> TableRef<'a> {
     /// Read-only view (works for both variants).
     #[inline]
+    /// Borrow the underlying table regardless of variant. Named `as_ref`
+    /// intentionally to mirror the previous API; the clippy lint about
+    /// `AsRef` trait is suppressed deliberately (TableRef is not a
+    /// generic wrapper, and switching to the trait would obscure the
+    /// variant distinction that is the point of this enum).
+    #[allow(clippy::should_implement_trait)]
     pub fn as_ref(&self) -> &RegretTable {
         match self {
             TableRef::Exclusive(t) => t,

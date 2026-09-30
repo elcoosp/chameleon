@@ -403,7 +403,7 @@ pub fn train_with_threads(
     // and it self-corrects on the next warmup interval (per resume).
     // (parallel_requested computed above, next to the M-6 warning.)
     if parallel_requested {
-        let warmup_iters = (cfg.iters / 5).min(50_000).max(1);
+        let warmup_iters = (cfg.iters / 5).clamp(1, 50_000);
         eprintln!(
             "cham-blueprint: parallel {mode_tag} trainer — mode={thread_mode:?} \
              threads={threads} warmup={warmup_iters} total={total_iters}",
@@ -810,7 +810,7 @@ where
     }
     let slice_len: u64 = if cfg.checkpoint_every > 0 {
         let want_n = total_span.div_ceil(cfg.checkpoint_every);
-        let bounded_n = want_n.min(N_SLICES_MAX).max(1);
+        let bounded_n = want_n.clamp(1, N_SLICES_MAX);
         total_span.div_ceil(bounded_n)
     } else {
         total_span.div_ceil(N_SLICES_DEFAULT)
