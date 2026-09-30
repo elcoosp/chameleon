@@ -1,5 +1,19 @@
 # The synthetic router is degenerate: it always picks class 2 (LAG) (2026-09-30)
 
+**Correction 14:52:** an attempted regression test asserted that the
+default `SoftmaxModel::new(20, 4)` is degenerate on uniform-random
+inputs in [0,1]^20. It is NOT — the default init produces mixed
+argmaxes on random uniform inputs. The degenerate behaviour is
+specific to `agent-honest`'s real feature distribution (the
+opportunity-gated tracker vector), which is heavily concentrated
+near 0.5 on most dimensions because of the maturity shrink, and where
+the default init picks class 3 (station) on every decision. A
+bundle with the synthetic router trained on the label-encoded stub
+picks class 2 (LAG) on every decision.
+
+So the finding stands but the generalisation was wrong: the router
+is degenerate *on this feature distribution*, not universally.
+
 ## The observation
 
 `CHAM_HEDGE_DEBUG=1 CHAM_HEDGE_THRESHOLD=0.00 chameleon probe --diag-fallback
