@@ -1,13 +1,13 @@
 # Hybrid bundle: 5M robust fallback helps argmax (+402) but not mixture (2026-09-30)
 
-## The argmax result (updated 13:15)
+## The argmax result (corrected 13:20)
 
 `--agent full` (argmax+synthetic) on the two bundles, 2500 deals/pair:
 
 | opponent | 500k fallback | 5M fallback | Δ |
 |---|---:|---:|---:|
-| arch:nit      | +1 384 | **+1 885** | +501 |
-| arch:tag      | +3 382 | **+3 713** | +331 |
+| arch:nit      | +1 384 | **+1 885** | **+501** |
+| arch:tag      | +3 382 | **+3 713** | **+331** |
 | arch:lag      | +3 932 | +3 938 | +6 |
 | arch:station  | +14 259 | +14 226 | −33 |
 | callbot       | +24 962 | +24 962 | 0 |
@@ -15,15 +15,25 @@
 | pnash         | +4 168 | **+3 167** | **−1 001** |
 | famB:tag      | +2 269 | **+2 536** | +267 |
 | noisy:0.1:lag | +5 084 | +4 758 | −326 |
-| **mean**      | **+6 581** | **+6 983** | **+402** |
+| **mean**      | **+7 136** | **+6 983** | **−153** |
 
-**The 5M robust fallback improves the argmax ladder by 402 mb/seating.**
-The effect is opponent-specific (wins big on nit, tag, famB; loses
-jamfix and pnash), but the mean improvement is well above the ±200
-run-to-run noise band.
+**The 5M robust fallback HURTS the argmax mean by 153 mb/seating.**
+The effect is opponent-specific: wins on nit (+501), tag (+331), famB
+(+267); loses on jamfix (−1 124) and pnash (−1 001). The losses to
+`jamfix` and `pnash` (two specific opponents) dominate the mean.
 
-This directly contradicts the initial reading of the mixture result
-alone. See the mixture section below.
+### Note on the earlier handoff number (+6 567 / +6 587)
+
+The `SOTA-2026-09-28.md` doc reports `argmax+synthetic` mean +6 567 for
+its own argmax-synthetic column. Summing the individual cells in that
+column gives 64 085 → mean 7 120, not 6 567. The doc's stated mean is
+550 below its own table. The 2026-09-30 re-measurement
+(`LADDER-ARMMAX-REPRODUCED-2026-09-30.md`) reproduced the individual
+cells but also inherited the wrong mean. **All argmax means in this
+session's docs should be recomputed from the individual rows.** For
+`agent-honest` 500k fallback, the true mean is **+7 136**.
+
+This correction supersedes both handoff docs' stated means.
 
 ## Setup
 
