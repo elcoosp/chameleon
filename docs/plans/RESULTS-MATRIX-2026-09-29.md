@@ -90,20 +90,30 @@ Original 09-28 measurement (agent-full-honest, per `assemble-full.log`):
 | full (argmax) | **+7 146** | **9/9** |
 | full-hedged | −1 994 | 0/9 |
 
-2026-09-30 re-measurement of robust-only bundles (same pool, 2500 deals):
+2026-09-30 re-measurements, all on tiny abstraction, 2500 deals/pair:
 
-| bundle | mean mb/seating | wins |
+| bundle / routing | mean | wins |
 |---|---:|---:|
-| agent-honest robust-only    | ~+720 | 3/9 (only callbot/jamfix/pnash win) |
-| par-5M robust-only          | ~+820 | 3/9 |
+| agent-honest / full (argmax+synthetic) | **+6 581** | 9/9 |
+| **agent-honest-5Mrobust / full (argmax+synthetic)** | **+6 983** | — |
+| agent-honest / full-mixture | +4 388 | 6/9 |
+| agent-honest-5Mrobust / full-mixture | +4 401 | — |
+| agent-honest / robust-only | +720 | 3/9 |
+| par-5M robust-only | +820 | 3/9 |
+| agent-honest / full-hedged | −1 800 | 0/9 |
+| agent-honest / full-hedged @ thr=0.00 | −1 826 | 0/9 |
 
-**The robust-only policy is much weaker than `full` (argmax over 4
-experts) on the archetype pool.** LBR SOTA (par-5M robust) is not
-ladder SOTA. See `PAR5M-ROBUST-LADDER-2026-09-30.md`.
-
-A ladder matrix across routing modes on agent-full-honest
-(`scripts/ladder-matrix-2026-09-30.sh`) is queued to isolate the
-routing contribution.
+**Key findings:**
+- The **robust-only policy alone is far weaker than argmax over 4
+  experts** (~6 000 mb/seating gap). LBR SOTA (par-5M robust) is not
+  ladder SOTA. See `PAR5M-ROBUST-LADDER-2026-09-30.md`.
+- **Upgrading the robust fallback slot from 500k to 5M helps argmax
+  by +402 mb/seating but does not move the mixture.** See
+  `HYBRID-LADDER-2026-09-30.md`.
+- **Hedged routing is broken** — even at threshold 0.00 it diverges
+  from argmax by 8 400 mb/seating. See
+  `HEDGED-PATH-BUG-2026-09-30.md` and
+  `HEDGED-SWEEP-CONFIRMS-PATH-BUG-2026-09-30.md`.
 
 ## The frontier
 
