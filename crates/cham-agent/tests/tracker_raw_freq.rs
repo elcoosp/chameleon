@@ -295,3 +295,118 @@ fn aggression_and_passivity_share_denominator() {
         "aggression + passivity should equal 1 when opp never folds; got {sum}"
     );
 }
+
+// ---------- TAG vs LAG separation diagnostic (2026-09-30) ----------
+
+/// Same as `tracker_after` but with hero at seat 1 (BB) so the opponent
+/// is the SB — which is required for the opponent to be the preflop
+/// OPENER, which TAG and LAG differ on most cleanly.
+fn tracker_after_hero_bb(hands: &[PublicHistory]) -> Tracker {
+    let mut t = Tracker::new();
+    for ph in hands {
+        t.observe_hand(ph, 0, 1);
+    }
+    t
+}
+
+/// Build a synthetic session where the opponent is the SB:
+///  * the opponent opens with `open_n` hands
+///  * of those opens, the opponent cbets flop on `cbet_n` (hero calls,
+///    then opponent either bets or checks)
+///  * on the other `n - open_n` hands, the opponent folds preflop
+fn synthetic_tag_or_lag(n: usize, open_n: usize, cbet_n: usize) -> Vec<PublicHistory> {
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        if i < cbet_n {
+            // opp opens, hero calls, opp cbets, hero folds
+            out.push(ph(&[
+                (Street::Preflop, Player::Sb, Action::Raise { to: 250 }),
+                (Street::Preflop, Player::Bb, Action::Call),
+                (Street::Flop, Player::Sb, Action::Bet { to: 300 }),
+                (Street::Flop, Player::Bb, Action::Fold),
+            ]));
+        } else if i < open_n {
+            // opp opens, hero calls, opp checks
+            out.push(ph(&[
+                (Street::Preflop, Player::Sb, Action::Raise { to: 250 }),
+                (Street::Preflop, Player::Bb, Action::Call),
+                (Street::Flop, Player::Sb, Action::Check),
+                (Street::Flop, Player::Bb, Action::Check),
+            ]));
+        } else {
+            // opp folds preflop
+            out.push(ph(&[(Street::Preflop, Player::Sb, Action::Fold)]));
+        }
+    }
+    out
+}
+
+/// Diagnostic (2026-09-30): TAG vs LAG differ in the DIRECTION of their
+/// aggression across streets. TAG opens tighter preflop (25%) but cbets
+/// more (52%); LAG opens looser (40%) but cbets less (42%). Neither the
+/// preflop raise rate alone nor the flop bet rate alone discriminates
+/// them cleanly: the preflop rate points the wrong way, and the flop
+/// rate gap (0.095) is smaller than the combined tilt gap (0.245).
+///
+/// This test proves the tilt signal is present in the raw frequencies,
+/// so a router with an extra derived feature can be trained on it.
+///
+/// Caveat: this is a synthetic test using the exact numbers from
+/// `cham-opponents/src/params.rs::point()`. The signal strength on real
+/// instrumented play may differ; but the direction of the effect is
+/// what the test pins, not the exact magnitude.
+#[test]
+fn tag_lag_aggression_tilt_is_visible_in_raw_features() {
+    let tag = tracker_after_hero_bb(&synthetic_tag_or_lag(100, 25, 13));
+    let lag = tracker_after_hero_bb(&synthetic_tag_or_lag(100, 40, 17));
+
+    let f_tag = tag.raw_opponent_frequencies();
+    let f_lag = lag.raw_opponent_frequencies();
+
+    // f[0] = preflop_raise_freq, f[3] = flop_bet_freq
+    assert!(
+        (f_tag[0] - 0.25).abs() < 0.01,
+        "TAG preflop_raise_freq should be 0.25, got {}",
+        f_tag[0]
+    );
+    assert!(
+        (f_lag[0] - 0.40).abs() < 0.01,
+        "LAG preflop_raise_freq should be 0.40, got {}",
+        f_lag[0]
+    );
+    assert!(
+        (f_tag[3] - 0.52).abs() < 0.02,
+        "TAG flop_bet_freq should be ~0.52, got {}",
+        f_tag[3]
+    );
+    assert!(
+        (f_lag[3] - 0.425).abs() < 0.02,
+        "LAG flop_bet_freq should be ~0.425, got {}",
+        f_lag[3]
+    );
+
+    // The tilt: postflop bet rate minus preflop raise rate.
+    let tilt_tag = f_tag[3] - f_tag[0];
+    let tilt_lag = f_lag[3] - f_lag[0];
+    assert!(
+        tilt_tag > tilt_lag + 0.15,
+        "TAG tilt ({tilt_tag:.3}) should exceed LAG tilt ({tilt_lag:.3}) by >0.15"
+    );
+
+    // Sanity: the naive scalar (preflop_raise_freq alone) points the
+    // WRONG way, and the flop_bet_freq alone is a weaker signal than
+    // the tilt scalar.
+    let naive_preflop_gap = f_lag[0] - f_tag[0];
+    let naive_flop_gap = f_tag[3] - f_lag[3];
+    assert!(
+        naive_preflop_gap > 0.0,
+        "naive preflop_raise_freq points the WRONG way (LAG > TAG); \
+         this is exactly why the router confuses them"
+    );
+    assert!(
+        (tilt_tag - tilt_lag) > naive_flop_gap,
+        "the tilt scalar ({:.3}) should be sharper than flop_bet alone ({:.3})",
+        tilt_tag - tilt_lag,
+        naive_flop_gap
+    );
+}
