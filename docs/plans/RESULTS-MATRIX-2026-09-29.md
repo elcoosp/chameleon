@@ -50,10 +50,15 @@ See `WARMUP-FIX-RESULT-2026-09-29.md` (20M) and
 | parallel 20M alpha=0.9 | 1000 | 35 344 | 25 834 | 30 589 |
 | parallel 20M alpha=0.5 | 1000 | 38 721 | 29 102 | 33 912 |
 
-Alpha=0.9 un-freezes the iterate (avg_near_frozen 60% → 11.9%,
-mean avg max_p 0.859 → 0.616) but destroys the policy. Un-freezing to
-random is worse than freezing to a decent equilibrium. See
-`DCFR-ALPHA09-NEGATIVE-2026-09-29.md`.
+Both alpha=0.9 and alpha=0.5 un-freeze the iterate — the freeze
+diagnostics improve as the discount shrinks (avg_near_frozen
+60% → 11.9% → 9.7%, mean avg max_p 0.859 → 0.616 → 0.579) — but
+the LBR collapses monotonically (mean 14 012 → 30 589 → 33 912).
+Un-freezing to random is far worse than freezing to a decent
+approximate equilibrium. See `DCFR-ALPHA09-NEGATIVE-2026-09-29.md`
+and `DCFR-ALPHA05-NEGATIVE-2026-09-30.md`.
+
+**The regret-discount lever is dead at any discount <= 0.9.**
 
 ## Full abstraction (~380k infosets)
 
@@ -87,15 +92,22 @@ New SB SOTA at the 20M budget, but BB still collapsed. See
 
 **Best LBR seat 0 at 1000 deals:** tiny 20M no-fix, 13 319.
 **Best LBR seat 1 at 1000 deals:** tiny 5M no-fix, 12 858.
-**Best LBR mean at 1000 deals:** tiny 5M no-fix, 13 417.
-**Best mean inside a single schedule:** delay0 13 524, avguniform 13 555.
+**Best LBR mean at 1000 deals:** a tie — tiny 5M no-fix (13 417)
+and tiny 20M delay0+eps02 (13 429), within 12 mb/hand of each other.
 
-The **shipping candidate** is still the tiny 5M no-fix robust policy.
-47 min to train (parallel ~10 min), minimizes mean LBR.
+The **shipping candidate** is still the tiny 5M no-fix robust policy:
+mean 13 417, 47 min serial / ~10 min parallel, minimal configuration.
+
+The **alternate shipping candidate** is tiny 20M delay0+eps02: mean
+13 429 (statistical tie), SB 13 608 (better than 5M's 13 977), BB
+13 251 (worse than 5M's 12 858), ~44 min parallel. Better SB, worse
+BB. Choose per ladder preference.
 
 **The single most effective lever this session is the averaging
-schedule** (delay0 or avguniform): both reduce 20M BB from 14 706 to
-~13 100-13 600. Neither closes the gap to 12 858 alone.
+schedule.** Both delay0 (13 524) and avguniform (13 555) cut 20M BB
+by 7-11% from the 14 706 baseline; delay0+eps02 cuts it further to
+13 251. No lever alone closes the gap to 5M's 12 858; the schedule
+plus floor matches the 5M mean but shifts the seat balance.
 
 ## What didn't win
 
