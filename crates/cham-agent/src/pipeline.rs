@@ -173,6 +173,23 @@ impl ChameleonAgent {
         self.tracker.raw_opponent_frequencies()
     }
 
+    /// 11-dim honest opponent-only feature vector (2026-09-30): the same
+    /// 10 raw frequencies plus the preflop/postflop aggression tilt.
+    /// The tilt is the concrete TAG-vs-LAG discriminator identified in
+    /// `ROUTER-TILT-FEATURE-DESIGN-2026-09-30.md`; the raw-frequency
+    /// vector alone cannot separate those two archetypes (top-1 recall
+    /// 0.52 vs 0.58). This accessor is emitted by
+    /// `collect --real --raw-opponent-11` and is the training target for
+    /// the next router.
+    pub fn opponent_only_features_11(&self) -> [f64; 11] {
+        let f = self.tracker.raw_opponent_frequencies();
+        let tilt = self.tracker.preflop_postflop_tilt();
+        let mut out = [0.0f64; 11];
+        out[..10].copy_from_slice(&f);
+        out[10] = tilt;
+        out
+    }
+
     pub fn tracker_features(&self) -> [f32; 20] {
         let inputs = cham_router::features::FeatureInputs {
             hands_seen: self.tracker.hands,
