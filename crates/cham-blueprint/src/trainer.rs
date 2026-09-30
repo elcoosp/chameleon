@@ -319,9 +319,23 @@ pub fn train_with_threads(
     // empty. Small tests and short experiments fall through to the
     // deterministic serial loop instead.
     const MIN_PARALLEL_ITERS: u64 = 100_000;
+    // 2026-09-30: exploit vs a jitterable archetype opponent also uses the
+    // parallel path now. Restricted to Arch/Jitter + frozen=None: frozen
+    // oracles and ExploitBayes stay serial (they carry non-Sync state).
+    let exploit_parallel_ok = match mode {
+        TrainMode::Exploit { opponent, frozen, .. } => {
+            frozen.is_none()
+                && matches!(
+                    opponent,
+                    cham_opponents::OpponentSpec::Arch(_)
+                        | cham_opponents::OpponentSpec::Jitter(_, _)
+                )
+        }
+        _ => false,
+    };
     let parallel_requested = thread_mode != ThreadMode::Deterministic
         && threads > 1
-        && robust
+        && (robust || exploit_parallel_ok)
         && cfg.iters >= MIN_PARALLEL_ITERS
         && !matches!(mode, TrainMode::ExploitBayes { .. });
 
@@ -389,8 +403,9 @@ pub fn train_with_threads(
     if parallel_requested {
         let warmup_iters = (cfg.iters / 5).min(50_000).max(1);
         eprintln!(
-            "cham-blueprint: parallel Robust trainer — mode={thread_mode:?} \
-             threads={threads} warmup={warmup_iters} total={total_iters}"
+            "cham-blueprint: parallel {mode_tag} trainer — mode={thread_mode:?} \
+             threads={threads} warmup={warmup_iters} total={total_iters}",
+            mode_tag = if robust { "Robust" } else { "Exploit" }
         );
         // Per-slice checkpoints: snapshot the table to disk so a crash
         // doesn't lose the whole parallel run. Uses the same atomic
@@ -415,18 +430,44 @@ pub fn train_with_threads(
             }
             Ok(())
         };
-        train_robust_parallel(
-            &mut table,
-            cfg,
-            engine_cfg,
-            enc,
-            threads,
-            start,
-            total_iters,
-            warmup_iters,
-            &mut seat_histogram,
-            checkpoint,
-        )?;
+        // 2026-09-30: dispatch robust vs exploit-parallel.
+        match mode {
+            TrainMode::Exploit {
+                opponent:
+                    cham_opponents::OpponentSpec::Arch(a)
+                    | cham_opponents::OpponentSpec::Jitter(a, _),
+                jitter_seed,
+                frozen: None,
+            } if !robust => {
+                train_exploit_parallel(
+                    &mut table,
+                    cfg,
+                    engine_cfg,
+                    enc,
+                    threads,
+                    start,
+                    total_iters,
+                    *a,
+                    *jitter_seed,
+                    &mut seat_histogram,
+                    checkpoint,
+                )?;
+            }
+            _ => {
+                train_robust_parallel(
+                    &mut table,
+                    cfg,
+                    engine_cfg,
+                    enc,
+                    threads,
+                    start,
+                    total_iters,
+                    warmup_iters,
+                    &mut seat_histogram,
+                    checkpoint,
+                )?;
+            }
+        }
         // Snapshots and provenance are still emitted by the same
         // post-loop path below; set last_iter and skip the single-threaded
         // loop entirely.
@@ -946,4 +987,134 @@ fn build_archetype_opponent(
         seed,
         cham_opponents::PercentileChart::global(),
     ))
+}
+
+/// PERF (2026-09-30): parallel Hogwild trainer for Exploit mode against
+/// Archetype opponents.
+///
+/// Scope (minimal):
+/// - Only handles `TrainMode::Exploit { opponent: Arch | Jitter, frozen: None }`.
+/// - Frozen, ExploitBayes, and any other mode fall through to serial (the
+///   caller checks and refuses this path).
+/// - New infosets encountered mid-parallel are silently skipped
+///   (`allow_insert: false`), matching the Robust parallel path's
+///   tradeoff: a few cold rows lost, warmup coverage not provided.
+///
+/// Determinism: NOT bit-identical to serial by design. Each worker draws
+/// a unique `t` from the atomic counter, then constructs its own
+/// `Box<dyn Agent>` via `build_archetype_opponent(arch, jitter_seed, t)`.
+/// The RNG labels match the serial ones (`iter{t}`, `jd`), so streams are
+/// disjoint. Iteration count for the averaging weight is the GLOBAL one.
+///
+/// See `docs/plans/EXPLOIT-PARALLELIZATION-DESIGN-2026-09-30.md`.
+#[allow(clippy::too_many_arguments)]
+fn train_exploit_parallel<F>(
+    table: &mut RegretTable,
+    cfg: &TrainerConfig,
+    engine_cfg: EngineConfig,
+    enc: &cham_engine::Encoder,
+    threads: u32,
+    start: u64,
+    total_iters: u64,
+    arch: cham_opponents::params::ArchetypeId,
+    jitter_seed: u64,
+    seat_histogram: &mut [u64; 2],
+    mut checkpoint: F,
+) -> Result<(), BlueprintError>
+where
+    F: FnMut(&RegretTable, u64) -> Result<(), BlueprintError>,
+{
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let total_span = total_iters.saturating_sub(start);
+    if total_span == 0 {
+        return Ok(());
+    }
+    // Small fixed slice count so we can checkpoint periodically and
+    // observe progress. Same convention as Robust but simpler: no warmup
+    // (opponent construction doesn't need row pre-population).
+    const N_SLICES: u64 = 8;
+    let slice_len = total_span.div_ceil(N_SLICES);
+    let mut slice_start = start;
+
+    while slice_start < total_iters {
+        let slice_end = (slice_start + slice_len).min(total_iters);
+
+        let counter = AtomicU64::new(slice_start);
+        let slice_end_local = slice_end;
+        let regret_discount = cfg.regret_discount;
+        let avg_gamma = cfg.avg_gamma;
+        let train_seed = cfg.train_seed;
+        let per_worker_hist: std::sync::Mutex<[u64; 2]> = std::sync::Mutex::new([0, 0]);
+
+        std::thread::scope(|scope| {
+            for _worker_id in 0..threads {
+                let counter_ref = &counter;
+                let table_ref: &RegretTable = table;
+                let enc_ref = enc;
+                let per_worker_hist_ref = &per_worker_hist;
+                scope.spawn(move || {
+                    let mut enc_w = enc_ref.clone();
+                    let mut local_hist = [0u64; 2];
+                    loop {
+                        let t = counter_ref.fetch_add(1, Ordering::Relaxed);
+                        if t >= slice_end_local {
+                            break;
+                        }
+                        let hero_seat = cham_core::rng::pick(
+                            &mut child(train_seed, &format!("seat{t}")),
+                            2,
+                        );
+                        local_hist[hero_seat] += 1;
+                        let w_t = averaging_weight_gamma(t, total_iters, false, avg_gamma);
+                        let deck = Deck::shuffled(&mut child(train_seed, &format!("d{t}")));
+                        let mut state = match State::new(engine_cfg, deck) {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
+                        let mut seq = ActionSeq::default();
+                        // Per-iteration opponent: constructed inside the
+                        // worker so the stateful ArchetypeAgent is not
+                        // shared across threads.
+                        let mut opp = build_archetype_opponent(arch, jitter_seed, t);
+                        let mut walker = Traversal {
+                            table: crate::traversal::TableRef::Shared(table_ref),
+                            opp: &mut *opp,
+                            rbp: RbpConfig::default(),
+                            iteration: t,
+                            total_iters,
+                            mode: TrainModeTag::Exploit,
+                            hero_nodes: 0,
+                            pruned_nodes: 0,
+                            regret_discount,
+                            allow_insert: false,
+                            warmup_only: false,
+                        };
+                        let mut it_rng = child(train_seed, &format!("iter{t}"));
+                        walker.walk(
+                            &mut state,
+                            hero_seat,
+                            w_t,
+                            &mut seq,
+                            &mut enc_w,
+                            &mut it_rng,
+                        );
+                    }
+                    let mut h = per_worker_hist_ref.lock().expect("hist mutex");
+                    h[0] += local_hist[0];
+                    h[1] += local_hist[1];
+                });
+            }
+        });
+
+        let h = per_worker_hist.lock().expect("hist mutex");
+        seat_histogram[0] += h[0];
+        seat_histogram[1] += h[1];
+
+        checkpoint(table, slice_end)?;
+        slice_start = slice_end;
+    }
+
+    table.set_last_iter(total_iters);
+    Ok(())
 }
