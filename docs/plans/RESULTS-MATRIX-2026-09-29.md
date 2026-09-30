@@ -163,3 +163,69 @@ plus floor matches the 5M mean but shifts the seat balance.
 
 - **Mixture routing, hedged routing** — measured worse than plain argmax
   against the archetype pool.
+
+---
+
+## Corrections and refinements (2026-09-30 afternoon)
+
+The above table was written before several findings landed. The
+following supersede specific entries:
+
+### Ladder numbers (all mb/seating, 2500 deals/pair, tiny abstraction)
+
+| config | mean | status |
+|---|---:|---|
+| agent-honest / full (argmax+synthetic) | **+7 136** | CORRECTED from +6 587 (arithmetic error) |
+| agent-honest-5Mrobust / full | +6 983 | 5M robust fallback HURTS argmax by 153 |
+| agent-honest-5M-experts / full | pending | 5M expert retrain running |
+| agent-honest / full-mixture | +4 388 | unre-measured |
+| agent-honest / full-hedged | **+7 107** | CORRECTED from −1 800 (guard bug — those were CallBot) |
+| agent-honest / robust-only | +720 | unchanged |
+| par-5M / robust-only | +820 | unchanged |
+| 20M delay0+eps02 / robust-only | +624 | new — LBR winner, ladder loser |
+| 20M delay0+eps02 / full | +6 932 | new |
+
+### LBR numbers (1000 deals, depth 100)
+
+| config | SB | BB | mean | status |
+|---|---:|---:|---:|---|
+| tiny 5M no-fix | 13 977 | **12 858** | **13 417** | unchanged |
+| tiny 20M delay0+eps02 | 13 608 | 13 251 | 13 429 | new — ties 5M peak mean |
+| tiny 20M avguniform | 13 976 | 13 133 | 13 555 | unchanged |
+| tiny 20M delay0 | 13 431 | 13 618 | 13 524 | unchanged |
+| tiny 20M alpha=0.9 | 35 344 | 25 834 | 30 589 | unchanged |
+| tiny 20M alpha=0.5 | 38 721 | 29 102 | 33 912 | unchanged |
+
+### The single most important framing
+
+**LBR and the archetype ladder are decoupled.** Three examples:
+
+1. 500k robust vs 5M robust: 10x LBR difference, tiny ladder difference
+2. 5M robust vs 20M delay0+eps02: tied LBR, 5M wins ladder by +196
+3. 500k robust vs 5M robust as argmax fallback: 5M wins LBR, loses ladder by −153
+
+The freeze investigation (delay0, avguniform, eps, delay0+eps02, DCFR)
+optimised LBR. It did not improve the ladder. **The freeze is correct
+convergence on most rows**, and the mixed policy that recovers LBR is
+worse against the archetype pool whose opponents are themselves nearly
+pure.
+
+### The synthetic-router degeneracy
+
+`agent-honest/router.bin` always picks class 2 (LAG) on the real
+20-dim opportunity-gated feature vector. So "argmax routing" in the
+shipped config is actually "play the LAG expert". This is a
+pre-existing condition (see ROUTER-TRAINING-GAP-2026-09-28.md) that
+this session finally measured.
+
+### Router gate status
+
+| feature set | top-1 B-test | TAG recall | LAG recall | ECE | gate |
+|---|---:|---:|---:|---:|---|
+| 20-dim opportunity-gated (leaky) | 0.697 | 0.375 | 0.514 | 0.201 | FAIL |
+| 10-dim raw opponent | 0.797 | 0.515 | 0.584 | 0.363 | FAIL |
+| 11-dim + preflop/postflop tilt | 0.766 | 0.517 | 0.503 | 0.305 | FAIL |
+
+The raw-frequency path is exhausted. Features that capture *which*
+hands the opponent raises with (showdown-strength distribution,
+bet-size histogram) are the remaining options.
