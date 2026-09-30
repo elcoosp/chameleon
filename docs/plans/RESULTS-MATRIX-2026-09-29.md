@@ -100,8 +100,7 @@ Original 09-28 measurement (agent-full-honest, per `assemble-full.log`):
 | agent-honest-5Mrobust / full-mixture | +4 401 | — |
 | agent-honest / robust-only | +720 | 3/9 |
 | par-5M robust-only | +820 | 3/9 |
-| agent-honest / full-hedged | −1 800 | 0/9 |
-| agent-honest / full-hedged @ thr=0.00 | −1 826 | 0/9 |
+| agent-honest / full-hedged | **+7 107** | 9/9 (≈ argmax; pre-fix runs measured CallBot) |
 
 **Correction (13:20):** the `SOTA-2026-09-28.md` doc's stated argmax
 mean (+6 567) does not match its own per-opponent column (sum 64 085
