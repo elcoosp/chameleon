@@ -253,7 +253,14 @@ impl RouterRuntime {
     ///
     /// Returns [f64; 5]: four archetype weights + robust weight (robust enters via
     /// the shield here and via confidence-gated fallback at decision time).
-    pub fn weights_for_hand(&mut self, features: &[f32; 20], trend_z: f64) -> [f64; N_EXPERTS] {
+    /// Compute per-hand expert weights from features.
+    ///
+    /// 2026-09-30: widened from `&[f32; 20]` to `&[f32]` so a 19-dim
+    /// honest router or a 10-dim raw-opponent router can be passed in
+    /// directly. `SoftmaxModel::forward` truncates to `n_features` via
+    /// `.take()`, so any slice ≥ the model's feature count works and any
+    /// excess is silently ignored (matching the previous behaviour).
+    pub fn weights_for_hand(&mut self, features: &[f32], trend_z: f64) -> [f64; N_EXPERTS] {
         let p = self.model.forward(features);
         // sharpening: prior ∝ p^(1/T)
         let mut prior = [0f64; 4];
