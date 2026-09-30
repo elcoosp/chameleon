@@ -492,3 +492,78 @@ fn changepoint_shield_drops_after_switch() {
         "switching: effective_n0 must drop after a switch ({before} -> {after})"
     );
 }
+
+/// Diagnostic (2026-09-30): how does `weights_for_hand` evolve within a
+/// session for a fixed feature vector? The hedged routing failure
+/// (docs/plans/HEDGED-ROUTING-BUG-2026-09-30.md) hypothesizes that
+/// `weights[top]` starts near the router's sharpened prior (~0.3-0.5)
+/// and only exceeds 0.5 after enough accumulated votes.
+///
+/// The test asserts the OBSERVED trajectory:
+///   * early in the session, weights[top] < 0.5 (hedged takes mixture)
+///   * late in the session, weights[top] > 0.5 (hedged takes argmax)
+///
+/// If the observed behavior ever changes (e.g. a fix makes weights
+/// per-hand instead of per-session), this test must be updated to match.
+/// That is by design — it documents the mechanism we diagnosed.
+#[test]
+fn weights_top_evolves_from_mixture_to_argmax_within_a_session() {
+    // Small un-trained model: uniform-ish priors. The exact prior value
+    // doesn't matter for the trend; only that we sample it many times
+    // in one session.
+    let model = SoftmaxModel::new(20, 4);
+    let mut rt = RouterRuntime::new(model, 0.7, 8.0, 0.5, -1.5);
+
+    // A fixed feature vector: the router's per-hand input. In production
+    // this changes each hand, but a fixed vector isolates the effect of
+    // the accumulated session votes on weights[top].
+    let features: [f32; 20] = [0.5; 20];
+
+    // Sample weights at hand 1 (early) and after 200 hands (late).
+    let w_early = rt.weights_for_hand(&features, 0.0);
+    let top_early = {
+        let mut best = 0usize;
+        for (k, &v) in w_early.iter().take(4).enumerate() {
+            if v > w_early[best] { best = k; }
+        }
+        w_early[best]
+    };
+
+    // Run 200 hands with the same input to let the Dirichlet posterior
+    // accumulate votes for whichever class the prior favors.
+    let mut w_late = w_early;
+    for _ in 0..200 {
+        w_late = rt.weights_for_hand(&features, 0.0);
+    }
+    let top_late = {
+        let mut best = 0usize;
+        for (k, &v) in w_late.iter().take(4).enumerate() {
+            if v > w_late[best] { best = k; }
+        }
+        w_late[best]
+    };
+
+    // 2026-09-30 diagnostic (with an untrained uniform-ish model):
+    //   top_early ~= 0.25 (four classes, uniform prior)
+    //   top_late  -> converges toward 1.0 as votes accumulate
+    //
+    // The assertion is deliberately loose (>= 0.5 for "late") so it
+    // fails if the mechanism changes qualitatively.
+    assert!(
+        top_early < 0.5,
+        "early session should be below the hedged threshold (got {top_early}); \
+         if this fails, weights_for_hand is now per-hand confident — the \
+         hedged routing hypothesis needs revisiting"
+    );
+    assert!(
+        top_late >= 0.5,
+        "late session should exceed the hedged threshold (got {top_late}); \
+         if this fails, the Dirichlet posterior no longer accumulates votes \
+         the way the hedged failure doc assumed"
+    );
+    assert!(
+        top_late > top_early,
+        "top weight should grow monotonically with session votes \
+         (early={top_early}, late={top_late})"
+    );
+}
