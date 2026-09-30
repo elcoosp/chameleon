@@ -114,3 +114,83 @@ impl AgentMode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every AgentMode constructor must produce a mode whose `validate()`
+    /// returns Ok. This is the regression test for the 2026-09-30 hedged
+    /// bug: `AgentMode::hedged()` existed in `pipeline.rs` as a routing
+    /// string, but `validate()` didn't recognize it — the probe failed
+    /// with "unknown routing: hedged" while the ladder (which doesn't
+    /// call validate()) silently worked.
+    #[test]
+    fn all_constructors_validate() {
+        AgentMode::full_search_off().validate().expect("full_search_off");
+        AgentMode::argmax().validate().expect("argmax");
+        AgentMode::hedged().validate().expect("hedged");
+        AgentMode::robust_only().validate().expect("robust_only");
+    }
+
+    /// Every routing string that `hero.rs::routing_for` can return must
+    /// round-trip through validate(). The list here mirrors the CLI-visible
+    /// set in crates/cham-cli/src/cmd/hero.rs.
+    ///
+    /// If a new routing mode is added to hero.rs without being added here,
+    /// this test will not catch it (different crate), but if it's added
+    /// here without being added to validate(), the test WILL catch it.
+    #[test]
+    fn every_routing_string_validates() {
+        for s in [
+            "mixture",
+            "argmax",
+            "hedged",
+            "robust-only",
+            "bayes",
+        ] {
+            let mode = AgentMode {
+                routing: s.into(),
+                search: SearchCfg {
+                    enabled: false,
+                    solver: "Rnr".into(),
+                    g4_ledger_ref: String::new(),
+                },
+                fallback_mode: "renorm".into(),
+            };
+            mode.validate().unwrap_or_else(|e| {
+                panic!("routing {s:?} failed to validate: {e}");
+            });
+        }
+    }
+
+    /// Unknown routing strings must fail validation, not be accepted silently.
+    #[test]
+    fn unknown_routing_rejected() {
+        let mode = AgentMode {
+            routing: "definitely-not-a-mode".into(),
+            search: SearchCfg {
+                enabled: false,
+                solver: "Rnr".into(),
+                g4_ledger_ref: String::new(),
+            },
+            fallback_mode: "renorm".into(),
+        };
+        assert!(mode.validate().is_err(), "unknown routing must be rejected");
+    }
+
+    /// Search-enabled modes must fail validation (L-19 lockout).
+    #[test]
+    fn search_enabled_rejected() {
+        let mode = AgentMode {
+            routing: "mixture".into(),
+            search: SearchCfg {
+                enabled: true,
+                solver: "Rnr".into(),
+                g4_ledger_ref: "some-ledger-ref".into(),
+            },
+            fallback_mode: "renorm".into(),
+        };
+        assert!(mode.validate().is_err(), "search_enabled must be rejected");
+    }
+}
