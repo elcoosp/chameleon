@@ -1039,8 +1039,61 @@ where
 
     while slice_start < total_iters {
         let slice_end = (slice_start + slice_len).min(total_iters);
+        let warmup_end = (slice_start + (slice_end - slice_start) / 5).min(slice_end);
 
-        let counter = AtomicU64::new(slice_start);
+        // ---- Warmup burst (single-threaded, allow_insert=true) ----
+        // Without this, the parallel burst's `allow_insert: false` means
+        // no rows are ever created and the table stays empty. This burst
+        // populates every infoset the slice's walks will touch, exactly
+        // like the Robust parallel path's warmup. The opponent is
+        // reconstructed per-iteration (same as the parallel phase), but
+        // the walk is single-threaded here.
+        {
+            let mut enc_w = enc.clone();
+            for t in slice_start..warmup_end {
+                let hero_seat = cham_core::rng::pick(
+                    &mut child(cfg.train_seed, &format!("warm-seat{t}")),
+                    2,
+                );
+                seat_histogram[hero_seat] += 1;
+                let w_t = averaging_weight_gamma(t, total_iters, false, cfg.avg_gamma);
+                let mut iter_rng = child(cfg.train_seed, &format!("iter{t}"));
+                let mut state = State::new(engine_cfg, Deck::shuffled(&mut iter_rng))
+                    .map_err(|e| BlueprintError::Training(format!("engine: {e}")))?;
+                let mut seq = ActionSeq::default();
+                let mut opp = build_archetype_opponent(arch, jitter_seed, t);
+                let mut walker = Traversal {
+                    table: crate::traversal::TableRef::Exclusive(table),
+                    opp: &mut *opp,
+                    rbp: RbpConfig::default(),
+                    iteration: t,
+                    total_iters,
+                    mode: TrainModeTag::Exploit,
+                    hero_nodes: 0,
+                    pruned_nodes: 0,
+                    regret_discount: cfg.regret_discount,
+                    allow_insert: true,
+                    warmup_only: false,
+                };
+                walker.walk(
+                    &mut state,
+                    hero_seat,
+                    w_t,
+                    &mut seq,
+                    &mut enc_w,
+                    &mut iter_rng,
+                );
+            }
+        }
+
+        // ---- Parallel burst ----
+        if warmup_end >= slice_end {
+            // Slice too small for warmup+parallel; skip to next slice.
+            slice_start = slice_end;
+            continue;
+        }
+
+        let counter = AtomicU64::new(warmup_end);
         let slice_end_local = slice_end;
         let regret_discount = cfg.regret_discount;
         let avg_gamma = cfg.avg_gamma;
