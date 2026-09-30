@@ -1,0 +1,112 @@
+# Freeze evolution over a 20M run (checkpoints every 2M iters)
+
+## iter 2000000
+  rows (w>=2):      20403
+  frozen (one-hot): 6360 (31.2%)
+  near-frozen (.9+):2653 (13.0%)
+  soft (<.5):       1775 (8.7%)
+  all-zero-regret:  4 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  0 (0.0%)
+  mean cur max_p:   0.800
+  mean avg max_p:   0.397
+
+## iter 4000000
+  rows (w>=2):      21337
+  frozen (one-hot): 6743 (31.6%)
+  near-frozen (.9+):3744 (17.5%)
+  soft (<.5):       1480 (6.9%)
+  all-zero-regret:  5 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  0 (0.0%)
+  mean cur max_p:   0.822
+  mean avg max_p:   0.398
+
+## iter 6000000
+  rows (w>=2):      21400
+  frozen (one-hot): 6736 (31.5%)
+  near-frozen (.9+):4362 (20.4%)
+  soft (<.5):       1199 (5.6%)
+  all-zero-regret:  7 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  11235 (52.5%)
+  mean cur max_p:   0.834
+  mean avg max_p:   0.828
+
+## iter 8000000
+  rows (w>=2):      21429
+  frozen (one-hot): 6635 (31.0%)
+  near-frozen (.9+):4983 (23.3%)
+  soft (<.5):       1070 (5.0%)
+  all-zero-regret:  3 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  11512 (53.7%)
+  mean cur max_p:   0.843
+  mean avg max_p:   0.834
+
+## iter 10000000
+  rows (w>=2):      21439
+  frozen (one-hot): 6698 (31.2%)
+  near-frozen (.9+):5253 (24.5%)
+  soft (<.5):       965 (4.5%)
+  all-zero-regret:  1 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  11722 (54.7%)
+  mean cur max_p:   0.850
+  mean avg max_p:   0.839
+
+## iter 12000000
+  rows (w>=2):      21442
+  frozen (one-hot): 6473 (30.2%)
+  near-frozen (.9+):5523 (25.8%)
+  soft (<.5):       914 (4.3%)
+  all-zero-regret:  0 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  11890 (55.5%)
+  mean cur max_p:   0.852
+  mean avg max_p:   0.843
+
+## iter 14000000
+  rows (w>=2):      21445
+  frozen (one-hot): 6576 (30.7%)
+  near-frozen (.9+):5776 (26.9%)
+  soft (<.5):       867 (4.0%)
+  all-zero-regret:  1 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  11982 (55.9%)
+  mean cur max_p:   0.857
+  mean avg max_p:   0.846
+
+## iter 16000000
+  rows (w>=2):      21445
+  frozen (one-hot): 6456 (30.1%)
+  near-frozen (.9+):6058 (28.2%)
+  soft (<.5):       847 (3.9%)
+  all-zero-regret:  0 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  12144 (56.6%)
+  mean cur max_p:   0.860
+  mean avg max_p:   0.848
+
+## iter 18000000
+  rows (w>=2):      21445
+  frozen (one-hot): 6497 (30.3%)
+  near-frozen (.9+):6192 (28.9%)
+  soft (<.5):       801 (3.7%)
+  all-zero-regret:  0 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  12274 (57.2%)
+  mean cur max_p:   0.862
+  mean avg max_p:   0.851
+
+## iter 20000000
+  rows (w>=2):      21445
+  frozen (one-hot): 6494 (30.3%)
+  near-frozen (.9+):6470 (30.2%)
+  soft (<.5):       767 (3.6%)
+  all-zero-regret:  0 (0.0%)
+  --- AVERAGE strategy ---
+  avg_near_frozen:  12438 (58.0%)
+  mean cur max_p:   0.866
+  mean avg max_p:   0.853
+
