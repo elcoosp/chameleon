@@ -1,4 +1,20 @@
-# 19-dim honest router: nearly passes the gate — only ECE fails (2026-09-30)
+# 19-dim honest router: gate PASSES with temperature scaling (2026-09-30)
+
+**UPDATE 15:16:** the ECE gap is closed. Temperature scaling (grid-searched
+on B-dev, `T > 1` to soften the softmax) dropped ECE from 0.173 → 0.110
+without changing top-1 or recall (temperature scaling is monotone on the
+logits, so argmax decisions are preserved). The gate now **PASSES**:
+
+| feature set | top-1 B-test | TAG | LAG | ECE | gate |
+|---|---:|---:|---:|---:|---|
+| 20-dim opportunity-gated (leaky) | 0.697 | 0.375 | 0.514 | 0.201 | FAIL |
+| 10-dim raw opponent | 0.797 | 0.515 | 0.584 | 0.363 | FAIL |
+| 11-dim + tilt | 0.766 | 0.517 | 0.503 | 0.305 | FAIL |
+| 19-dim + bet-size histogram (raw) | 0.906 | 0.825 | 0.995 | 0.173 | near-pass |
+| **19-dim + calibration** | **0.906** | **0.825** | **0.995** | **0.110** | **PASS** |
+
+This is the **first honest router to pass the gate** in this project.
+See the original "near-pass" analysis below.
 
 ## The result
 
