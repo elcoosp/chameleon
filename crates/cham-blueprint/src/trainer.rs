@@ -669,10 +669,7 @@ pub fn train_with_threads(
         // ---- snapshot cadence: renorm pass + save + record ----
         if (t + 1) % cfg.snapshot_every == 0 || t + 1 == total_iters {
             let mut renormed = 0u64;
-            let entries: Vec<(u64, u32, usize)> = table
-                .iter()
-                .map(|(k, off)| (k, off, table.row_width(off)))
-                .collect();
+            let entries: Vec<(u64, u32, usize)> = table.iter().collect();
             for (_k, off, w) in entries {
                 if table.renorm_row(off, w) {
                     renormed += 1;
@@ -844,8 +841,14 @@ where
                     pruned_nodes: 0,
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
-                    // WARMUP: insert-only. No CFR+ updates.
-                    warmup_only: true,
+                    // 2026-10-01 (F4): warmup iterations now perform real
+                    // CFR+ and strat-sum updates. The prior "insert-only"
+                    // choice wasted 20% of every robust parallel run's
+                    // iteration budget. The disjoint-range argument in
+                    // commit 1fa3762 does not apply to the current
+                    // per-slice structure (each `t` is processed exactly
+                    // once), so warmup is real training.
+                    warmup_only: false,
                 };
                 walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, iter_rng);
             }

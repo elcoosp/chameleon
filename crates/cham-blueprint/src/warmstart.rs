@@ -14,7 +14,7 @@ use crate::table::RegretTable;
 pub fn warmstart_from_robust(src: &RegretTable, dst: &mut RegretTable) {
     let entries: Vec<(u64, u32, usize)> = src
         .iter()
-        .map(|(k, off)| (k, off, src.row_width(off)))
+        .map(|(k, off, w)| (k, off, w))
         .collect();
     for (key, src_off, w) in entries {
         let (dst_off, _) = dst.entry_or_insert(key, w);

@@ -721,11 +721,15 @@ impl RegretTable {
     }
 
     /// Iterate all (key, off) pairs in slot order (for snapshots / warm-start).
-    pub fn iter(&self) -> impl Iterator<Item = (u64, u32)> + '_ {
+    /// Iterate over (key, off, w) for every live row. `w` is the row's
+    /// width, which is stored in the slot; callers that previously did
+    /// `(k, off, table.row_width(off))` should consume this directly.
+    /// Fixes an O(n^2) scan: see COMPETITIVE-REVIEW-2026-10-01 F6.
+    pub fn iter(&self) -> impl Iterator<Item = (u64, u32, usize)> + '_ {
         self.slots
             .iter()
             .filter(|s| s.key != 0)
-            .map(|s| (s.key, s.off))
+            .map(|s| (s.key, s.off, s.w as usize))
     }
 
     /// Row width for a stored key (None if absent).

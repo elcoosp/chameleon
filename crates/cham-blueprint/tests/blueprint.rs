@@ -301,7 +301,7 @@ fn rm_plus_floors() {
         None,
     )
     .expect("train");
-    for (k, off) in t.iter() {
+    for (k, off, _w) in t.iter() {
         let w = t.row_width(off);
         for a in 0..w {
             assert!(
@@ -469,7 +469,7 @@ fn delayed_averaging_monotone() {
         walker.walk(&mut state, 0, w_t, &mut seq, &mut enc, rng);
         if (t + 1) % 400 == 0 {
             // snapshot the strategy at ONE pinned key (slot order is stable)
-            if let Some((k, _)) = table.iter().next() {
+            if let Some((k, _, _)) = table.iter().next() {
                 if let Some(off) = table.find(k) {
                     let w = table.row_width(off);
                     let avg = table.avg_strategy(off, w);
@@ -551,7 +551,7 @@ fn determinism_same_seed_and_resume() {
         .expect("train");
         let _ = resume;
         let mut sum = 0u64;
-        for (k, off) in t.iter() {
+        for (k, off, _w) in t.iter() {
             let w = t.row_width(off);
             sum = sum.wrapping_add(k).wrapping_add(t.visits(off, w) as u64);
             for a in 0..w {
@@ -591,7 +591,7 @@ fn resume_continues_bitstream() {
 
     let digest = |t: &cham_blueprint::RegretTable| -> u64 {
         let mut sum = 0u64;
-        for (k, off) in t.iter() {
+        for (k, off, _w) in t.iter() {
             let w = t.row_width(off);
             sum = sum.wrapping_add(k).wrapping_add(t.visits(off, w) as u64);
         }
@@ -928,12 +928,12 @@ fn warmstart_exact_keys_and_beats_cold() {
     .expect("robust");
     let mut dst = RegretTable::new(ThreadMode::Deterministic);
     warmstart_from_robust(&robust_table, &mut dst);
-    for (k, _off) in robust_table.iter() {
+    for (k, _off, _w) in robust_table.iter() {
         assert!(dst.find(k).is_some(), "warm-start key-exact transfer");
     }
     // strategies start close: same positive-part argmax on sampled rows
     let mut checked = 0;
-    for (k, off) in robust_table.iter() {
+    for (k, off, _w) in robust_table.iter() {
         if checked >= 100 {
             break;
         }
@@ -1377,10 +1377,10 @@ fn snapbatch_matches_deterministic_at_one_thread() {
     // add_weight, add_visit, flush, with_discount, pending) lives in the
     // dedicated `tests/snapbatch.rs`.
     assert_eq!(table_d.len(), table_s.len(), "infoset counts differ");
-    let keys_d: Vec<u64> = table_d.iter().map(|(k, _)| k).collect();
-    let keys_s: Vec<u64> = table_s.iter().map(|(k, _)| k).collect();
+    let keys_d: Vec<u64> = table_d.iter().map(|(k, _, _)| k).collect();
+    let keys_s: Vec<u64> = table_s.iter().map(|(k, _, _)| k).collect();
     assert_eq!(keys_d, keys_s, "key sets differ");
-    for (k, off) in table_d.iter() {
+    for (k, off, _w) in table_d.iter() {
         let w_d = table_d.row_width(off);
         let off_s = table_s.find(k).expect("row present");
         let w_s = table_s.row_width(off_s);

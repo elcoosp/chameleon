@@ -90,7 +90,7 @@ impl BlueprintPolicy {
     ) -> Result<(), BlueprintError> {
         // collect rows: strategy-only, quantized
         let mut rows: Vec<(u64, u8, u16, Vec<u8>)> = Vec::with_capacity(table.len());
-        for (key, off) in table.iter() {
+        for (key, off, _w) in table.iter() {
             let w = table.row_width(off);
             let sigma = table.avg_strategy(off, w);
             let visits = table.visits(off, w).min(u16::MAX as u32) as u16;
