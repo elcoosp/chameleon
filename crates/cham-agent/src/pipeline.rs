@@ -190,6 +190,28 @@ impl ChameleonAgent {
         out
     }
 
+    /// 19-dim honest opponent-only feature vector (2026-09-30):
+    ///  * 10 raw opponent action frequencies (as in the 10-dim accessor)
+    ///  * 8 postflop bet-size histogram buckets (0.25-pot-fraction bins)
+    ///  * 1 preflop/postflop aggression tilt
+    ///
+    /// The bet-size histogram is the "which hands the opponent raises
+    /// with" signal that the raw-frequency vectors lack; see
+    /// `docs/plans/ROUTER-BET-SIZE-FEATURE-DESIGN-2026-09-30.md`. This is
+    /// the training target for the next router (`collect --real
+    /// --raw-opponent-19`). Nothing here violates I9: the tracker's
+    /// input is `PublicHistory` only, and bet sizes are public info.
+    pub fn opponent_only_features_19(&self) -> [f64; 19] {
+        let f = self.tracker.raw_opponent_frequencies();
+        let hist = self.tracker.opponent_bet_size_hist();
+        let tilt = self.tracker.preflop_postflop_tilt();
+        let mut out = [0.0f64; 19];
+        out[..10].copy_from_slice(&f);
+        out[10..18].copy_from_slice(&hist);
+        out[18] = tilt;
+        out
+    }
+
     pub fn tracker_features(&self) -> [f32; 20] {
         let inputs = cham_router::features::FeatureInputs {
             hands_seen: self.tracker.hands,
