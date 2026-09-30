@@ -55,6 +55,18 @@ pub struct Tracker {
     pub reached_flop_count: u64,
     pub reached_turn_count: u64,
     pub reached_river_count: u64,
+
+    /// Postflop bet-size histogram (2026-09-30). Eight buckets over
+    /// `[0, +inf)` in 0.25-pot-fraction units:
+    /// `[0, 0.25), [0.25, 0.5), ..., [1.75, +inf)`. Increments on every
+    /// postflop Bet/Raise by the opponent, indexed by the increment as a
+    /// fraction of pot-before-the-bet. Design at
+    /// `docs/plans/ROUTER-BET-SIZE-FEATURE-DESIGN-2026-09-30.md`.
+    ///
+    /// Motivation: TAG bets 66% pot; LAG bets 100% pot. The histogram
+    /// captures this categorical difference where aggregate frequency
+    /// counts cannot.
+    pub opp_postflop_bet_size_hist: [u64; 8],
 }
 
 pub const EWM_VPIP: usize = 0;
@@ -128,6 +140,11 @@ impl Tracker {
         let mut raises_this_street = 0i32;
         let mut last_level = 0i64;
         let mut voluntary = false;
+        // 2026-09-30: pot tracking for the postflop bet-size histogram.
+        // Starts at 100 (BB posted; SB is already in). We add each
+        // call/bet increment as we walk, so `pot_before_bet` for a Bet
+        // is the pot size right before the opponent's action.
+        let mut pot: i64 = 100;
         for (s, player, action) in &ph.actions {
             if s.as_u8() != street {
                 street = s.as_u8();
@@ -156,6 +173,11 @@ impl Tracker {
                     }
                 }
                 cham_core::engine::Action::Call => {
+                    // 2026-09-30: this player contributes the difference
+                    // between the current level and their own street
+                    // contribution to the pot.
+                    let to_call = (last_level - street_bet[p]).max(0);
+                    pot += to_call;
                     if is_opp && street == 0 {
                         self.opp_preflop_calls += 1;
                         if raises_this_street == 0 && last_level == 0 {
@@ -174,8 +196,20 @@ impl Tracker {
                     }
                 }
                 cham_core::engine::Action::Bet { to } | cham_core::engine::Action::Raise { to } => {
-                    let increment = *to - street_bet[p] - last_level.max(0);
-                    let _ = increment;
+                    // The actor's contribution by this action is
+                    // `*to - street_bet[p]` (their prior contribution).
+                    let increment = (*to - street_bet[p]).max(0);
+                    // 2026-09-30: postflop bet-size histogram. Capture
+                    // the bet as a fraction of pot BEFORE this action.
+                    if is_opp && street >= 1 && pot > 0 {
+                        let frac = increment as f64 / pot as f64;
+                        // 8 buckets over [0, 2.0] with 0.25-width bins:
+                        //   [0,0.25) [0.25,0.5) ... [1.75, +inf)
+                        let bucket = ((frac * 4.0) as usize).min(7);
+                        self.opp_postflop_bet_size_hist[bucket] += 1;
+                    }
+                    // Update pot: the actor adds `increment` chips.
+                    pot += increment;
                     // PERF (2026-09-29): raw opponent aggression counters.
                     if is_opp {
                         // On street 0, EVERY raise (open or 3bet+) is a
@@ -441,6 +475,24 @@ impl Tracker {
         // f[0] = preflop_raise_freq
         let postflop_mean = (f[3] + f[4] + f[5]) / 3.0;
         postflop_mean - f[0]
+    }
+
+    /// Postflop bet-size histogram as a normalized distribution over 8
+    /// buckets of [0, 2.0] pot-fraction with 0.25-width bins (last
+    /// bucket is `[1.75, +inf)`). Returns all zeros when the opponent
+    /// made no postflop bets. See `opp_postflop_bet_size_hist` and
+    /// `docs/plans/ROUTER-BET-SIZE-FEATURE-DESIGN-2026-09-30.md`.
+    pub fn opponent_bet_size_hist(&self) -> [f64; 8] {
+        let total: u64 = self.opp_postflop_bet_size_hist.iter().sum();
+        if total == 0 {
+            return [0.0; 8];
+        }
+        let t = total as f64;
+        let mut out = [0.0; 8];
+        for (i, &v) in self.opp_postflop_bet_size_hist.iter().enumerate() {
+            out[i] = v as f64 / t;
+        }
+        out
     }
 
     /// Maturity-shrunk EWM stats for the router (SPECS/07 §2 formula).
