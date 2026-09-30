@@ -32,7 +32,7 @@ fn default_fallback_mode() -> String {
 impl AgentMode {
     pub fn validate(&self) -> Result<(), crate::AgentError> {
         match self.routing.as_str() {
-            "mixture" | "argmax" | "robust-only" | "bayes" => {}
+            "mixture" | "argmax" | "hedged" | "robust-only" | "bayes" => {}
             other => {
                 return Err(crate::AgentError::Loader(format!(
                     "unknown routing: {other}"
@@ -87,6 +87,21 @@ impl AgentMode {
             fallback_mode: "renorm".into(),
         }
     }
+    /// Hedged routing (2026-09-29): argmax when the top weight exceeds
+    /// `CHAM_HEDGE_THRESHOLD`, mixture otherwise. See `pipeline.rs`
+    /// act_impl's `"hedged"` branch.
+    pub fn hedged() -> AgentMode {
+        AgentMode {
+            routing: "hedged".into(),
+            search: SearchCfg {
+                enabled: false,
+                solver: "Rnr".into(),
+                g4_ledger_ref: String::new(),
+            },
+            fallback_mode: "renorm".into(),
+        }
+    }
+
     pub fn robust_only() -> AgentMode {
         AgentMode {
             routing: "robust-only".into(),
