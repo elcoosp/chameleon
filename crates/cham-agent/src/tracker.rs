@@ -416,6 +416,33 @@ impl Tracker {
         ]
     }
 
+    /// Aggression tilt: mean postflop bet rate minus preflop raise rate.
+    ///
+    /// **Why this exists** (2026-09-30). TAG and LAG archetypes differ in
+    /// the DIRECTION of their aggression across streets:
+    ///   TAG: opens tight preflop (25%), continues postflop (52/62/72%)
+    ///   LAG: opens loose preflop (40%), gives up more postflop (42/55/66%)
+    /// Neither preflop raise rate alone nor any single postflop bet rate
+    /// separates them. The tilt (postflop mean − preflop raise) does:
+    ///   TAG tilt ≈ +0.37, LAG tilt ≈ +0.14.
+    ///
+    /// This is a DERIVED feature — no new tracker state is required.
+    /// It is the concrete candidate identified in
+    /// `docs/plans/ROUTER-TILT-FEATURE-DESIGN-2026-09-30.md`. Proven by
+    /// the test `tag_lag_aggression_tilt_is_visible_in_raw_features` in
+    /// `crates/cham-agent/tests/tracker_raw_freq.rs`.
+    ///
+    /// Range: [-1, +1]. Positive tilt = postflop-heavy aggressor (TAG
+    /// pattern); negative tilt = preflop-heavy aggressor (a rare LAG
+    /// variant, or a limper that suddenly leads).
+    pub fn preflop_postflop_tilt(&self) -> f64 {
+        let f = self.raw_opponent_frequencies();
+        // f[3] = flop_bet_freq, f[4] = turn_bet_freq, f[5] = river_bet_freq
+        // f[0] = preflop_raise_freq
+        let postflop_mean = (f[3] + f[4] + f[5]) / 3.0;
+        postflop_mean - f[0]
+    }
+
     /// Maturity-shrunk EWM stats for the router (SPECS/07 §2 formula).
     pub fn shrunk_ewm(&self) -> [f64; 13] {
         let m = cham_router::features::maturity_shrink(self.hands);
