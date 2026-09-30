@@ -18,6 +18,12 @@ pub struct TrainReport {
     pub top1_b_test: f64,
     pub ece_b_test: f64,
     pub ece_family_c: f64,
+    /// Temperature-scaling T fitted on B-dev (2026-09-30). T=1 means the
+    /// raw softmax is already well-calibrated. Use `RouterRuntime::new`
+    /// with this value to apply it at inference.
+    pub temperature: f64,
+    /// Raw (uncalibrated) ECE on B-test for comparison.
+    pub ece_b_test_raw: f64,
     pub per_class_recall: [f64; 4],
     pub gates_passed: bool,
 }
@@ -109,8 +115,14 @@ pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), Rout
     let btest: Vec<&RbinRow> = split_rows(rows, crate::dataset::SESSION_BTEST);
     let c: Vec<&RbinRow> = split_rows(rows, crate::dataset::SESSION_C);
     let top1_b_test = top1(&model, &btest);
-    let ece_b_test = ece(&model, &btest);
-    let ece_family_c = ece(&model, &c);
+    // 2026-09-30: temperature-scaling calibration. Grid-search `T > 1`
+    // that minimizes ECE on B-dev; report both raw and calibrated ECE.
+    // Temperature scaling is monotone in the logits, so top-1 and recall
+    // are unchanged; only the reported confidence distribution changes.
+    let temperature = calibrate_temperature(&model, &bdev);
+    let ece_b_test_raw = ece(&model, &btest);
+    let ece_b_test = ece_with_temperature(&model, &btest, temperature);
+    let ece_family_c = ece_with_temperature(&model, &c, temperature);
     let per_class_recall = recall(&model, &bdev);
     // G3 gates (SPECS/10 §6): top-1 ≥ 0.80 B-dev; ECE ≤ 0.15 on B-test and
     // family-C; per-class recall B-dev ≥ 0.70 (was computed but never
@@ -128,6 +140,8 @@ pub fn train_model(rows: &[RbinRow]) -> Result<(SoftmaxModel, TrainReport), Rout
             top1_b_test,
             ece_b_test,
             ece_family_c,
+            temperature,
+            ece_b_test_raw,
             per_class_recall,
             gates_passed,
         },
@@ -197,6 +211,68 @@ fn ece(model: &SoftmaxModel, rows: &[&RbinRow]) -> f64 {
     let mut bins = [(0u64, 0.0f64, 0.0f64); 10]; // count, conf_sum, correct_sum
     for r in rows {
         let p = model.forward(&r.features);
+        let (imax, &pmax) = p
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or((0, &0.0));
+        let b = (pmax * 9.999).floor().min(9.0) as usize;
+        bins[b].0 += 1;
+        bins[b].1 += pmax;
+        bins[b].2 += (imax == r.label as usize) as u64 as f64;
+    }
+    let total = rows.len() as f64;
+    bins.iter()
+        .filter(|b| b.0 > 0)
+        .map(|b| (b.0 as f64 / total) * (b.1 / b.0 as f64 - b.2 / b.0 as f64).abs())
+        .sum()
+}
+
+/// Grid-search a temperature T > 1 that minimizes ECE on the given rows.
+///
+/// The model's softmax output `p` is re-tempered as `p_i^(1/T)` normalized.
+/// T=1 preserves the raw softmax; larger T softens the distribution. The
+/// argmax is invariant under monotone temperature scaling (probability
+/// mass moves toward uniform but the ordering is preserved), so top-1
+/// accuracy and per-class recall are unaffected.
+///
+/// Returns the T that minimizes ECE. The grid runs 0.5..5.0 in 0.05
+/// steps. `T = 1.0` is always in the grid, so if no T improves on the raw
+/// softmax the raw is returned.
+fn calibrate_temperature(model: &SoftmaxModel, rows: &[&RbinRow]) -> f64 {
+    if rows.is_empty() {
+        return 1.0;
+    }
+    let mut best_t = 1.0;
+    let mut best_ece = ece_with_temperature(model, rows, 1.0);
+    let mut t = 0.5;
+    while t <= 5.0 {
+        let e = ece_with_temperature(model, rows, t);
+        if e < best_ece {
+            best_ece = e;
+            best_t = t;
+        }
+        t += 0.05;
+    }
+    best_t
+}
+
+/// ECE with temperature-scaled softmax. Same binning as [`ece`] but the
+/// per-row probability is `softmax(logits / T)` instead of the raw.
+fn ece_with_temperature(model: &SoftmaxModel, rows: &[&RbinRow], temperature: f64) -> f64 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    let t = temperature.max(1e-6);
+    let mut bins = [(0u64, 0.0f64, 0.0f64); 10];
+    for r in rows {
+        let logits = model.logits(&r.features);
+        // Softmax with temperature: p_i = exp(z_i / T) / sum(exp(z_j / T))
+        let scaled: Vec<f64> = logits.iter().map(|&z| z / t).collect();
+        let m = scaled.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let exps: Vec<f64> = scaled.iter().map(|&z| (z - m).exp()).collect();
+        let sum: f64 = exps.iter().sum();
+        let p: Vec<f64> = exps.iter().map(|&e| e / sum).collect();
         let (imax, &pmax) = p
             .iter()
             .enumerate()

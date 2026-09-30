@@ -33,6 +33,21 @@ impl SoftmaxModel {
         }
     }
 
+    /// Raw class scores (logits) without softmax. Used by temperature-
+    /// scaling calibration (2026-09-30): `softmax(logits / T)` is the
+    /// calibrated distribution, and T is chosen to minimize ECE.
+    pub fn logits(&self, x: &[f32]) -> Vec<f64> {
+        let mut scores = vec![0f64; self.n_classes];
+        for (k, wk) in self.weights.iter().enumerate() {
+            let mut s = self.bias[k];
+            for (i, &xi) in x.iter().take(self.n_features).enumerate() {
+                s += wk[i] * xi as f64;
+            }
+            scores[k] = s;
+        }
+        scores
+    }
+
     /// Forward pass: softmax over class scores.
     pub fn forward(&self, x: &[f32]) -> Vec<f64> {
         let mut scores = vec![0f64; self.n_classes];
