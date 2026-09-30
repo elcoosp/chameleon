@@ -8,7 +8,7 @@
 
 /// Agent names that require the trained `artifacts/agent` bundle (mirrors
 /// `play`'s routing set in `cmd::play`: every one of these loads blueprints).
-const TRAINED_AGENTS: [&str; 10] = [
+const TRAINED_AGENTS: [&str; 12] = [
     "full",
     "no-search",
     "full-no-search",
@@ -16,6 +16,8 @@ const TRAINED_AGENTS: [&str; 10] = [
     "full-argmax",
     "no-search-argmax",
     "full-mixture",
+    "full-hedged",
+    "hedged",
     "robust-only",
     "bayes",
     "mixture",
@@ -125,11 +127,45 @@ mod tests {
             "bayes",
             "mixture",
             "no-search",
+            "full-hedged",
+            "hedged",
         ] {
             assert!(requires_trained_artifacts(a), "{a} needs artifacts");
         }
         for a in ["callbot", "fish", "arch:tag", "random"] {
             assert!(!requires_trained_artifacts(a), "{a} is a pure baseline");
+        }
+    }
+
+    /// Anti-regression (2026-09-30): every agent name accepted by
+    /// `hero::routing_for` (i.e. every mode the CLI can route to) must
+    /// require trained artifacts, or the ladder/probe silently falls
+    /// through to CallBot. This bug was found after `full-hedged` was
+    /// missing from TRAINED_AGENTS: four ladder runs at different
+    /// thresholds produced identical outputs because all four were
+    /// actually measuring CallBot.
+    #[test]
+    fn every_routable_agent_requires_artifacts() {
+        // The full set of aliases that hero::routing_for recognizes.
+        for a in [
+            "full",
+            "no-search",
+            "full-no-search",
+            "full-argmax",
+            "argmax",
+            "no-search-argmax",
+            "full-mixture",
+            "mixture",
+            "full-hedged",
+            "hedged",
+            "robust-only",
+            "bayes",
+        ] {
+            assert!(
+                requires_trained_artifacts(a),
+                "{a} is a routable agent but not in TRAINED_AGENTS — \
+                 ladder/probe will silently use CallBot"
+            );
         }
     }
 
