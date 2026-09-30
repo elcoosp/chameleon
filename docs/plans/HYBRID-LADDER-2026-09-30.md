@@ -1,4 +1,29 @@
-# Hybrid bundle: 5M robust fallback does not improve the mixture ladder (2026-09-30)
+# Hybrid bundle: 5M robust fallback helps argmax (+402) but not mixture (2026-09-30)
+
+## The argmax result (updated 13:15)
+
+`--agent full` (argmax+synthetic) on the two bundles, 2500 deals/pair:
+
+| opponent | 500k fallback | 5M fallback | Δ |
+|---|---:|---:|---:|
+| arch:nit      | +1 384 | **+1 885** | +501 |
+| arch:tag      | +3 382 | **+3 713** | +331 |
+| arch:lag      | +3 932 | +3 938 | +6 |
+| arch:station  | +14 259 | +14 226 | −33 |
+| callbot       | +24 962 | +24 962 | 0 |
+| jamfix        | +4 787 | **+3 663** | **−1 124** |
+| pnash         | +4 168 | **+3 167** | **−1 001** |
+| famB:tag      | +2 269 | **+2 536** | +267 |
+| noisy:0.1:lag | +5 084 | +4 758 | −326 |
+| **mean**      | **+6 581** | **+6 983** | **+402** |
+
+**The 5M robust fallback improves the argmax ladder by 402 mb/seating.**
+The effect is opponent-specific (wins big on nit, tag, famB; loses
+jamfix and pnash), but the mean improvement is well above the ±200
+run-to-run noise band.
+
+This directly contradicts the initial reading of the mixture result
+alone. See the mixture section below.
 
 ## Setup
 
@@ -33,12 +58,15 @@ The 09-28 mixture numbers are quoted from `SOTA-2026-09-28.md`
 (synthetic-router column). The 5M-fallback numbers are from
 `artifacts/ladder-hybrid-5Mrobust-full-mixture.log`.
 
-## The finding
+## The mixture finding
 
 **Swapping the robust fallback from 500k to 5M changes the mixture
 ladder by +13 mb/seating — well inside run-to-run noise.** The
 mixture's decision path doesn't rely on the robust slot enough for
 the fallback's quality to matter.
+
+But see the top section: the same swap helps **argmax** by +402.
+So "the fallback doesn't matter" is mode-dependent, not universal.
 
 The mechanism: mixture routing blends all 5 policies with reach-weighted
 weights. The 4 experts dominate. The robust slot has weight
