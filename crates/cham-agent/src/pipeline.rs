@@ -29,6 +29,24 @@ use crate::modes::AgentMode;
 use crate::trace::{DecisionTrace, record as trace_record};
 use crate::tracker::Tracker;
 
+/// Cached "is hedge debug enabled?" flag (2026-09-30). Reading env::var
+/// per decision is a syscall on the hot path; cache once at first query.
+/// The flag is read-only for the process lifetime; a debug session sets
+/// CHAM_HEDGE_DEBUG=1 before invoking the binary.
+pub(crate) fn hedge_debug_enabled() -> bool {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    static CACHE: AtomicU8 = AtomicU8::new(2); // 2 = unset, 0 = off, 1 = on
+    match CACHE.load(Ordering::Relaxed) {
+        0 => false,
+        1 => true,
+        _ => {
+            let on = std::env::var("CHAM_HEDGE_DEBUG").as_deref() == Ok("1");
+            CACHE.store(if on { 1 } else { 0 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
 pub struct ChameleonAgent {
     pub mode: AgentMode,
     pub encoder: Encoder,
@@ -628,7 +646,7 @@ impl ChameleonAgent {
                     .unwrap_or(0.5);
                 let top = argmax_k.unwrap_or(0);
                 let top_weight = weights[top];
-                if std::env::var("CHAM_HEDGE_DEBUG").as_deref() == Ok("1") {
+                if crate::pipeline::hedge_debug_enabled() {
                     eprintln!(
                         "hedged: top={top} top_weight={top_weight:.6} threshold={threshold:.3}",
                     );
