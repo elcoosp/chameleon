@@ -32,9 +32,13 @@ pub fn run(
     hands: u64,
     raw_opponent: bool,
     raw_opponent_11: bool,
+    raw_opponent_19: bool,
 ) -> i32 {
     if real {
-        return run_real(out, bundle, sessions, hands, max_rows, raw_opponent, raw_opponent_11);
+        return run_real(
+            out, bundle, sessions, hands, max_rows,
+            raw_opponent, raw_opponent_11, raw_opponent_19,
+        );
     }
     run_synthetic(out, max_rows)
 }
@@ -186,6 +190,7 @@ fn run_real(
     max_rows: usize,
     raw_opponent: bool,
     raw_opponent_11: bool,
+    raw_opponent_19: bool,
 ) -> i32 {
     let opponents = ["arch:nit", "arch:tag", "arch:lag", "arch:station"];
     let engine_cfg = EngineConfig::depth(100);
@@ -217,7 +222,13 @@ fn run_real(
                 }
                 let hand_seed = 0xC011EC7u64 ^ ((k as u64) << 40) ^ (s << 24) ^ h;
                 let _ = play_one_hand(&mut hero, &mut opp, engine_cfg, hand_seed, hero_seat);
-                let feats: Vec<f32> = if raw_opponent_11 {
+                let feats: Vec<f32> = if raw_opponent_19 {
+                    // PERF (2026-09-30): 19-dim honest vector — 10 raw
+                    // frequencies + 8 bet-size histogram buckets +
+                    // preflop/postflop tilt. See
+                    // docs/plans/ROUTER-BET-SIZE-FEATURE-DESIGN-2026-09-30.md.
+                    hero.opponent_only_features_19().iter().map(|&x| x as f32).collect()
+                } else if raw_opponent_11 {
                     // PERF (2026-09-30): 11-dim honest vector — 10 raw
                     // opponent frequencies + preflop/postflop tilt. See
                     // docs/plans/ROUTER-TILT-FEATURE-DESIGN-2026-09-30.md.

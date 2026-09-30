@@ -149,6 +149,14 @@ enum Command {
         /// docs/plans/ROUTER-TILT-FEATURE-DESIGN-2026-09-30.md.
         #[arg(long)]
         raw_opponent_11: bool,
+        /// For --real: emit the 19-dim opponent-only feature vector
+        /// (10 raw frequencies + 8 postflop bet-size histogram buckets +
+        /// 1 preflop/postflop tilt). The bet-size histogram captures
+        /// "which hands the opponent raises with", the last cheap signal
+        /// on public history. See
+        /// docs/plans/ROUTER-BET-SIZE-FEATURE-DESIGN-2026-09-30.md.
+        #[arg(long)]
+        raw_opponent_19: bool,
     },
     /// Tier 1 probe (LBR proxy, coverage, router calibration)
     Probe {
@@ -393,9 +401,10 @@ fn main() -> anyhow::Result<()> {
             hands,
             raw_opponent,
             raw_opponent_11,
+            raw_opponent_19,
         } => cmd::collect::run(
             &out, max_rows, real, &bundle, sessions, hands,
-            raw_opponent, raw_opponent_11,
+            raw_opponent, raw_opponent_11, raw_opponent_19,
         ),
         Command::Probe {
             agent,
