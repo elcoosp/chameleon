@@ -1,5 +1,10 @@
-//! Softmax model (K=4 archetypes, N=20 features) + minibatch SGD — pure Rust,
+//! Softmax model (K=4 archetypes, N features) + minibatch SGD — pure Rust,
 //! ~200 LOC, no linear-algebra deps (SPECS/05 §3).
+//!
+//! 2026-09-30: `n_features` is now free — the honest-features work
+//! required 10/11/19-dim models. The runtime dispatches the correct
+//! feature vector based on `feature_set`. See
+//! `docs/plans/ROUTER-INTEGRATION-DESIGN-2026-09-30.md`.
 
 use serde::{Deserialize, Serialize};
 
@@ -136,12 +141,37 @@ impl SoftmaxModel {
         loss / n
     }
 
+    /// Structural validation. Note (2026-09-30): `n_features` is NOT
+    /// required to be exactly 20 — the runtime dispatches the correct
+    /// feature vector based on `feature_set`, so any feature count is
+    /// valid as long as the weights row length matches `n_features`.
     pub fn validate(&self) -> Result<(), RouterError> {
-        if self.n_classes != 4 || self.n_features != 20 {
-            return Err(RouterError::Model("model must be 4×20".into()));
+        if self.n_classes != 4 {
+            return Err(RouterError::Model(
+                "model must have 4 classes".into(),
+            ));
+        }
+        if self.n_features == 0 {
+            return Err(RouterError::Model("n_features must be > 0".into()));
         }
         if self.weights.len() != self.n_classes {
-            return Err(RouterError::Model("weight rows mismatch".into()));
+            return Err(RouterError::Model(format!(
+                "weight rows {} ≠ n_classes {}",
+                self.weights.len(),
+                self.n_classes
+            )));
+        }
+        for (k, row) in self.weights.iter().enumerate() {
+            if row.len() != self.n_features {
+                return Err(RouterError::Model(format!(
+                    "weight row {k} has {} entries, expected n_features {}",
+                    row.len(),
+                    self.n_features
+                )));
+            }
+        }
+        if self.bias.len() != self.n_classes {
+            return Err(RouterError::Model("bias length ≠ n_classes".into()));
         }
         Ok(())
     }
