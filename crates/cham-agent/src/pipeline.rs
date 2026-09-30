@@ -122,10 +122,34 @@ impl ChameleonAgent {
             trend_z: self.tracker.trend_z() / 3.0,
             hands_since_showdown: self.tracker.hands_since_showdown_feature(),
         };
-        let features = cham_router::features::from_inputs(&inputs)
-            .map(|f: cham_engine::RouterFeatures| f.0)
-            .unwrap_or([0.5; 20]);
+        // 2026-09-30: dispatch the feature vector based on the loaded
+        // model's `feature_set` string. A `raw-opponent-19` model expects
+        // 19 opponent-only features; `opportunity-gated-20` (the default)
+        // expects the historical tracker vector. See
+        // docs/plans/ROUTER-INTEGRATION-DESIGN-2026-09-30.md.
         let trend_z = self.tracker.trend_z();
+        let feature_set = self.router.model.feature_set.as_str();
+        let features: Vec<f32> = match feature_set {
+            "raw-opponent-19" => self
+                .opponent_only_features_19()
+                .iter()
+                .map(|&x| x as f32)
+                .collect(),
+            "raw-opponent-11" => self
+                .opponent_only_features_11()
+                .iter()
+                .map(|&x| x as f32)
+                .collect(),
+            "raw-opponent-10" => self
+                .opponent_only_features()
+                .iter()
+                .map(|&x| x as f32)
+                .collect(),
+            _ => cham_router::features::from_inputs(&inputs)
+                .map(|f: cham_engine::RouterFeatures| f.0)
+                .unwrap_or([0.5; 20])
+                .to_vec(),
+        };
         self.weights = self.router.weights_for_hand(&features, trend_z);
         self.reach = [1.0; 5];
         self.argmax_k = if self.mode.routing == "argmax" || self.mode.routing == "hedged" {
