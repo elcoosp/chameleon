@@ -1,5 +1,12 @@
 # Hedge threshold sweep confirms the path bug (2026-09-30)
 
+**CORRECTION 2026-09-30 (13:21):** The full-hedged numbers in this doc
+were produced by a `ladder` invocation that silently fell through to
+CallBot (the CLI's `TRAINED_AGENTS` guard did not include
+`full-hedged`). The numbers reflect CallBot-vs-pool, not hedged
+routing. See `HEDGED-BUG-TRAINED-AGENTS-2026-09-30.md`. A re-measurement
+with the fix is at `artifacts/ladder-full-hedged-FIXED.log`.
+
 ## The sweep
 
 `scripts/ladder-hedge-sweep-2026-09-30.sh` ran `full-hedged` at 5

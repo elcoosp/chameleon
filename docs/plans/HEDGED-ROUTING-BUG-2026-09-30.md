@@ -1,5 +1,12 @@
 # Hedged routing is a disaster on the archetype pool — and there was a bug (2026-09-30)
 
+**CORRECTION 2026-09-30 (13:21):** The full-hedged numbers in this doc
+were produced by a `ladder` invocation that silently fell through to
+CallBot (the CLI's `TRAINED_AGENTS` guard did not include
+`full-hedged`). The numbers reflect CallBot-vs-pool, not hedged
+routing. See `HEDGED-BUG-TRAINED-AGENTS-2026-09-30.md`. A re-measurement
+with the fix is at `artifacts/ladder-full-hedged-FIXED.log`.
+
 ## The measurement
 
 `CHAM_AGENT_BUNDLE=artifacts/agent-honest chameleon ladder --fast --agent full-hedged`:
