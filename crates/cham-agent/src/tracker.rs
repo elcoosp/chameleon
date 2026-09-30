@@ -134,23 +134,29 @@ impl Tracker {
         let mut opp_bet_faced = false;
         let mut opp_showdown = false;
 
-        // walk the public action sequence with level tracking (chips)
+        // walk the public action sequence with level tracking (chips).
+        // `street_bet` and `last_level` mirror the ORIGINAL semantics
+        // (preflop starts at 0/0, so a limp is detectable as
+        // `last_level == 0`). A separate `street_contrib` tracks the
+        // actual chips each player has put in this street, initialized
+        // to the blinds (SB=50, BB=100, hardcoded elsewhere in this
+        // codebase). A separate `pot` tracks the running pot size for
+        // the bet-size histogram, initialized to 150 (both blinds).
         let mut street_bet = [0i64; 2];
         let mut street = 0u8;
         let mut raises_this_street = 0i32;
         let mut last_level = 0i64;
         let mut voluntary = false;
         // 2026-09-30: pot tracking for the postflop bet-size histogram.
-        // Starts at 100 (BB posted; SB is already in). We add each
-        // call/bet increment as we walk, so `pot_before_bet` for a Bet
-        // is the pot size right before the opponent's action.
-        let mut pot: i64 = 100;
+        let mut pot: i64 = 150;
+        let mut street_contrib: [i64; 2] = [50, 100];
         for (s, player, action) in &ph.actions {
             if s.as_u8() != street {
                 street = s.as_u8();
                 street_bet = [0; 2];
                 raises_this_street = 0;
                 last_level = 0;
+                street_contrib = [0, 0];
             }
             let p = player.as_usize();
             let is_opp = p == opp;
@@ -173,11 +179,13 @@ impl Tracker {
                     }
                 }
                 cham_core::engine::Action::Call => {
-                    // 2026-09-30: this player contributes the difference
-                    // between the current level and their own street
-                    // contribution to the pot.
-                    let to_call = (last_level - street_bet[p]).max(0);
-                    pot += to_call;
+                    // 2026-09-30: caller matches the current street bet.
+                    // Current level = max of the two contributions this
+                    // street.
+                    let level = street_contrib[0].max(street_contrib[1]);
+                    let to_add = (level - street_contrib[p]).max(0);
+                    street_contrib[p] += to_add;
+                    pot += to_add;
                     if is_opp && street == 0 {
                         self.opp_preflop_calls += 1;
                         if raises_this_street == 0 && last_level == 0 {
@@ -196,19 +204,21 @@ impl Tracker {
                     }
                 }
                 cham_core::engine::Action::Bet { to } | cham_core::engine::Action::Raise { to } => {
-                    // The actor's contribution by this action is
-                    // `*to - street_bet[p]` (their prior contribution).
-                    let increment = (*to - street_bet[p]).max(0);
+                    // The actor's incremental contribution is the
+                    // difference between their target `to` and their
+                    // own prior street contribution.
+                    let increment = (*to - street_contrib[p]).max(0);
                     // 2026-09-30: postflop bet-size histogram. Capture
-                    // the bet as a fraction of pot BEFORE this action.
+                    // the increment as a fraction of pot BEFORE this
+                    // action.
                     if is_opp && street >= 1 && pot > 0 {
                         let frac = increment as f64 / pot as f64;
-                        // 8 buckets over [0, 2.0] with 0.25-width bins:
-                        //   [0,0.25) [0.25,0.5) ... [1.75, +inf)
+                        // 8 buckets over [0, 2.0] with 0.25-width bins.
                         let bucket = ((frac * 4.0) as usize).min(7);
                         self.opp_postflop_bet_size_hist[bucket] += 1;
                     }
-                    // Update pot: the actor adds `increment` chips.
+                    // Update street_contrib and pot.
+                    street_contrib[p] = *to;
                     pot += increment;
                     // PERF (2026-09-29): raw opponent aggression counters.
                     if is_opp {

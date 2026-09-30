@@ -472,3 +472,128 @@ fn tag_tilt_is_greater_than_lag_tilt() {
         "TAG tilt ({tilt_tag}) must exceed LAG tilt ({tilt_lag})"
     );
 }
+
+// ---------- Bet-size histogram (2026-09-30) ----------
+
+/// A single postflop bet at the given absolute chip amount is binned
+/// by its fraction of pot-before-the-bet. Given hero's known stack and
+/// blind setup, we can construct exact scenarios.
+#[test]
+fn bet_size_histogram_bins_single_flop_bet() {
+    // Setup: preflop call+check → pot = 200. Opp bets 100 on the flop
+    // = 0.5 pot. Should land in bucket 2 (0.5..0.75).
+    //
+    // Wait: buckets are 0.25-wide starting at 0: [0,0.25), [0.25,0.5),
+    // [0.5,0.75), ... So 0.5 is at the START of bucket 2.
+    let h = ph(&[
+        (Street::Preflop, Player::Sb, Action::Call),   // SB calls 50 more → pot=200
+        (Street::Preflop, Player::Bb, Action::Check),
+        (Street::Flop, Player::Bb, Action::Bet { to: 100 }),  // ~0.5 pot
+        (Street::Flop, Player::Sb, Action::Fold),
+    ]);
+    let t = tracker_after(&[h]);
+    let hist = t.opponent_bet_size_hist();
+    // Total should be 1.0 (one postflop bet from the opponent).
+    let total: f64 = hist.iter().sum();
+    assert!(
+        (total - 1.0).abs() < 1e-9,
+        "histogram must be normalized to 1.0 when a bet exists; got {total}"
+    );
+    // Exactly one bucket must be nonzero.
+    let nonzero: Vec<usize> = hist
+        .iter()
+        .enumerate()
+        .filter(|&(_, &v)| v > 0.5)
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(
+        nonzero.len(),
+        1,
+        "exactly one bucket should be nonzero, got {nonzero:?}"
+    );
+    // Which bucket? bet 100 on pot 200 = 0.5. Bucket floor(0.5 * 4) = 2.
+    assert_eq!(nonzero[0], 2, "0.5 pot bet should land in bucket 2, got {}", nonzero[0]);
+}
+
+/// No bets → all zeros.
+#[test]
+fn bet_size_histogram_empty_on_no_postflop_bet() {
+    let h = ph(&[(Street::Preflop, Player::Bb, Action::Fold)]);
+    let t = tracker_after_hero_bb(&[h]);
+    let hist = t.opponent_bet_size_hist();
+    for (i, &v) in hist.iter().enumerate() {
+        assert!(v.abs() < 1e-12, "empty: hist[{i}] = {v}, expected 0");
+    }
+}
+
+/// A small bet and a big bet fall into different buckets.
+#[test]
+fn bet_size_histogram_distinguishes_small_and_big_bets() {
+    // Small bet: 25% pot on the flop
+    let small = ph(&[
+        (Street::Preflop, Player::Sb, Action::Call),
+        (Street::Preflop, Player::Bb, Action::Check),
+        (Street::Flop, Player::Bb, Action::Bet { to: 50 }),   // 25% of 200
+        (Street::Flop, Player::Sb, Action::Fold),
+    ]);
+    // Big bet: 100% pot on the flop
+    let big = ph(&[
+        (Street::Preflop, Player::Sb, Action::Call),
+        (Street::Preflop, Player::Bb, Action::Check),
+        (Street::Flop, Player::Bb, Action::Bet { to: 200 }),  // 100% of 200
+        (Street::Flop, Player::Sb, Action::Fold),
+    ]);
+    let t_small = tracker_after(&[small]);
+    let t_big = tracker_after(&[big]);
+    let h_small = t_small.opponent_bet_size_hist();
+    let h_big = t_big.opponent_bet_size_hist();
+
+    let nz = |h: &[f64; 8]| -> usize {
+        h.iter()
+            .enumerate()
+            .find(|&(_, &v)| v > 0.5)
+            .map(|(i, _)| i)
+            .unwrap()
+    };
+    let b_small = nz(&h_small);
+    let b_big = nz(&h_big);
+
+    // Small: 0.25 → floor(0.25*4) = 1.
+    // Big: 1.0 → floor(1.0*4) = 4.
+    assert_eq!(b_small, 1, "25% pot bet should be bucket 1");
+    assert_eq!(b_big, 4, "100% pot bet should be bucket 4");
+    assert!(b_big > b_small, "bigger bet must be in a later bucket");
+}
+
+/// Two bets at different sizes accumulate in different buckets.
+#[test]
+fn bet_size_histogram_accumulates_across_hands() {
+    let small = ph(&[
+        (Street::Preflop, Player::Sb, Action::Call),
+        (Street::Preflop, Player::Bb, Action::Check),
+        (Street::Flop, Player::Bb, Action::Bet { to: 50 }),
+        (Street::Flop, Player::Sb, Action::Fold),
+    ]);
+    let big = ph(&[
+        (Street::Preflop, Player::Sb, Action::Call),
+        (Street::Preflop, Player::Bb, Action::Check),
+        (Street::Flop, Player::Bb, Action::Bet { to: 200 }),
+        (Street::Flop, Player::Sb, Action::Fold),
+    ]);
+    let t = tracker_after(&[small.clone(), small.clone(), big.clone(), big]);
+    let hist = t.opponent_bet_size_hist();
+    let total: f64 = hist.iter().sum();
+    assert!((total - 1.0).abs() < 1e-9, "normalized; got {total}");
+    // Two small + two big = 0.5 / 0.5 distribution.
+    // bucket 1 ≈ 0.5, bucket 4 ≈ 0.5.
+    assert!(
+        (hist[1] - 0.5).abs() < 1e-9,
+        "small-bet bucket should be 0.5, got {}",
+        hist[1]
+    );
+    assert!(
+        (hist[4] - 0.5).abs() < 1e-9,
+        "big-bet bucket should be 0.5, got {}",
+        hist[4]
+    );
+}
