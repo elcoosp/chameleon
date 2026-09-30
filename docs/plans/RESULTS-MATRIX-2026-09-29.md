@@ -17,6 +17,7 @@ LBR at depth 100. Lower is better. Sample sizes noted per row.
 | parallel 50M | 200 | 13 886 | 17 008 | 15 447 |
 | parallel 20M delay0 (CHAM_AVG_DELAY=0) | 1000 | 13 431 | 13 618 | 13 524 |
 | parallel 20M avguniform (CHAM_AVG_UNIFORM=1) | 1000 | 13 977 | 13 133 | 13 555 |
+| parallel 20M delay0+eps=0.02 | 1000 | 13 608 | 13 251 | 13 429 |
 
 The two 20M schedule ablations (`delay0`, `avguniform`) both move BB by
 7–11% toward the 5M peak, at a small SB cost. Mean is a wash between
@@ -47,7 +48,7 @@ See `WARMUP-FIX-RESULT-2026-09-29.md` (20M) and
 | config | deals | seat 0 | seat 1 | mean |
 |---|---:|---:|---:|---:|
 | parallel 20M alpha=0.9 | 1000 | 35 344 | 25 834 | 30 589 |
-| parallel 20M alpha=0.5 | 1000 | (pending) | (pending) | (pending) |
+| parallel 20M alpha=0.5 | 1000 | 38 721 | 29 102 | 33 912 |
 
 Alpha=0.9 un-freezes the iterate (avg_near_frozen 60% → 11.9%,
 mean avg max_p 0.859 → 0.616) but destroys the policy. Un-freezing to
