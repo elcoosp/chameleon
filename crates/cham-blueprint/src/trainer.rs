@@ -760,14 +760,17 @@ where
 {
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    // PERF (2026-09-30): N_SLICES is normally 8 (fixed warmup/parallel
-    // cadence). When cfg.checkpoint_every > 0, expand it so slice
-    // boundaries align with checkpoint boundaries: the freeze-evolution
-    // diagnostic needs iter-2M/4M/.../20M snapshots, and 8 slices of a
-    // 20M run land at 2.5M/5M/..., which miss every requested boundary.
+    // PERF (2026-09-30, rev 2): normally 8 slices per run. When
+    // cfg.checkpoint_every > 0, use checkpoint_every as the slice length
+    // so every slice boundary is a multiple of the checkpoint cadence.
+    // My first attempt computed n_slices and divided — that clamps to 8
+    // for a 20M/2M config (want=10, clamp(10,8,64)=10 works, but
+    // want=5 clamps to 8, giving slice_len=2.5M and missing every
+    // requested 2M boundary). Using slice_len = checkpoint_every
+    // guarantees the boundaries align.
     //
-    // We also cap the slice count so a very small checkpoint_every
-    // doesn't explode the number of warmup bursts.
+    // Tradeoff: a very small checkpoint_every means many slices and many
+    // short warmups. Cap the slice count at 64 to bound that.
     const N_SLICES_DEFAULT: u64 = 8;
     const N_SLICES_MAX: u64 = 64;
 
@@ -775,13 +778,13 @@ where
     if total_span == 0 {
         return Ok(());
     }
-    let n_slices: u64 = if cfg.checkpoint_every > 0 {
-        let want = total_span / cfg.checkpoint_every;
-        want.clamp(N_SLICES_DEFAULT, N_SLICES_MAX)
+    let slice_len: u64 = if cfg.checkpoint_every > 0 {
+        let want_n = total_span.div_ceil(cfg.checkpoint_every);
+        let bounded_n = want_n.min(N_SLICES_MAX).max(1);
+        total_span.div_ceil(bounded_n)
     } else {
-        N_SLICES_DEFAULT
+        total_span.div_ceil(N_SLICES_DEFAULT)
     };
-    let slice_len = (total_span + n_slices - 1) / n_slices;
     let mut slice_start = start;
 
     while slice_start < total_iters {
