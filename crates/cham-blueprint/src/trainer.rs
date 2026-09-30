@@ -760,13 +760,28 @@ where
 {
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    const N_SLICES: u64 = 8;
+    // PERF (2026-09-30): N_SLICES is normally 8 (fixed warmup/parallel
+    // cadence). When cfg.checkpoint_every > 0, expand it so slice
+    // boundaries align with checkpoint boundaries: the freeze-evolution
+    // diagnostic needs iter-2M/4M/.../20M snapshots, and 8 slices of a
+    // 20M run land at 2.5M/5M/..., which miss every requested boundary.
+    //
+    // We also cap the slice count so a very small checkpoint_every
+    // doesn't explode the number of warmup bursts.
+    const N_SLICES_DEFAULT: u64 = 8;
+    const N_SLICES_MAX: u64 = 64;
 
     let total_span = total_iters.saturating_sub(start);
     if total_span == 0 {
         return Ok(());
     }
-    let slice_len = (total_span + N_SLICES - 1) / N_SLICES;
+    let n_slices: u64 = if cfg.checkpoint_every > 0 {
+        let want = total_span / cfg.checkpoint_every;
+        want.clamp(N_SLICES_DEFAULT, N_SLICES_MAX)
+    } else {
+        N_SLICES_DEFAULT
+    };
+    let slice_len = (total_span + n_slices - 1) / n_slices;
     let mut slice_start = start;
 
     while slice_start < total_iters {
@@ -877,6 +892,26 @@ where
         // hours. Without this the parallel trainer produced NO intermediate
         // snapshot — a crash at hour 13 lost everything.
         checkpoint(table, slice_end)?;
+
+        // PERF (2026-09-30): honor cfg.checkpoint_every in the parallel
+        // path (the serial path always did). Write the same
+        // `checkpoint_dir/iter-N/table.snap` shape so the freeze-evolution
+        // diagnostic can read these snapshots identically.
+        if cfg.checkpoint_every > 0
+            && slice_end % cfg.checkpoint_every == 0
+        {
+            if let Some(cp_dir) = cfg.checkpoint_dir.as_ref() {
+                let dir = cp_dir.join(format!("iter-{}", slice_end));
+                if std::fs::create_dir_all(&dir).is_ok() {
+                    let bytes = table.snapshot();
+                    let tmp = dir.join("table.snap.tmp");
+                    let dst = dir.join("table.snap");
+                    if std::fs::write(&tmp, &bytes).is_ok() {
+                        let _ = std::fs::rename(&tmp, &dst);
+                    }
+                }
+            }
+        }
 
         slice_start = slice_end;
     }
