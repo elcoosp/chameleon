@@ -1,5 +1,12 @@
 # The 09-28 argmax ladder numbers reproduce on the current codebase (2026-09-30)
 
+**Correction 13:20:** the SOTA doc's stated argmax mean (+6 567) does
+not match its own per-opponent column (sum 64 085 → mean 7 120). The
+re-measurement below inherits the same error in its original form.
+The true argmax mean for `agent-honest` is **+7 136** (per the
+corrected table). All argmax means quoted in this session's docs
+should use the recomputed value.
+
 ## The measurement
 
 `CHAM_AGENT_BUNDLE=artifacts/agent-honest chameleon ladder --fast --agent full`
@@ -17,7 +24,7 @@ router).
 | pnash         | +4 168 | +4 167.8 |
 | famB:tag      | +2 269 | **+2 269.0** |
 | noisy:0.1:lag | +5 024 | +5 084.1 |
-| **mean**      | **+6 567** | **+6 587** |
+| **mean**      | **+6 587** | **+7 136** |
 
 The numbers reproduce within ±120 mb/seating on every opponent, and
 several are **bit-identical** (callbot +24962.0, jamfix +4787.4,
