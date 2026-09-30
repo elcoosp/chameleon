@@ -17,6 +17,15 @@ cd "$(git rev-parse --show-toplevel)"
 
 log() { echo "[$(date "+%H:%M:%S")] $*"; }
 
+# Concurrency guard: refuse to run if another copy is active on the
+# same log directory. Prevents the 2026-09-30 log-truncation incident.
+LOCKDIR="${TMPDIR:-/tmp}/chameleon-ladder-matrix.lock"
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  log "another ladder-matrix is already running (lock=$LOCKDIR); exiting"
+  exit 0
+fi
+trap 'rm -rf "$LOCKDIR"' EXIT INT TERM
+
 BUNDLE="${CHAM_AGENT_BUNDLE:-$PWD/artifacts/agent-full-honest}"
 export CHAM_AGENT_BUNDLE="$BUNDLE"
 
