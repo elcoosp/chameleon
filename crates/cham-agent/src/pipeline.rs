@@ -628,6 +628,11 @@ impl ChameleonAgent {
                     .unwrap_or(0.5);
                 let top = argmax_k.unwrap_or(0);
                 let top_weight = weights[top];
+                if std::env::var("CHAM_HEDGE_DEBUG").as_deref() == Ok("1") {
+                    eprintln!(
+                        "hedged: top={top} top_weight={top_weight:.6} threshold={threshold:.3}",
+                    );
+                }
                 if top_weight >= threshold {
                     // confident: play the top expert purely
                     let sigma = match expert_sigma[top].as_ref() {
