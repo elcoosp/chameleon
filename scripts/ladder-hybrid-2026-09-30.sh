@@ -9,6 +9,15 @@ cd "$(git rev-parse --show-toplevel)"
 
 log() { echo "[$(date "+%H:%M:%S")] $*"; }
 
+# Concurrency guard (2026-09-30): refuse a second concurrent invocation
+# so two ladders don't race on the same output logs.
+LOCKDIR="${TMPDIR:-/tmp}/chameleon-ladder-hybrid.lock"
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  log "another ladder-hybrid is already running (lock=$LOCKDIR); exiting"
+  exit 0
+fi
+trap 'rm -rf "$LOCKDIR"' EXIT INT TERM
+
 for agent in full full-mixture robust-only; do
   log "ladder --fast --agent $agent @ agent-honest-5Mrobust"
   CHAM_AGENT_BUNDLE="$PWD/artifacts/agent-honest-5Mrobust" \
