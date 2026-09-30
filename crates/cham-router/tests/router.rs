@@ -524,7 +524,9 @@ fn weights_top_evolves_from_mixture_to_argmax_within_a_session() {
     let top_early = {
         let mut best = 0usize;
         for (k, &v) in w_early.iter().take(4).enumerate() {
-            if v > w_early[best] { best = k; }
+            if v > w_early[best] {
+                best = k;
+            }
         }
         w_early[best]
     };
@@ -538,7 +540,9 @@ fn weights_top_evolves_from_mixture_to_argmax_within_a_session() {
     let top_late = {
         let mut best = 0usize;
         for (k, &v) in w_late.iter().take(4).enumerate() {
-            if v > w_late[best] { best = k; }
+            if v > w_late[best] {
+                best = k;
+            }
         }
         w_late[best]
     };

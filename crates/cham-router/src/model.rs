@@ -147,9 +147,7 @@ impl SoftmaxModel {
     /// valid as long as the weights row length matches `n_features`.
     pub fn validate(&self) -> Result<(), RouterError> {
         if self.n_classes != 4 {
-            return Err(RouterError::Model(
-                "model must have 4 classes".into(),
-            ));
+            return Err(RouterError::Model("model must have 4 classes".into()));
         }
         if self.n_features == 0 {
             return Err(RouterError::Model("n_features must be > 0".into()));
@@ -215,8 +213,13 @@ mod tests {
             }
             let p_raw = m.forward(&f);
             let p_cal = m_cal.forward(&f);
-            let amax = |p: &[f64]| p.iter().enumerate()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
+            let amax = |p: &[f64]| {
+                p.iter()
+                    .enumerate()
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                    .unwrap()
+                    .0
+            };
             assert_eq!(amax(&p_raw), amax(&p_cal), "argmax changed for seed {seed}");
         }
     }

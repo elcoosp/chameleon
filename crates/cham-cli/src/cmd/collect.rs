@@ -36,8 +36,14 @@ pub fn run(
 ) -> i32 {
     if real {
         return run_real(
-            out, bundle, sessions, hands, max_rows,
-            raw_opponent, raw_opponent_11, raw_opponent_19,
+            out,
+            bundle,
+            sessions,
+            hands,
+            max_rows,
+            raw_opponent,
+            raw_opponent_11,
+            raw_opponent_19,
         );
     }
     run_synthetic(out, max_rows)
@@ -98,8 +104,8 @@ fn run_synthetic(out: &str, max_rows: usize) -> i32 {
 // ---------------- real (instrumented) ----------------
 
 fn build_agent(bundle: &str, routing: &str) -> cham_agent::ChameleonAgent {
-    let loaded = cham_agent::loader::load_agent(Path::new(bundle), routing, 100)
-        .expect("load_agent");
+    let loaded =
+        cham_agent::loader::load_agent(Path::new(bundle), routing, 100).expect("load_agent");
     let mode = cham_agent::modes::AgentMode {
         routing: routing.to_string(),
         search: cham_agent::modes::SearchCfg {
@@ -227,19 +233,28 @@ fn run_real(
                     // frequencies + 8 bet-size histogram buckets +
                     // preflop/postflop tilt. See
                     // docs/plans/ROUTER-BET-SIZE-FEATURE-DESIGN-2026-09-30.md.
-                    hero.opponent_only_features_19().iter().map(|&x| x as f32).collect()
+                    hero.opponent_only_features_19()
+                        .iter()
+                        .map(|&x| x as f32)
+                        .collect()
                 } else if raw_opponent_11 {
                     // PERF (2026-09-30): 11-dim honest vector — 10 raw
                     // opponent frequencies + preflop/postflop tilt. See
                     // docs/plans/ROUTER-TILT-FEATURE-DESIGN-2026-09-30.md.
-                    hero.opponent_only_features_11().iter().map(|&x| x as f32).collect()
+                    hero.opponent_only_features_11()
+                        .iter()
+                        .map(|&x| x as f32)
+                        .collect()
                 } else if raw_opponent {
                     // PERF (2026-09-29): the honest opponent-only vector —
                     // 10 raw action frequencies that are a pure function
                     // of the opponent's behaviour, not of the (opponent,
                     // hero-policy) pair. See
                     // docs/plans/ROUTER-FEATURE-LEAK-2026-09-29.md.
-                    hero.opponent_only_features().iter().map(|&x| x as f32).collect()
+                    hero.opponent_only_features()
+                        .iter()
+                        .map(|&x| x as f32)
+                        .collect()
                 } else {
                     hero.tracker_features().to_vec()
                 };

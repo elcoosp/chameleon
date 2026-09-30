@@ -127,7 +127,9 @@ mod tests {
     /// call validate()) silently worked.
     #[test]
     fn all_constructors_validate() {
-        AgentMode::full_search_off().validate().expect("full_search_off");
+        AgentMode::full_search_off()
+            .validate()
+            .expect("full_search_off");
         AgentMode::argmax().validate().expect("argmax");
         AgentMode::hedged().validate().expect("hedged");
         AgentMode::robust_only().validate().expect("robust_only");
@@ -142,13 +144,7 @@ mod tests {
     /// here without being added to validate(), the test WILL catch it.
     #[test]
     fn every_routing_string_validates() {
-        for s in [
-            "mixture",
-            "argmax",
-            "hedged",
-            "robust-only",
-            "bayes",
-        ] {
+        for s in ["mixture", "argmax", "hedged", "robust-only", "bayes"] {
             let mode = AgentMode {
                 routing: s.into(),
                 search: SearchCfg {

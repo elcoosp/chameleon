@@ -304,9 +304,15 @@ impl Tracker {
         let reached_flop = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 1);
         let reached_turn = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 2);
         let reached_river = ph.actions.iter().any(|(s, _, _)| s.as_u8() >= 3);
-        if reached_flop { self.reached_flop_count += 1; }
-        if reached_turn { self.reached_turn_count += 1; }
-        if reached_river { self.reached_river_count += 1; }
+        if reached_flop {
+            self.reached_flop_count += 1;
+        }
+        if reached_turn {
+            self.reached_turn_count += 1;
+        }
+        if reached_river {
+            self.reached_river_count += 1;
+        }
         let any_fold = ph
             .actions
             .iter()

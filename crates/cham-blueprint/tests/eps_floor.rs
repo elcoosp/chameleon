@@ -12,9 +12,7 @@
 //!
 //! Everything here is unit-level. None of it invokes the trainer.
 
-use cham_blueprint::table::{
-    RegretTable, ThreadMode, set_train_explore_eps, train_explore_eps,
-};
+use cham_blueprint::table::{RegretTable, ThreadMode, set_train_explore_eps, train_explore_eps};
 
 /// Build a table with one row whose regrets are set explicitly.
 /// Returns (table, offset, width).
@@ -42,10 +40,7 @@ fn sigma_rms_eps_distributions_are_valid() {
         let sigma = t.sigma_rms_eps(off, w, eps);
         assert_eq!(sigma.len(), w, "eps={eps}: wrong length");
         let total: f64 = sigma.iter().sum();
-        assert!(
-            (total - 1.0).abs() < 1e-9,
-            "eps={eps}: sum {total} != 1.0"
-        );
+        assert!((total - 1.0).abs() < 1e-9, "eps={eps}: sum {total} != 1.0");
         for (i, &p) in sigma.iter().enumerate() {
             assert!(p >= 0.0, "eps={eps}: action {i} has negative prob {p}");
             assert!(p.is_finite(), "eps={eps}: action {i} not finite: {p}");
@@ -133,10 +128,7 @@ fn sigma_rms_eps_clamps_extreme_eps() {
     for eps in [1.0, 2.0, f64::INFINITY] {
         let sigma = t.sigma_rms_eps(off, w, eps);
         let total: f64 = sigma.iter().sum();
-        assert!(
-            (total - 1.0).abs() < 1e-9,
-            "eps={eps} produced sum {total}"
-        );
+        assert!((total - 1.0).abs() < 1e-9, "eps={eps} produced sum {total}");
         assert!(sigma.iter().all(|&p| p >= 0.0 && p.is_finite()));
     }
 }

@@ -428,8 +428,8 @@ pub(crate) fn meta_canonical_bytes(m: &MetaOut) -> Vec<u8> {
 // canonical-scheme files (fresh `train-buckets` output) can use it directly.
 #[allow(dead_code)]
 pub(crate) fn verify_meta_text(text: &str) -> Result<(), crate::EngineError> {
-    let m: MetaOut = serde_json::from_str(text)
-        .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
+    let m: MetaOut =
+        serde_json::from_str(text).map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
     let stored = m.blake3.clone();
     // Preferred (new) scheme: hash the canonical byte stream (stable across
     // serde_json versions and rebuilds).
@@ -878,8 +878,8 @@ pub fn finalize_meta(
 // place. If a future migration is needed again, this is the entry point.
 #[allow(dead_code)]
 pub(crate) fn restamp_meta_text(text: &str) -> Result<String, crate::EngineError> {
-    let mut m: MetaOut = serde_json::from_str(text)
-        .map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
+    let mut m: MetaOut =
+        serde_json::from_str(text).map_err(|e| crate::EngineError::Meta(format!("parse: {e}")))?;
     m.blake3 = String::new();
     let canonical = meta_canonical_bytes(&m);
     let h = blake3::hash(&canonical);

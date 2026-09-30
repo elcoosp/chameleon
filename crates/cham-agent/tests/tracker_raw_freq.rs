@@ -81,11 +81,7 @@ fn raw_frequencies_zero_on_empty_tracker() {
 /// Opponent folds preflop: `preflop_fold_freq` goes to 1/1 = 1.0.
 #[test]
 fn preflop_fold_increments_fold_freq() {
-    let h = ph(&[(
-        Street::Preflop,
-        Player::Bb,
-        Action::Fold,
-    )]);
+    let h = ph(&[(Street::Preflop, Player::Bb, Action::Fold)]);
     let t = tracker_after(&[h]);
     let f = t.raw_opponent_frequencies();
     assert!(
@@ -102,11 +98,7 @@ fn preflop_fold_increments_fold_freq() {
 /// raise count (a lone raise is not a 3bet).
 #[test]
 fn preflop_single_raise_counts_as_preflop_only() {
-    let h = ph(&[(
-        Street::Preflop,
-        Player::Bb,
-        Action::Raise { to: 300 },
-    )]);
+    let h = ph(&[(Street::Preflop, Player::Bb, Action::Raise { to: 300 })]);
     let t = tracker_after(&[h]);
     let f = t.raw_opponent_frequencies();
     assert!(
@@ -182,7 +174,10 @@ fn turn_and_river_bets_count_separately() {
     assert_eq!(t.opp_flop_bets, 0, "no flop bet from opp (only checks)");
     assert_eq!(t.opp_turn_bets, 0, "opp called the turn, did not bet");
     assert_eq!(t.opp_river_bets, 1, "opp bet the river");
-    assert_eq!(t.opp_postflop_raises, 1, "only the river bet is a postflop raise");
+    assert_eq!(
+        t.opp_postflop_raises, 1,
+        "only the river bet is a postflop raise"
+    );
 }
 
 // ---------- checks and calls ----------
@@ -486,9 +481,9 @@ fn bet_size_histogram_bins_single_flop_bet() {
     // Wait: buckets are 0.25-wide starting at 0: [0,0.25), [0.25,0.5),
     // [0.5,0.75), ... So 0.5 is at the START of bucket 2.
     let h = ph(&[
-        (Street::Preflop, Player::Sb, Action::Call),   // SB calls 50 more → pot=200
+        (Street::Preflop, Player::Sb, Action::Call), // SB calls 50 more → pot=200
         (Street::Preflop, Player::Bb, Action::Check),
-        (Street::Flop, Player::Bb, Action::Bet { to: 100 }),  // ~0.5 pot
+        (Street::Flop, Player::Bb, Action::Bet { to: 100 }), // ~0.5 pot
         (Street::Flop, Player::Sb, Action::Fold),
     ]);
     let t = tracker_after(&[h]);
@@ -512,7 +507,11 @@ fn bet_size_histogram_bins_single_flop_bet() {
         "exactly one bucket should be nonzero, got {nonzero:?}"
     );
     // Which bucket? bet 100 on pot 200 = 0.5. Bucket floor(0.5 * 4) = 2.
-    assert_eq!(nonzero[0], 2, "0.5 pot bet should land in bucket 2, got {}", nonzero[0]);
+    assert_eq!(
+        nonzero[0], 2,
+        "0.5 pot bet should land in bucket 2, got {}",
+        nonzero[0]
+    );
 }
 
 /// No bets → all zeros.
@@ -533,14 +532,14 @@ fn bet_size_histogram_distinguishes_small_and_big_bets() {
     let small = ph(&[
         (Street::Preflop, Player::Sb, Action::Call),
         (Street::Preflop, Player::Bb, Action::Check),
-        (Street::Flop, Player::Bb, Action::Bet { to: 50 }),   // 25% of 200
+        (Street::Flop, Player::Bb, Action::Bet { to: 50 }), // 25% of 200
         (Street::Flop, Player::Sb, Action::Fold),
     ]);
     // Big bet: 100% pot on the flop
     let big = ph(&[
         (Street::Preflop, Player::Sb, Action::Call),
         (Street::Preflop, Player::Bb, Action::Check),
-        (Street::Flop, Player::Bb, Action::Bet { to: 200 }),  // 100% of 200
+        (Street::Flop, Player::Bb, Action::Bet { to: 200 }), // 100% of 200
         (Street::Flop, Player::Sb, Action::Fold),
     ]);
     let t_small = tracker_after(&[small]);

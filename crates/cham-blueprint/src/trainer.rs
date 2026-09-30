@@ -323,7 +323,9 @@ pub fn train_with_threads(
     // parallel path now. Restricted to Arch/Jitter + frozen=None: frozen
     // oracles and ExploitBayes stay serial (they carry non-Sync state).
     let exploit_parallel_ok = match mode {
-        TrainMode::Exploit { opponent, frozen, .. } => {
+        TrainMode::Exploit {
+            opponent, frozen, ..
+        } => {
             frozen.is_none()
                 && matches!(
                     opponent,
@@ -434,8 +436,7 @@ pub fn train_with_threads(
         match mode {
             TrainMode::Exploit {
                 opponent:
-                    cham_opponents::OpponentSpec::Arch(a)
-                    | cham_opponents::OpponentSpec::Jitter(a, _),
+                    cham_opponents::OpponentSpec::Arch(a) | cham_opponents::OpponentSpec::Jitter(a, _),
                 jitter_seed,
                 frozen: None,
             } if !robust => {
@@ -483,7 +484,11 @@ pub fn train_with_threads(
     // When parallel ran, this range is empty and the single-threaded loop
     // is a no-op. The final snapshot (below) and provenance (after) still
     // fire, using the shared table's accumulated state.
-    let loop_start = if parallel_requested { total_iters } else { start };
+    let loop_start = if parallel_requested {
+        total_iters
+    } else {
+        start
+    };
     let loop_end = total_iters;
     for t in loop_start..loop_end {
         // ---- ExploitBayes session blocks: hidden type + belief bin ----
@@ -575,9 +580,9 @@ pub fn train_with_threads(
                 frozen,
             } => match opponent {
                 cham_opponents::OpponentSpec::Arch(a)
-                | cham_opponents::OpponentSpec::Jitter(a, _) => Some(
-                    build_archetype_opponent(*a, *jitter_seed, t),
-                ),
+                | cham_opponents::OpponentSpec::Jitter(a, _) => {
+                    Some(build_archetype_opponent(*a, *jitter_seed, t))
+                }
                 // v3 §6 (M6): the frozen victim — real snapshot rows, victim
                 // encoder rebuilt from the oracle's buckets/config. Missing
                 // oracle = loud refusal (a uniform "frozen" opponent would
@@ -872,8 +877,7 @@ where
                             }
                             let hero_seat = (t % 2) as usize;
                             local_hist[hero_seat] += 1;
-                            let w_t =
-                                averaging_weight_gamma(t, total_iters, true, avg_gamma);
+                            let w_t = averaging_weight_gamma(t, total_iters, true, avg_gamma);
                             let deck = Deck::shuffled(&mut child(train_seed, &format!("d{t}")));
                             let mut state = match State::new(engine_cfg, deck) {
                                 Ok(s) => s,
@@ -925,9 +929,7 @@ where
         // path (the serial path always did). Write the same
         // `checkpoint_dir/iter-N/table.snap` shape so the freeze-evolution
         // diagnostic can read these snapshots identically.
-        if cfg.checkpoint_every > 0
-            && slice_end % cfg.checkpoint_every == 0
-        {
+        if cfg.checkpoint_every > 0 && slice_end % cfg.checkpoint_every == 0 {
             if let Some(cp_dir) = cfg.checkpoint_dir.as_ref() {
                 let dir = cp_dir.join(format!("iter-{}", slice_end));
                 if std::fs::create_dir_all(&dir).is_ok() {
@@ -1051,10 +1053,8 @@ where
         {
             let mut enc_w = enc.clone();
             for t in slice_start..warmup_end {
-                let hero_seat = cham_core::rng::pick(
-                    &mut child(cfg.train_seed, &format!("warm-seat{t}")),
-                    2,
-                );
+                let hero_seat =
+                    cham_core::rng::pick(&mut child(cfg.train_seed, &format!("warm-seat{t}")), 2);
                 seat_histogram[hero_seat] += 1;
                 let w_t = averaging_weight_gamma(t, total_iters, false, cfg.avg_gamma);
                 let mut iter_rng = child(cfg.train_seed, &format!("iter{t}"));
@@ -1114,10 +1114,8 @@ where
                         if t >= slice_end_local {
                             break;
                         }
-                        let hero_seat = cham_core::rng::pick(
-                            &mut child(train_seed, &format!("seat{t}")),
-                            2,
-                        );
+                        let hero_seat =
+                            cham_core::rng::pick(&mut child(train_seed, &format!("seat{t}")), 2);
                         local_hist[hero_seat] += 1;
                         let w_t = averaging_weight_gamma(t, total_iters, false, avg_gamma);
                         let deck = Deck::shuffled(&mut child(train_seed, &format!("d{t}")));

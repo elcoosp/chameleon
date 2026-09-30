@@ -301,8 +301,14 @@ impl ChameleonAgent {
                 let sigma = match expert_sigma[k].as_ref() {
                     Some(s) => s.clone(),
                     None => match robust_sigma.as_ref() {
-                        Some(s) => { _fallback_bit = true; s.clone() }
-                        None => { _fallback_bit = true; vec![1.0 / n as f64; n] }
+                        Some(s) => {
+                            _fallback_bit = true;
+                            s.clone()
+                        }
+                        None => {
+                            _fallback_bit = true;
+                            vec![1.0 / n as f64; n]
+                        }
                     },
                 };
                 let pi = reach[k];
@@ -314,7 +320,10 @@ impl ChameleonAgent {
             {
                 let sigma = match robust_sigma.as_ref() {
                     Some(s) => s.clone(),
-                    None => { _fallback_bit = true; vec![1.0 / n as f64; n] }
+                    None => {
+                        _fallback_bit = true;
+                        vec![1.0 / n as f64; n]
+                    }
                 };
                 weight_mass += w[4] * reach[4];
                 for a in 0..n {
@@ -325,8 +334,12 @@ impl ChameleonAgent {
                 _fallback_bit = true;
                 mix = vec![0.0; n];
                 for k in 0..4 {
-                    if w[k] <= 1e-9 { continue; }
-                    let sigma = expert_sigma[k].as_ref().cloned()
+                    if w[k] <= 1e-9 {
+                        continue;
+                    }
+                    let sigma = expert_sigma[k]
+                        .as_ref()
+                        .cloned()
                         .unwrap_or_else(|| vec![1.0 / n as f64; n]);
                     for a in 0..n {
                         mix[a] += w[k] * sigma.get(a).copied().unwrap_or(0.0);
@@ -338,16 +351,22 @@ impl ChameleonAgent {
                 _fallback_bit = true;
                 mix = vec![1.0 / n as f64; n];
             } else {
-                for v in mix.iter_mut() { *v /= total; }
+                for v in mix.iter_mut() {
+                    *v /= total;
+                }
             }
         } else {
             // R2 semantics: drop missed, renormalize, fallback only if empty
             let mut mass = 0.0;
             for k in 0..4 {
-                if w[k] <= 1e-9 || expert_sigma[k].is_none() { continue; }
+                if w[k] <= 1e-9 || expert_sigma[k].is_none() {
+                    continue;
+                }
                 mass += w[k] * reach[k];
             }
-            if robust_sigma.is_some() { mass += w[4] * reach[4]; }
+            if robust_sigma.is_some() {
+                mass += w[4] * reach[4];
+            }
             let reach_mass_zero = mass <= 1e-12;
             let any_tier = (0..4).any(|k| expert_sigma[k].is_some()) || robust_sigma.is_some();
             if !any_tier {
@@ -356,20 +375,32 @@ impl ChameleonAgent {
             } else if reach_mass_zero {
                 let mut m2 = 0.0;
                 for k in 0..4 {
-                    if w[k] <= 1e-9 { continue; }
+                    if w[k] <= 1e-9 {
+                        continue;
+                    }
                     if let Some(s) = expert_sigma[k].as_ref() {
-                        for a in 0..n { mix[a] += w[k] * s.get(a).copied().unwrap_or(0.0); }
+                        for a in 0..n {
+                            mix[a] += w[k] * s.get(a).copied().unwrap_or(0.0);
+                        }
                         m2 += w[k];
                     }
                 }
                 if let Some(s) = robust_sigma.as_ref() {
-                    for a in 0..n { mix[a] += w[4] * s.get(a).copied().unwrap_or(0.0); }
+                    for a in 0..n {
+                        mix[a] += w[4] * s.get(a).copied().unwrap_or(0.0);
+                    }
                     m2 += w[4];
                 }
-                if m2 > 1e-12 { for v in mix.iter_mut() { *v /= m2; } }
+                if m2 > 1e-12 {
+                    for v in mix.iter_mut() {
+                        *v /= m2;
+                    }
+                }
             } else {
                 for k in 0..4 {
-                    if w[k] <= 1e-9 { continue; }
+                    if w[k] <= 1e-9 {
+                        continue;
+                    }
                     if let Some(s) = expert_sigma[k].as_ref() {
                         for a in 0..n {
                             mix[a] += w[k] * reach[k] * s.get(a).copied().unwrap_or(0.0);
@@ -382,7 +413,11 @@ impl ChameleonAgent {
                     }
                 }
                 let total: f64 = mix.iter().sum();
-                if total > 1e-12 { for v in mix.iter_mut() { *v /= total; } }
+                if total > 1e-12 {
+                    for v in mix.iter_mut() {
+                        *v /= total;
+                    }
+                }
             }
         }
 

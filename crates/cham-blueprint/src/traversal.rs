@@ -414,7 +414,13 @@ impl<'a> Traversal<'a> {
             sink.add_regret(self.table.as_ref(), off, a, (v[a] - v_bar) as f32);
         }
         for a in 0..w_slots {
-            sink.add_strat(self.table.as_ref(), off, w_slots, a, (w_t * sigma[a]) as f32);
+            sink.add_strat(
+                self.table.as_ref(),
+                off,
+                w_slots,
+                a,
+                (w_t * sigma[a]) as f32,
+            );
         }
         sink.add_weight(self.table.as_ref(), off, w_slots, w_t as f32);
         sink.add_visit(self.table.as_ref(), off, w_slots);

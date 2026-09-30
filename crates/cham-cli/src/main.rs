@@ -413,8 +413,15 @@ fn main() -> anyhow::Result<()> {
             raw_opponent_11,
             raw_opponent_19,
         } => cmd::collect::run(
-            &out, max_rows, real, &bundle, sessions, hands,
-            raw_opponent, raw_opponent_11, raw_opponent_19,
+            &out,
+            max_rows,
+            real,
+            &bundle,
+            sessions,
+            hands,
+            raw_opponent,
+            raw_opponent_11,
+            raw_opponent_19,
         ),
         Command::Probe {
             agent,

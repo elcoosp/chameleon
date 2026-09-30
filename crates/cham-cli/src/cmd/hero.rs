@@ -65,8 +65,8 @@ pub fn build_chameleon_with_router(
     // Used by competitive-measurement scripts that retrain into a different
     // directory (e.g. `artifacts/agent-honest`) so they can bench without
     // swapping directories (which would corrupt the running training).
-    let bundle_path = std::env::var("CHAM_AGENT_BUNDLE")
-        .unwrap_or_else(|_| "artifacts/agent".to_string());
+    let bundle_path =
+        std::env::var("CHAM_AGENT_BUNDLE").unwrap_or_else(|_| "artifacts/agent".to_string());
     let bundle = std::path::Path::new(&bundle_path);
     let routing = routing_for(agent);
     let loaded = cham_agent::loader::load_agent(bundle, routing, depth_bb)
@@ -96,10 +96,16 @@ pub fn build_chameleon_with_router(
             // path so a bundle without `router.bin` can still be tested at
             // different sharpening values.
             let (mut temp, mut n0, beta, z) = overrides.unwrap_or((0.7, 8.0, 0.5, -1.5));
-            if let Ok(v) = std::env::var("CHAM_ROUTER_TEMP").unwrap_or_default().parse::<f64>() {
+            if let Ok(v) = std::env::var("CHAM_ROUTER_TEMP")
+                .unwrap_or_default()
+                .parse::<f64>()
+            {
                 temp = v;
             }
-            if let Ok(v) = std::env::var("CHAM_ROUTER_N0").unwrap_or_default().parse::<f64>() {
+            if let Ok(v) = std::env::var("CHAM_ROUTER_N0")
+                .unwrap_or_default()
+                .parse::<f64>()
+            {
                 n0 = v;
             }
             cham_router::runtime::RouterRuntime::new(SoftmaxModel::new(20, 4), temp, n0, beta, z)
