@@ -143,6 +143,12 @@ enum Command {
         /// leak. See docs/plans/ROUTER-FEATURE-LEAK-2026-09-29.md.
         #[arg(long)]
         raw_opponent: bool,
+        /// For --real: emit the 11-dim opponent-only feature vector
+        /// (10 raw frequencies + preflop/postflop tilt) — the tilt
+        /// separates TAG from LAG where raw frequencies cannot. See
+        /// docs/plans/ROUTER-TILT-FEATURE-DESIGN-2026-09-30.md.
+        #[arg(long)]
+        raw_opponent_11: bool,
     },
     /// Tier 1 probe (LBR proxy, coverage, router calibration)
     Probe {
@@ -386,7 +392,11 @@ fn main() -> anyhow::Result<()> {
             sessions,
             hands,
             raw_opponent,
-        } => cmd::collect::run(&out, max_rows, real, &bundle, sessions, hands, raw_opponent),
+            raw_opponent_11,
+        } => cmd::collect::run(
+            &out, max_rows, real, &bundle, sessions, hands,
+            raw_opponent, raw_opponent_11,
+        ),
         Command::Probe {
             agent,
             diag_fallback,
