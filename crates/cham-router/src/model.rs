@@ -176,3 +176,63 @@ impl SoftmaxModel {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `with_feature_set` records the name; default is the backward-compat
+    /// "opportunity-gated-20" string. See
+    /// `docs/plans/ROUTER-INTEGRATION-DESIGN-2026-09-30.md`.
+    #[test]
+    fn feature_set_defaults_and_records() {
+        let m = SoftmaxModel::new(19, 4);
+        assert_eq!(m.feature_set, "opportunity-gated-20");
+        let m = m.with_feature_set("raw-opponent-19");
+        assert_eq!(m.feature_set, "raw-opponent-19");
+    }
+
+    /// `with_temperature` divides weights AND bias by T. T=1 is a no-op.
+    /// T!=1 must not change the ARGMAX on any input (temperature scaling
+    /// is monotone on logits).
+    #[test]
+    fn temperature_fold_preserves_argmax() {
+        let m = SoftmaxModel::new(19, 4);
+        let m_cal = m.clone().with_temperature(2.5);
+
+        // Pick a handful of feature vectors and assert argmax matches.
+        for seed in 0..30u64 {
+            let mut state: u64 = seed.wrapping_mul(0x9E3779B97F4A7C15) | 1;
+            let mut next = || {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state
+            };
+            let mut f = [0f32; 19];
+            for v in f.iter_mut() {
+                *v = ((next() >> 11) as f64 / (1u64 << 53) as f64) as f32;
+            }
+            let p_raw = m.forward(&f);
+            let p_cal = m_cal.forward(&f);
+            let amax = |p: &[f64]| p.iter().enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
+            assert_eq!(amax(&p_raw), amax(&p_cal), "argmax changed for seed {seed}");
+        }
+    }
+
+    /// T=1 leaves the model byte-identical (no weight churn).
+    #[test]
+    fn temperature_one_is_noop() {
+        let m = SoftmaxModel::new(19, 4);
+        let m1 = m.clone().with_temperature(1.0);
+        for (row_a, row_b) in m.weights.iter().zip(m1.weights.iter()) {
+            for (a, b) in row_a.iter().zip(row_b.iter()) {
+                assert_eq!(a, b);
+            }
+        }
+        for (a, b) in m.bias.iter().zip(m1.bias.iter()) {
+            assert_eq!(a, b);
+        }
+    }
+}
