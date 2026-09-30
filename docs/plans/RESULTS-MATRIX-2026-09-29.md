@@ -79,7 +79,9 @@ Matched-visits comparison (tiny-500k and full-9M both ~24 visits/infoset):
 New SB SOTA at the 20M budget, but BB still collapsed. See
 `MEDIUM-20M-LBR-2026-09-29.md`.
 
-## Baselines vs the archetype pool (ladder, not LBR)
+## Baselines vs the archetype pool (ladder --fast, 2500 deals/pair)
+
+Original 09-28 measurement (agent-full-honest, per `assemble-full.log`):
 
 | agent | mean mb/seating | wins |
 |---|---:|---:|
@@ -87,6 +89,21 @@ New SB SOTA at the 20M budget, but BB still collapsed. See
 | full-mixture (synthetic router) | +4 388 | 6/9 |
 | full (argmax) | **+7 146** | **9/9** |
 | full-hedged | −1 994 | 0/9 |
+
+2026-09-30 re-measurement of robust-only bundles (same pool, 2500 deals):
+
+| bundle | mean mb/seating | wins |
+|---|---:|---:|
+| agent-honest robust-only    | ~+720 | 3/9 (only callbot/jamfix/pnash win) |
+| par-5M robust-only          | ~+820 | 3/9 |
+
+**The robust-only policy is much weaker than `full` (argmax over 4
+experts) on the archetype pool.** LBR SOTA (par-5M robust) is not
+ladder SOTA. See `PAR5M-ROBUST-LADDER-2026-09-30.md`.
+
+A ladder matrix across routing modes on agent-full-honest
+(`scripts/ladder-matrix-2026-09-30.sh`) is queued to isolate the
+routing contribution.
 
 ## The frontier
 
