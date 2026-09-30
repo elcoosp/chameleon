@@ -5,6 +5,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::RouterError;
 
+/// Which feature vector this model was trained against. Used by the
+/// agent pipeline to dispatch the right feature constructor: a
+/// `raw-opponent-19` model expects 19 opponent-only features, an
+/// `opportunity-gated-20` model (the default, and every historical
+/// artifact) expects the 20-dim tracker vector.
+///
+/// Default is `opportunity-gated-20` so all pre-2026-09-30 artifacts
+/// load with their historical semantics. See
+/// `docs/plans/ROUTER-INTEGRATION-DESIGN-2026-09-30.md`.
+pub fn default_feature_set() -> String {
+    "opportunity-gated-20".to_string()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SoftmaxModel {
     /// weights[k][n]
@@ -12,6 +25,10 @@ pub struct SoftmaxModel {
     pub bias: Vec<f64>,
     pub n_features: usize,
     pub n_classes: usize,
+    /// Feature set this model was trained against. Defaulted for
+    /// backward compatibility with pre-2026-09-30 artifacts.
+    #[serde(default = "default_feature_set")]
+    pub feature_set: String,
 }
 
 impl SoftmaxModel {
@@ -30,7 +47,36 @@ impl SoftmaxModel {
             bias: vec![0.0; n_classes],
             n_features,
             n_classes,
+            feature_set: default_feature_set(),
         }
+    }
+
+    /// Chainable setter for `feature_set` (used by `train-router` after
+    /// training to record which feature vector this model expects).
+    pub fn with_feature_set(mut self, name: impl Into<String>) -> Self {
+        self.feature_set = name.into();
+        self
+    }
+
+    /// Fold a temperature-scaling calibration into the model's weights:
+    /// divide every weight and bias by `T`. This makes the model's raw
+    /// `forward()` produce the *calibrated* softmax `softmax(logits / T)`
+    /// without any runtime change. Top-1 argmax is unchanged (temperature
+    /// scaling is monotone on logits), but the confidence values match the
+    /// observed accuracy. See
+    /// `docs/plans/ROUTER-INTEGRATION-DESIGN-2026-09-30.md`.
+    pub fn with_temperature(mut self, t: f64) -> Self {
+        if t > 0.0 && (t - 1.0).abs() > 1e-9 {
+            for row in self.weights.iter_mut() {
+                for v in row.iter_mut() {
+                    *v /= t;
+                }
+            }
+            for v in self.bias.iter_mut() {
+                *v /= t;
+            }
+        }
+        self
     }
 
     /// Raw class scores (logits) without softmax. Used by temperature-
