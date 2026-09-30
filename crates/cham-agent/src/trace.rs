@@ -28,6 +28,12 @@ pub struct DecisionTrace {
     pub reach_mass_zero: bool,
     /// Diagnostic (P1): mix total hit zero → uniform fallback.
     pub mix_zero: bool,
+    /// Diagnostic (2026-09-30): the argmax path picked expert k, k's
+    /// strategy missed, and robust_sigma covered the decision. The
+    /// ACTION comes from robust, but `fallback_used` is reset to false
+    /// on this path (see `pipeline.rs::act_impl` R3 policy). See
+    /// `ARGMAX-FALLBACK-REALLY-MATTERS-2026-09-30.md`.
+    pub expert_missed_robust_covered: bool,
 }
 
 pub fn record(rec: Option<&mut Recorder>, run: &str, t: &DecisionTrace) -> Result<(), AgentError> {

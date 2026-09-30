@@ -99,6 +99,10 @@ struct DiagStats {
     robust_miss: u64,
     reach_mass_zero: u64,
     mix_zero: u64,
+    /// Diagnostic (2026-09-30): argmax chose expert k, k missed, robust
+    /// covered. The action came from robust but `fallback_used` was false.
+    /// See `ARGMAX-FALLBACK-REALLY-MATTERS-2026-09-30.md`.
+    expert_missed_robust_covered: u64,
 }
 
 fn pool_ids(pool_path: &str) -> Vec<String> {
@@ -181,10 +185,11 @@ fn run_diag(agent: &str, bundle: &str) -> i32 {
         "probe --diag-fallback: bundle={bundle} agent={agent} deals/opponent={deals} pool={pool_path}"
     );
     println!(
-        "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
+        "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
         "opponent",
         "decis",
         "fb_used",
+        "rc_used",
         "e0_miss",
         "e1_miss",
         "e2_miss",
@@ -203,11 +208,13 @@ fn run_diag(agent: &str, bundle: &str) -> i32 {
         total.robust_miss += stats.robust_miss;
         total.reach_mass_zero += stats.reach_mass_zero;
         total.mix_zero += stats.mix_zero;
+        total.expert_missed_robust_covered += stats.expert_missed_robust_covered;
         println!(
-            "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
+            "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
             opp_id,
             stats.decisions,
             stats.fallback_used,
+            stats.expert_missed_robust_covered,
             stats.expert_miss[0],
             stats.expert_miss[1],
             stats.expert_miss[2],
@@ -217,10 +224,11 @@ fn run_diag(agent: &str, bundle: &str) -> i32 {
         );
     }
     println!(
-        "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
+        "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
         "TOTAL",
         total.decisions,
         total.fallback_used,
+        total.expert_missed_robust_covered,
         total.expert_miss[0],
         total.expert_miss[1],
         total.expert_miss[2],
@@ -289,6 +297,9 @@ fn run_diag_inner(bot: &mut ChameleonAgent, opp_id: &str, deals: u64, base_seed:
                     }
                     if t.fallback_used {
                         stats.fallback_used += 1;
+                    }
+                    if t.expert_missed_robust_covered {
+                        stats.expert_missed_robust_covered += 1;
                     }
                 }
                 action

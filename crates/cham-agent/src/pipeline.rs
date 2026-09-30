@@ -574,6 +574,7 @@ impl ChameleonAgent {
         // mode dispatch — EXP-012 R3: trace.fallback_used comes from the
         // DECISION path (the arm actually used), not the mixture path.
         let mut tier_missed = false;
+        let mut robust_covered_expert_miss = false;
         let action = match mode.routing.as_str() {
             "robust-only" => {
                 let sigma = match robust_sigma.as_ref() {
@@ -607,6 +608,7 @@ impl ChameleonAgent {
                     tier_missed = true;
                 } else if expert_missed[k] && robust_sigma.is_some() {
                     tier_missed = false;
+                    robust_covered_expert_miss = true;
                 }
                 slots[argmax_of(&sigma)].action // NO rng (replayability)
             }
@@ -714,6 +716,7 @@ impl ChameleonAgent {
             robust_missed,
             reach_mass_zero,
             mix_zero,
+            expert_missed_robust_covered: robust_covered_expert_miss,
         };
         let _ = trace_record(self.recorder.as_mut(), "agent", &t);
         self.last_trace = Some(t);
