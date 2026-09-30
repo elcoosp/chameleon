@@ -534,25 +534,9 @@ pub fn train_with_threads(
                 frozen,
             } => match opponent {
                 cham_opponents::OpponentSpec::Arch(a)
-                | cham_opponents::OpponentSpec::Jitter(a, _) => {
-                    // L-8 fix (2026-09-27): the jitter redraw stream must be
-                    // per-iteration. The previous form used `child(jitter_seed,
-                    // "jd")` — a CONSTANT — so the low 32 bits of the seed
-                    // were drawn from the same stream every iteration and the
-                    // only per-iteration entropy came from `| t`, i.e. the
-                    // iteration INDEX itself. SPECS/04 §3 requires per-iteration
-                    // jitter entropy; XOR the iteration into the seed label so
-                    // each `t` gets a fresh draw.
-                    let mut jd = child(*jitter_seed ^ t, "jd");
-                    let seed = (cham_core::rng::next_u32(&mut jd) as u64) << 32 | t;
-                    Some(Box::new(
-                        cham_opponents::archetype::ArchetypeAgent::jittered(
-                            *a,
-                            seed,
-                            cham_opponents::PercentileChart::global(),
-                        ),
-                    ))
-                }
+                | cham_opponents::OpponentSpec::Jitter(a, _) => Some(
+                    build_archetype_opponent(*a, *jitter_seed, t),
+                ),
                 // v3 §6 (M6): the frozen victim — real snapshot rows, victim
                 // encoder rebuilt from the oracle's buckets/config. Missing
                 // oracle = loud refusal (a uniform "frozen" opponent would
@@ -937,4 +921,29 @@ impl Agent for DummyOpponent {
     ) -> cham_core::engine::Action {
         unreachable!("cham-blueprint: invariant I1 (robust mode must not consult the dummy)")
     }
+}
+
+/// Build a per-iteration jittered archetype opponent. The jitter redraw
+/// stream is per-iteration: `child(jitter_seed ^ t, "jd")` gives a fresh
+/// seed for each `t`. This was originally inlined in the serial exploit
+/// loop; extracted 2026-09-30 so the future parallel-exploit loop can
+/// share the exact construction. See
+/// `docs/plans/EXPLOIT-PARALLELIZATION-DESIGN-2026-09-30.md`.
+///
+/// `jitter_seed` is XORed with `t` (L-8 fix, 2026-09-27): the previous
+/// form used a constant `child(jitter_seed, "jd")`, so per-iteration
+/// entropy came only from `| t`. SPECS/04 §3 requires per-iteration
+/// jitter entropy.
+fn build_archetype_opponent(
+    arch: cham_opponents::params::ArchetypeId,
+    jitter_seed: u64,
+    t: u64,
+) -> Box<dyn Agent> {
+    let mut jd = child(jitter_seed ^ t, "jd");
+    let seed = (cham_core::rng::next_u32(&mut jd) as u64) << 32 | t;
+    Box::new(cham_opponents::archetype::ArchetypeAgent::jittered(
+        arch,
+        seed,
+        cham_opponents::PercentileChart::global(),
+    ))
 }
