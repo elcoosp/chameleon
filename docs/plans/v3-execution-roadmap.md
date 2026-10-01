@@ -1,5 +1,8 @@
 # CHAMELEON v3 — Execution Roadmap (vetted, code-grounded)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 > **Status:** proposal, ready to convert into `EXP-*` / `G3.x` gates.
 > **Inputs reviewed:** `docs/plans/v2-roadmap.md`, `docs/plans/v3-brainstorm.md`
 > (draft, several items tagged `[VERIFY]`), `docs/review/optims-claude.md`,
