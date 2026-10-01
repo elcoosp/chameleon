@@ -30,6 +30,13 @@ pub fn requires_trained_artifacts(agent: &str) -> bool {
     TRAINED_AGENTS.contains(&agent)
 }
 
+/// The full list of routable agent names. Used by `ladder`/`probe`/`ab` to
+/// refuse unknown names with a clear error rather than silently falling
+/// through to a baseline (see STALE-BINARY-GOTCHA-2026-10-01.md).
+pub fn trained_agents() -> &'static [&'static str] {
+    &TRAINED_AGENTS
+}
+
 /// Required bundle files, mirroring `cham_agent::loader::load_agent`
 /// (`abstraction.toml` + buckets + 4 experts + robust).
 fn required_bundle_files() -> Vec<std::path::PathBuf> {
