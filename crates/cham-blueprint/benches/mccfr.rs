@@ -32,7 +32,6 @@ fn bench_mccfr_iter(c: &mut Criterion) {
                     opp: &mut opp,
                     rbp: cham_blueprint::traversal::RbpConfig::default(),
                     iteration: t,
-                    total_iters: 20,
                     mode: cham_blueprint::modes::TrainModeTag::Exploit,
                     hero_nodes: 0,
                     pruned_nodes: 0,

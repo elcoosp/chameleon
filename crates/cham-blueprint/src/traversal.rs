@@ -206,7 +206,6 @@ pub struct Traversal<'a> {
     pub opp: &'a mut dyn Agent,
     pub rbp: RbpConfig,
     pub iteration: u64,
-    pub total_iters: u64,
     pub mode: TrainModeTag,
     /// counters for the seat histogram / pruning stats (printed by the trainer)
     pub hero_nodes: u64,
