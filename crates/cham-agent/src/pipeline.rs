@@ -152,7 +152,10 @@ impl ChameleonAgent {
         };
         self.weights = self.router.weights_for_hand(&features, trend_z);
         self.reach = [1.0; 5];
-        self.argmax_k = if self.mode.routing == "argmax" || self.mode.routing == "hedged" {
+        self.argmax_k = if self.mode.routing == "argmax"
+            || self.mode.routing == "sample-expert"
+            || self.mode.routing == "hedged"
+        {
             let mut best = 0usize;
             for (k, &w) in self.weights.iter().take(4).enumerate() {
                 if w > self.weights[best] {
@@ -426,7 +429,7 @@ impl ChameleonAgent {
             "robust-only" => robust_sigma
                 .clone()
                 .unwrap_or_else(|| vec![1.0 / n as f64; n]),
-            "argmax" => {
+            "argmax" | "sample-expert" => {
                 let k = self.argmax_k.unwrap_or(0);
                 expert_sigma[k].clone().unwrap_or_else(|| {
                     robust_sigma
@@ -709,6 +712,37 @@ impl ChameleonAgent {
                     robust_covered_expert_miss = true;
                 }
                 slots[argmax_of(&sigma)].action // NO rng (replayability)
+            }
+            "sample-expert" => {
+                // 2026-10-01 (F7): same routing decision as `argmax`
+                // (pick the argmax expert k), but sample that expert's
+                // mixed strategy σ_k instead of playing its mode. The
+                // mode-taking version is more exploitable (BR loses
+                // nothing to mixing) and discards the blueprint's
+                // calibrated bluff frequencies; sampling is the
+                // equilibrium-correct deployment. Kept as a separate
+                // routing mode so existing measurements using `argmax`
+                // stay valid; A/B via the ladder.
+                let k = argmax_k.unwrap_or(0);
+                let sigma = match expert_sigma[k].as_ref() {
+                    Some(s) => s.clone(),
+                    None => match robust_sigma.as_ref() {
+                        Some(s) => {
+                            tier_missed = true;
+                            s.clone()
+                        }
+                        None => {
+                            tier_missed = true;
+                            vec![1.0 / n as f64; n]
+                        }
+                    },
+                };
+                if expert_missed[k] && robust_sigma.is_none() {
+                    tier_missed = true;
+                } else if expert_missed[k] && robust_sigma.is_some() {
+                    tier_missed = false;
+                }
+                slots[sample_index(&sigma, rng)].action
             }
             "bayes" => {
                 let sigma = match bayes {

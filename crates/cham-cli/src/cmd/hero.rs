@@ -32,6 +32,10 @@ pub fn routing_for(agent: &str) -> &str {
         // top weight is above CHAM_HEDGE_THRESHOLD (default 0.5), else
         // fall back to the mixture.
         "full-hedged" | "hedged" => "hedged",
+        // 2026-10-01 (F7): route like argmax, but sample the expert's
+        // mixed strategy instead of playing its mode. Opt-in mode for the
+        // A/B against the mode-taking `argmax`.
+        "sample-expert" | "full-sample-expert" => "sample-expert",
         "robust-only" => "robust-only",
         "bayes" => "bayes",
         other => other,
