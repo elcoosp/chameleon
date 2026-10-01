@@ -47,6 +47,42 @@ pub(crate) fn hedge_debug_enabled() -> bool {
     }
 }
 
+/// F6c (2026-10-01): whether to translate the opponent's off-tree sizes
+/// into same-class abstract slots before recording them into the
+/// infoset key stream. Default OFF — the shipped bundle was keyed
+/// without translation, so enabling by default would break its key
+/// match against real opponents. Set `CHAM_OFFTREE_TRANSLATE=1` to
+/// enable (Phase 2 of the competitiveness report).
+fn offtree_translate_enabled() -> bool {
+    use std::sync::OnceLock;
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| {
+        std::env::var("CHAM_OFFTREE_TRANSLATE")
+            .ok()
+            .map(|v| v == "1")
+            .unwrap_or(false)
+    })
+}
+
+/// F6c: deterministic `u` in `[0, 1)` for `ActionLadder::translate`.
+/// Derived from `(hand_idx, street, seq.lens)` via FNV-1a so that a
+/// replayed hand always picks the same slot.
+fn derive_translate_u(hand_idx: u64, street: u8, lens: [u8; 4]) -> f64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in hand_idx.to_le_bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    h ^= street as u64;
+    h = h.wrapping_mul(0x100_0000_01b3);
+    for l in lens {
+        h ^= l as u64;
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    // Top 53 bits → [0, 1); matches f64 mantissa precision.
+    (h >> 11) as f64 / (1u64 << 53) as f64
+}
+
 pub struct ChameleonAgent {
     pub mode: AgentMode,
     pub encoder: Encoder,
@@ -933,7 +969,19 @@ impl Agent for ChameleonAgent {
         if player == obs.player {
             return;
         }
-        self.encoder.record(obs, player, action, &mut self.seq);
+        // F6c (2026-10-01): when enabled, translate off-tree aggressive
+        // sizes into a same-class abstract slot BEFORE recording, so the
+        // encoded key matches what the training tree produced. The
+        // pseudo-harmonic mapping uses a deterministic u derived from
+        // (hand_idx, street, seq.lens), so replay stays bit-exact.
+        // Default off (see `offtree_translate_enabled`).
+        let recorded = if offtree_translate_enabled() {
+            let u = derive_translate_u(self.hand_idx, obs.street.as_u8(), self.seq.lens);
+            self.encoder.ladder.translate(obs, &self.seq, action, u)
+        } else {
+            action
+        };
+        self.encoder.record(obs, player, recorded, &mut self.seq);
     }
 
     fn on_hand_end(&mut self, ph: &cham_core::engine::PublicHistory, hero_net: i64) {
