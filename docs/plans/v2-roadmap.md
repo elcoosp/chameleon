@@ -1,5 +1,8 @@
 # CHAMELEON v2 — Roadmap
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 > **Status:** [CONTEXT] — rationale for V2-DEV-PLAN; reference only
 
 **Status:** core is sound and should ship as-is. v2 is a layer on top, not a rewrite: it makes "competitive" measurable, imports two literature techniques that survived fact-checking, cuts one that didn't fit the project's own determinism contract, and adds several original, cheap, evidence-gated mechanisms. Every item below enters through the existing M-1 / EXP-registry / ledger machinery — v2 adds **zero** new trust mechanisms, only new things to measure with the ones you already have.
