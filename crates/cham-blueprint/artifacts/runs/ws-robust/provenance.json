@@ -8,11 +8,10 @@
   "threads": 1,
   "abstraction_hash": 0,
   "infosets": 3805,
-  "wall_s": 1.420711459,
+  "wall_s": 0.617290833,
   "parent": null,
   "seat_histogram": [
     1000,
     1000
-  ],
-  "train_explore_eps": 0.0
+  ]
 }
