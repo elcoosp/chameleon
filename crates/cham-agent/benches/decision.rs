@@ -59,6 +59,7 @@ fn build_world() -> BenchWorld {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let (table, prov) = cham_blueprint::train(
         &tcfg,

@@ -65,6 +65,16 @@ pub struct TrainerConfig {
     pub checkpoint_every: u64,
     #[serde(default)]
     pub checkpoint_dir: Option<std::path::PathBuf>,
+    /// Training-time exploration floor for `sigma_rms` (F9, 2026-10-01).
+    /// 0.0 = no floor (bit-identical to pre-2026-09-29 behavior).
+    /// This field replaces the previous pattern of reading
+    /// CHAM_TRAIN_EPS inside `train_with_threads` and mutating a
+    /// process-global atomic that every `sigma_rms` call consulted.
+    /// The CLI still reads CHAM_TRAIN_EPS and populates this field at
+    /// startup; the field is serialized in `TrainerConfig` and recorded
+    /// in provenance.
+    #[serde(default)]
+    pub explore_eps: f64,
 }
 
 pub fn default_regret_discount() -> f32 {

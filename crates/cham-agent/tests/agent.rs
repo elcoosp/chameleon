@@ -41,6 +41,7 @@ fn trained_policy(dir: &Path, iters: u64, seed: u64) -> BlueprintPolicy {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let (table, prov) = cham_blueprint::train(
         &tcfg,

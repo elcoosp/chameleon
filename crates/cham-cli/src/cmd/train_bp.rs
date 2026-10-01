@@ -85,6 +85,13 @@ pub fn run(
             return crate::cmd::EXIT_FAIL;
         }
     };
+    // F9 (2026-10-01): read CHAM_TRAIN_EPS at the CLI boundary and
+    // populate the config field. The blueprint crate no longer reads it.
+    let explore_eps = std::env::var("CHAM_TRAIN_EPS")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|v| (0.0..=0.5).contains(v))
+        .unwrap_or(0.0);
     let tcfg = cham_blueprint::TrainerConfig {
         depth_bb: depth,
         iters,
@@ -103,6 +110,7 @@ pub fn run(
         } else {
             None
         },
+        explore_eps,
     };
     let runs = std::path::Path::new(out).join(format!("{mode}-{seed}"));
 
@@ -148,6 +156,7 @@ pub fn run(
             avg_gamma,
             checkpoint_every: 0,
             checkpoint_dir: None,
+        explore_eps: 0.0,
         };
         let key = cham_blueprint::train_cache::train_cache_key(
             &cfg_peek,
@@ -262,6 +271,7 @@ pub fn run(
             avg_gamma,
             checkpoint_every: 0,
             checkpoint_dir: None,
+        explore_eps: 0.0,
         };
         let key = cham_blueprint::train_cache::train_cache_key(
             &cfg_peek,

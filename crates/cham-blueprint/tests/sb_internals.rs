@@ -29,6 +29,7 @@ fn sb_root_internals() {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let engine_cfg = EngineConfig::depth(100);
     let dir = tempfile::tempdir().unwrap();

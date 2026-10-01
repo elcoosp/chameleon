@@ -39,14 +39,27 @@ for opp in nit tag lag station; do
     continue
   fi
   log "=== training expert: $opp (5M iters) ==="
-  target/release/chameleon train-bp \
+  if ! target/release/chameleon train-bp \
     --mode exploit --opponent "arch:$opp" \
     --iters "$ITERS" --depth 100 --seed "$SEED" \
     --config "$CFG" --buckets "$BUCKETS" \
     --out "$sub" \
     --threads "$THREADS" --thread-mode hogwild \
     > "artifacts/retrain-5M-expert-$opp.log" 2>&1
-  log "  $opp done"
+  then
+    log "  ERROR: $opp training failed (exit != 0); see log"
+    exit 1
+  fi
+  # Guard: refuse to proceed if the produced policy is a stub
+  # (the 2026-09-30 partial-failure mode produced 308-byte stubs on
+  # empty-table parallel exploit runs — see RETRAIN-5M-EXPERTS-PARTIAL).
+  produced="$sub/exploit-$SEED/policy/policy.bin"
+  sz=$(wc -c < "$produced" 2>/dev/null || echo 0)
+  if [ "$sz" -lt 100000 ]; then
+    log "  ERROR: $opp policy is only $sz bytes (expected > 100 KB); aborting"
+    exit 1
+  fi
+  log "  $opp done ($sz bytes)"
 done
 
 log "=== assemble bundle: $AGENT ==="

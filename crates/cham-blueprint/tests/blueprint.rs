@@ -246,6 +246,7 @@ fn seat_randomized() {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
@@ -284,6 +285,7 @@ fn rm_plus_floors() {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
@@ -331,6 +333,7 @@ fn robust_two_sided_updates() {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let mode = TrainMode::Robust;
     let (_t, prov) = cham_blueprint::train(
@@ -531,6 +534,7 @@ fn determinism_same_seed_and_resume() {
             avg_gamma: 0.9,
             checkpoint_every: 0,
             checkpoint_dir: None,
+        explore_eps: 0.0,
         };
         let mode = TrainMode::Exploit {
             opponent: cham_opponents::OpponentSpec::CallBot,
@@ -609,6 +613,7 @@ fn resume_continues_bitstream() {
             avg_gamma: 0.9,
             checkpoint_every: 0,
             checkpoint_dir: None,
+        explore_eps: 0.0,
         };
         let mode = TrainMode::Exploit {
             opponent: cham_opponents::OpponentSpec::CallBot,
@@ -824,6 +829,7 @@ fn exploit_vs_constant_callbot() {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let mode = TrainMode::Exploit {
         opponent: cham_opponents::OpponentSpec::CallBot,
@@ -914,6 +920,7 @@ fn warmstart_exact_keys_and_beats_cold() {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let (robust_table, _) = cham_blueprint::train(
         &robust_cfg,
@@ -1034,6 +1041,7 @@ fn snapbatch_train_smoke() {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let dir = Path::new("artifacts/runs/snap-test");
     let (t, prov) = cham_blueprint::train_with_threads(
@@ -1308,6 +1316,7 @@ fn snapbatch_matches_deterministic_at_one_thread() {
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,
+        explore_eps: 0.0,
     };
     let cfg_tiny = TINY();
     let mode = TrainMode::Exploit {
