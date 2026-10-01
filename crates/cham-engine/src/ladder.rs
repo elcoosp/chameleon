@@ -32,6 +32,14 @@ pub struct ActionLadder {
     pub cfg: AbstractionConfig,
 }
 
+/// Ganzfried & Sandholm 2013 pseudo-harmonic mapping: probability of
+/// mapping a real pot fraction `x` to the SMALLER abstract size `a`
+/// (where `a < x < b`). Boundary conditions: `x = a` → 1.0, `x = b` → 0.0.
+/// The report's values: A=0.5, B=1.0, x=0.6 → 0.750.
+pub fn ph_prob_lower(a: f64, b: f64, x: f64) -> f64 {
+    ((b - x) * (1.0 + a)) / ((b - a) * (1.0 + x))
+}
+
 impl ActionLadder {
     pub fn new(cfg: &AbstractionConfig) -> ActionLadder {
         ActionLadder { cfg: cfg.clone() }
@@ -267,6 +275,63 @@ impl ActionLadder {
         let (w1, w2) = (w(f1), w(f2));
         let s = w1 + w2;
         [(i1, w1 / s), (i2, w2 / s)]
+    }
+
+    /// Ganzfried & Sandholm 2013 pseudo-harmonic translation (F6c).
+    ///
+    /// Map a real off-tree aggressive action to one of the same-class
+    /// abstract slot actions on the CURRENT ladder. `u` is a deterministic
+    /// uniform in `[0, 1)` supplied by the caller — the pipeline derives it
+    /// from (hand_idx, street, seq.lens) so replay stays bit-exact.
+    ///
+    /// Non-aggressive actions (Check/Call/Fold) are returned unchanged.
+    /// If the real fraction is at or beyond the extremes of the same-class
+    /// candidates, the extreme slot is returned deterministically. Otherwise
+    /// the two bracketing candidates are chosen by `ph_prob_lower`.
+    pub fn translate(
+        &self,
+        obs: &Observables<'_>,
+        seq: &ActionSeq,
+        real: Action,
+        u: f64,
+    ) -> Action {
+        if !matches!(real, Action::Bet { .. } | Action::Raise { .. }) {
+            return real;
+        }
+        let slots = self.slots(obs, seq);
+        let mut cands: ArrayVec<(Action, f64), 12> = ArrayVec::new();
+        for s in slots.iter() {
+            let same = matches!(
+                (&s.action, &real),
+                (Action::Bet { .. }, Action::Bet { .. })
+                    | (Action::Raise { .. }, Action::Raise { .. })
+            );
+            if same {
+                cands.push((s.action, self.frac_of(obs, s.action)));
+            }
+        }
+        if cands.is_empty() {
+            return real;
+        }
+        cands.sort_by(|p, q| p.1.partial_cmp(&q.1).unwrap_or(std::cmp::Ordering::Equal));
+        let x = self.frac_of(obs, real);
+        let last = cands.len() - 1;
+        if x <= cands[0].1 {
+            return cands[0].0;
+        }
+        if x >= cands[last].1 {
+            return cands[last].0;
+        }
+        let i = cands
+            .iter()
+            .rposition(|(_, f)| *f <= x)
+            .unwrap_or(0);
+        let p = ph_prob_lower(cands[i].1, cands[i + 1].1, x);
+        if u < p {
+            cands[i].0
+        } else {
+            cands[i + 1].0
+        }
     }
 }
 
