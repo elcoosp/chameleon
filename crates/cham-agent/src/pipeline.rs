@@ -482,6 +482,7 @@ impl ChameleonAgent {
             argmax_k,
             seq,
             hero_seat,
+            tracker,
             ..
         } = self;
         // H-2 fix: record the hero's seat for this hand so on_hand_end feeds
@@ -676,7 +677,7 @@ impl ChameleonAgent {
         // DECISION path (the arm actually used), not the mixture path.
         let mut tier_missed = false;
         let mut robust_covered_expert_miss = false;
-        let action = match mode.routing.as_str() {
+        let mut action = match mode.routing.as_str() {
             "robust-only" => {
                 let sigma = match robust_sigma.as_ref() {
                     Some(s) => s.clone(),
@@ -816,6 +817,41 @@ impl ChameleonAgent {
         // below, after this block), so the values are byte-identical;
         // this removes 5 redundant enc.key() + policy-decode + Vec<f64>
         // allocations per decision.
+        // 2026-10-01 (F1): live river search. Opt-in via `AgentMode.search.enabled`
+        // (default OFF in every shipped bundle; the `SearchCfg` lockout refuses
+        // enabled search unless the caller opts in explicitly). Runs BEFORE
+        // `chosen_slot` is computed so the reach update and trace stay in sync
+        // with the finalized action.
+        let mut search_trace: Option<(String, bool, String, u32, bool, f64)> = None;
+        if let Some(cfg) = crate::search_bridge::SearchBridgeCfg::from_mode(mode) {
+            if crate::search_bridge::would_trigger(&cfg, obs) {
+                match crate::search_bridge::try_solve(&cfg, tracker, encoder, robust, obs, seq) {
+                    Some(outcome) => {
+                        action = outcome.action;
+                        search_trace = Some((
+                            outcome.solver,
+                            true,
+                            "live".into(),
+                            outcome.iters,
+                            outcome.truncated,
+                            outcome.lbr,
+                        ));
+                    }
+                    None => {
+                        search_trace = Some((
+                            format!("{:?}", cfg.solver),
+                            true,
+                            "attempt".into(),
+                            0,
+                            true,
+                            0.0,
+                        ));
+                    }
+                }
+            }
+        }
+
+        // per-expert reach update: π_k *= σ_k(a_chosen | i)
         let chosen_slot = slots.iter().position(|s| s.action == action).unwrap_or(0);
         for k in 0..4 {
             if w[k] <= 1e-9 {
@@ -840,7 +876,7 @@ impl ChameleonAgent {
             action: action.to_str(),
             weights_frozen: *weights,
             argmax_k: *argmax_k,
-            search: None,
+            search: search_trace.clone(),
             expert_visits,
             fallback_used,
             abstraction_hash: encoder.abstraction_hash(),

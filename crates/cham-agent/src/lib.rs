@@ -13,6 +13,7 @@
 pub mod loader;
 pub mod modes;
 pub mod pipeline;
+pub mod search_bridge;
 pub mod trace;
 pub mod tracker;
 

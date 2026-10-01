@@ -45,23 +45,13 @@ impl AgentMode {
                     .into(),
             ));
         }
-        // L-19 fix (2026-09-27): `pipeline.rs` has no `RiverSearcher` field;
-        // the only writer of the decision-trace `search` slot is the hardcoded
-        // `search: None`. So `search_enabled = true` in a config loads,
-        // validates, and then yields NO search at every decision — the
-        // "silent fallback" symptom, on the very feature that is supposed to
-        // be opt-in. Until the searcher is wired into the pipeline, refuse
-        // loudly at load time instead of accepting-and-ignoring.
-        if self.search.enabled {
-            return Err(crate::AgentError::Loader(
-                "search_enabled = true is not yet wired into the runtime \
-                 (pipeline hardcodes `search: None`); refusing rather than \
-                 silently playing the fallback strategy. Set \
-                 search_enabled = false, or complete the RiverSearcher wiring \
-                 (cham-agent/src/pipeline.rs)."
-                    .into(),
-            ));
-        }
+        // L-19 relaxation (2026-10-01): the pipeline now actually calls
+        // `cham_search::solve` when `search.enabled` is true (F1 fix,
+        // `crates/cham-agent/src/search_bridge.rs`). The pre-F1 refusal
+        // ("not yet wired, refusing rather than silently ignoring") is no
+        // longer accurate; the remaining G4 lockout above still requires a
+        // non-empty `g4_ledger_ref` as the auditable opt-in token
+        // (SPECS/06 §7).
         Ok(())
     }
 
@@ -175,18 +165,43 @@ mod tests {
         assert!(mode.validate().is_err(), "unknown routing must be rejected");
     }
 
-    /// Search-enabled modes must fail validation (L-19 lockout).
+    /// F1 (2026-10-01): the L-19 lockout now only refuses an *empty*
+    /// `g4_ledger_ref`. The former "not yet wired" refusal is gone because
+    /// the pipeline DOES call `cham_search::solve` (see
+    /// `crates/cham-agent/src/search_bridge.rs`). The G4 contract
+    /// (SPECS/06 §7) remains: an enabled search must carry an auditable
+    /// ledger token.
     #[test]
-    fn search_enabled_rejected() {
+    fn search_enabled_without_g4_ref_rejected() {
         let mode = AgentMode {
             routing: "mixture".into(),
             search: SearchCfg {
                 enabled: true,
                 solver: "Rnr".into(),
-                g4_ledger_ref: "some-ledger-ref".into(),
+                g4_ledger_ref: String::new(),
             },
             fallback_mode: "renorm".into(),
         };
-        assert!(mode.validate().is_err(), "search_enabled must be rejected");
+        assert!(
+            mode.validate().is_err(),
+            "search_enabled with no g4_ledger_ref must be rejected (G4 lockout)"
+        );
+    }
+
+    /// F1 (2026-10-01): with a non-empty `g4_ledger_ref`, enabled search
+    /// is now accepted — the pipeline is wired.
+    #[test]
+    fn search_enabled_with_g4_ref_accepted() {
+        let mode = AgentMode {
+            routing: "mixture".into(),
+            search: SearchCfg {
+                enabled: true,
+                solver: "Rnr".into(),
+                g4_ledger_ref: "EXP-SEARCH".into(),
+            },
+            fallback_mode: "renorm".into(),
+        };
+        mode.validate()
+            .expect("F1: enabled search + g4_ledger_ref must validate");
     }
 }

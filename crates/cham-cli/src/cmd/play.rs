@@ -18,7 +18,7 @@ use cham_router::model::SoftmaxModel;
 
 const PLAY_SEED: u64 = 0x0BEA;
 
-pub fn run(agent: &str, depth: i64, search_warmstart: bool) -> i32 {
+pub fn run(agent: &str, depth: i64, search_warmstart: bool, search_enabled: bool) -> i32 {
     // B6: opt-in solver warm-start (default OFF — the flag-off path is
     // bit-identical to the historical solver; see the oracle validation gate
     // `warmstart_oracle_validation` in cham-search).
@@ -48,12 +48,19 @@ pub fn run(agent: &str, depth: i64, search_warmstart: bool) -> i32 {
             return crate::cmd::EXIT_BUDGET;
         }
     };
+    // F1 (2026-10-01): `--search` enables live river solving. SPECS/06 §7
+    // requires an auditable G4 ledger token to opt in; ad-hoc play sessions
+    // use the canonical `EXP-SEARCH` marker.
     let mode = AgentMode {
         routing: routing.to_string(),
         search: SearchCfg {
-            enabled: false,
-            solver: "Rnr".into(),
-            g4_ledger_ref: String::new(),
+            enabled: search_enabled,
+            solver: std::env::var("CHAM_SEARCH_SOLVER").unwrap_or_else(|_| "Rnr".into()),
+            g4_ledger_ref: if search_enabled {
+                "EXP-SEARCH".into()
+            } else {
+                String::new()
+            },
         },
         fallback_mode: std::env::var("CHAM_FALLBACK_MODE").unwrap_or_else(|_| "renorm".into()),
     };

@@ -226,6 +226,10 @@ enum Command {
         /// B6: solver warm-start (default OFF; flag-off path is bit-identical)
         #[arg(long)]
         search_warmstart: bool,
+        /// 2026-10-01 (F1): enable live river solving for this session.
+        /// Uses `EXP-SEARCH` as the auditable G4 ledger token.
+        #[arg(long)]
+        search: bool,
     },
     /// Textual decision traces (no animation — cut)
     Trace {
@@ -454,7 +458,8 @@ fn main() -> anyhow::Result<()> {
             agent,
             depth,
             search_warmstart,
-        } => cmd::play::run(&agent, depth, search_warmstart),
+            search,
+        } => cmd::play::run(&agent, depth, search_warmstart, search),
         Command::Trace { run, top, by } => cmd::trace::run(&run, top, &by),
         Command::Dashboard { out, last } => cmd::dashboard::run(&out, last),
         Command::WarmCache { pool, out } => cmd::warm_cache::run(&pool, &out),
