@@ -234,6 +234,10 @@ pub struct Traversal<'a> {
     /// of the "tiny peaks at 5M" pattern: the more slices, the more the
     /// accumulated sum is overwritten by warmup's redundant updates.
     pub warmup_only: bool,
+    /// F9 (2026-10-01): training-time exploration floor for `sigma_rms`
+    /// at this traversal's node updates. Replaces the previous use of
+    /// the process-global `TRAIN_EXPLORE_EPS` static. 0.0 = no floor.
+    pub explore_eps: f64,
 }
 
 impl<'a> Traversal<'a> {
@@ -293,7 +297,7 @@ impl<'a> Traversal<'a> {
                 let w_slots = slots.len();
                 match self.table.as_ref().find(key.0) {
                     Some(off) => {
-                        let sigma = self.table.as_ref().sigma_rms(off, w_slots);
+                        let sigma = self.table.as_ref().sigma_rms_eps(off, w_slots, self.explore_eps);
                         sigma
                             .iter()
                             .enumerate()
@@ -387,7 +391,7 @@ impl<'a> Traversal<'a> {
         let prune_enabled = theta_t > 0.0;
         let visits = self.table.as_ref().visits(off, w_slots) as f64;
 
-        let sigma = self.table.as_ref().sigma_rms(off, w_slots);
+        let sigma = self.table.as_ref().sigma_rms_eps(off, w_slots, self.explore_eps);
         let mut v = [0f64; 12];
         let mut computed: Vec<usize> = Vec::with_capacity(w_slots);
         for a in 0..w_slots {

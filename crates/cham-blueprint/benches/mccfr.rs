@@ -39,6 +39,7 @@ fn bench_mccfr_iter(c: &mut Criterion) {
                     regret_discount: 1.0,
                     allow_insert: true,
                     warmup_only: false,
+                    explore_eps: 0.0,
                 };
                 acc += walker.walk(&mut state, (t % 2) as usize, 1.0, &mut seq, &mut enc, rng);
             }

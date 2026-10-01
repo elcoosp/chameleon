@@ -17,7 +17,7 @@ use cham_rec::schema::RecordKind;
 
 use crate::BlueprintError;
 use crate::modes::{TrainMode, TrainModeTag};
-use crate::table::{RegretTable, ThreadMode, set_train_explore_eps};
+use crate::table::{RegretTable, ThreadMode};
 #[allow(unused_imports)]
 use crate::traversal::sample_index;
 use crate::traversal::{RbpConfig, SnapBatchSink, Traversal};
@@ -282,39 +282,12 @@ pub fn train_with_threads(
     cfg.validate()?;
     std::fs::create_dir_all(out_dir)?;
 
-    // EXPLORATION FLOOR (2026-09-29): read CHAM_TRAIN_EPS and set the
-    // process-wide value read by `RegretTable::sigma_rms`. Default 0.0
-    // → bit-identical to pre-2026-09-29 behavior.
-    //
-    // Why: RM+ floors regrets at zero, so at high iteration counts the
-    // current iterate freezes one-hot and the averaged strategy follows
-    // it. Measured mean max prob of the average strategy climbs 0.45
-    // (500k) → 0.86 (20M) → 0.88 (50M). A concentrated average is
-    // trivially exploitable. A small floor (~0.02) keeps every action's
-    // regret channel alive. See docs/plans/RM-PLUS-FREEZE-2026-09-29.md.
-    if let Ok(s) = std::env::var("CHAM_TRAIN_EPS") {
-        match s.parse::<f64>() {
-            Ok(v) if (0.0..=0.5).contains(&v) => {
-                set_train_explore_eps(v);
-                if v > 0.0 {
-                    eprintln!("cham-blueprint: training exploration floor ε = {v}");
-                }
-            }
-            Ok(v) => {
-                eprintln!(
-                    "cham-blueprint: CHAM_TRAIN_EPS={v} out of range [0, 0.5]; \
-                     ignoring (floor stays {})",
-                    crate::table::train_explore_eps()
-                );
-            }
-            Err(e) => {
-                eprintln!(
-                    "cham-blueprint: CHAM_TRAIN_EPS parse error ({e}); \
-                     floor stays {}",
-                    crate::table::train_explore_eps()
-                );
-            }
-        }
+    // F9 (2026-10-01): the exploration floor now lives in
+    // `cfg.explore_eps`, populated by the CLI from CHAM_TRAIN_EPS. The
+    // previous process-global `TRAIN_EXPLORE_EPS` is deprecated; the
+    // blueprint crate no longer reads the env directly.
+    if cfg.explore_eps > 0.0 {
+        eprintln!("cham-blueprint: training exploration floor ε = {}", cfg.explore_eps);
     }
 
     // Compute parallel_requested BEFORE the M-6 warning so we know
@@ -656,6 +629,7 @@ pub fn train_with_threads(
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
                     warmup_only: false,
+                    explore_eps: cfg.explore_eps,
                 };
                 walker.walk_with_sink(
                     &mut state, hero_seat, w_t, &mut seq, enc, iter_rng, &mut sink,
@@ -675,6 +649,7 @@ pub fn train_with_threads(
                 regret_discount: cfg.regret_discount,
                 allow_insert: true,
                 warmup_only: false,
+                explore_eps: cfg.explore_eps,
             };
             walker.walk(&mut state, hero_seat, w_t, &mut seq, enc, iter_rng);
         }
@@ -872,6 +847,7 @@ where
                     // per-slice structure (each `t` is processed exactly
                     // once), so warmup is real training.
                     warmup_only: false,
+                    explore_eps: cfg.explore_eps,
                 };
                 walker.walk(&mut state, hero_seat, w_t, &mut seq, &mut enc_w, iter_rng);
             }
@@ -922,6 +898,7 @@ where
                                 regret_discount,
                                 allow_insert: false,
                                 warmup_only: false,
+                                explore_eps: cfg.explore_eps,
                             };
                             let mut it_rng = child(train_seed, &format!("iter{t}"));
                             walker.walk(
@@ -1100,6 +1077,7 @@ where
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
                     warmup_only: false,
+                    explore_eps: cfg.explore_eps,
                 };
                 walker.walk(
                     &mut state,
@@ -1166,6 +1144,7 @@ where
                             regret_discount,
                             allow_insert: false,
                             warmup_only: false,
+                            explore_eps: cfg.explore_eps,
                         };
                         let mut it_rng = child(train_seed, &format!("iter{t}"));
                         walker.walk(

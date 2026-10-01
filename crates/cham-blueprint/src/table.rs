@@ -622,9 +622,12 @@ impl RegretTable {
     }
 
     /// Regret-matching+ strategy: σ(a) ∝ max(R_a, 0); uniform if all ≤ 0.
-    /// Regret-matching+ strategy. Uses the process-wide exploration floor
-    /// set by [`set_train_explore_eps`] (default 0.0 → bit-identical to
-    /// the pre-2026-09-29 behavior).
+    ///
+    /// **Deprecated (F9, 2026-10-01):** still consults the process-global
+    /// exploration floor for backward compatibility with external callers,
+    /// but the trainer's hot path (`Traversal`) now uses the per-traversal
+    /// `explore_eps` field. New code should call `sigma_rms_eps(off, w, eps)`
+    /// directly.
     pub fn sigma_rms(&self, off: u32, w: usize) -> Vec<f64> {
         self.sigma_rms_eps(off, w, train_explore_eps())
     }
