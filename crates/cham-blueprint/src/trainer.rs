@@ -50,6 +50,12 @@ pub struct TrainerConfig {
     /// default for backward compat with existing snapshots.
     #[serde(default = "default_regret_discount")]
     pub regret_discount: f32,
+    /// F5: DCFR positive-regret decay exponent α. `1.0` = CFR+ identity.
+    #[serde(default = "default_dcfr_alpha")]
+    pub dcfr_alpha: f64,
+    /// F5: DCFR negative-regret decay exponent β. `1.0` = CFR+ identity.
+    #[serde(default = "default_dcfr_beta")]
+    pub dcfr_beta: f64,
     /// DCFR strategy-sum weight discount γ (v3 §3.1: the α/γ split).
     /// Robust mode multiplies the delayed-linear averaging weight by
     /// `γ^(T−t)`; previously hard-coded to 0.9 inside `averaging_weight`,
@@ -78,6 +84,16 @@ pub struct TrainerConfig {
 }
 
 pub fn default_regret_discount() -> f32 {
+    1.0
+}
+
+/// F5 default α. 1.0 keeps CFR+ identity.
+pub fn default_dcfr_alpha() -> f64 {
+    1.0
+}
+
+/// F5 default β. 1.0 keeps CFR+ identity.
+pub fn default_dcfr_beta() -> f64 {
     1.0
 }
 
@@ -675,6 +691,8 @@ pub fn train_with_threads(
 
         // ---- snapshot cadence: renorm pass + save + record ----
         if (t + 1) % cfg.snapshot_every == 0 || t + 1 == total_iters {
+            // F5: serial DCFR discount at snapshot boundaries.
+            table.discount_all(start.max(1), t + 1, cfg.dcfr_alpha, cfg.dcfr_beta);
             let mut renormed = 0u64;
             let entries: Vec<(u64, u32, usize)> = table.iter().collect();
             for (_k, off, w) in entries {
@@ -929,10 +947,10 @@ where
             seat_histogram[1] += h[1];
         }
 
-        // PERF (2026-09-29): checkpoint at the end of every slice. With 8
-        // slices over a 14-hour run, the worst-case loss on a crash is ~2
-        // hours. Without this the parallel trainer produced NO intermediate
-        // snapshot — a crash at hour 13 lost everything.
+        // F5: DCFR slice-boundary discount.
+        table.discount_all(slice_start.max(1), slice_end, cfg.dcfr_alpha, cfg.dcfr_beta);
+
+        // PERF (2026-09-29): checkpoint at the end of every slice.
         checkpoint(table, slice_end)?;
 
         // PERF (2026-09-30): honor cfg.checkpoint_every in the parallel

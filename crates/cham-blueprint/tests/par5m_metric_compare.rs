@@ -70,17 +70,32 @@ fn par5m_metric_compare() {
 
     // Tabular BR seat 1.
     let mut tab_policy = make_policy_closure(&policy, cfg);
-    let tab = tabular_br(&mut tab_policy, 1, engine, &mut enc_tab, 300, 200, 12, 0x1B2)
-        .expect("tab");
+    let tab = tabular_br(
+        &mut tab_policy,
+        1,
+        engine,
+        &mut enc_tab,
+        300,
+        200,
+        12,
+        0x1B2,
+    )
+    .expect("tab");
 
     eprintln!();
     eprintln!("=== par-5M robust: clairvoyant vs tabular (seat 1) ===");
-    eprintln!("  clairvoyant LBR:  {:>8.1} mb/hand ({:.3} bb/hand)",
-        clair.lbr_mb_per_hand, clair.lbr_bb_per_hand);
-    eprintln!("  tabular BR:       {:>8.1} mb/hand ({:.3} bb/hand)",
-        tab.lbr_mb_per_hand, tab.lbr_bb_per_hand);
-    eprintln!("  clairvoyant / tabular ratio: {:.2}x",
-        clair.lbr_mb_per_hand / tab.lbr_mb_per_hand.max(1e-9));
+    eprintln!(
+        "  clairvoyant LBR:  {:>8.1} mb/hand ({:.3} bb/hand)",
+        clair.lbr_mb_per_hand, clair.lbr_bb_per_hand
+    );
+    eprintln!(
+        "  tabular BR:       {:>8.1} mb/hand ({:.3} bb/hand)",
+        tab.lbr_mb_per_hand, tab.lbr_bb_per_hand
+    );
+    eprintln!(
+        "  clairvoyant / tabular ratio: {:.2}x",
+        clair.lbr_mb_per_hand / tab.lbr_mb_per_hand.max(1e-9)
+    );
     eprintln!();
 
     assert!(

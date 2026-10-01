@@ -956,6 +956,64 @@ impl RegretTable {
     }
 }
 
+impl RegretTable {
+    /// F5 (2026-10-01, competitiveness report): DCFR slice-boundary discount.
+    /// Applies Brown & Sandholm 2019's telescoped discount to every regret
+    /// cell: positive regrets scaled by `fp = Π s^α / (s^α + 1)`, negative
+    /// by `fn = Π s^β / (s^β + 1)`. `α = β = 1.0` is a no-op.
+    pub fn discount_all(&self, t_prev: u64, t_now: u64, alpha: f64, beta: f64) {
+        if t_now <= t_prev {
+            return;
+        }
+        if (alpha - 1.0).abs() < 1e-12 && (beta - 1.0).abs() < 1e-12 {
+            return;
+        }
+        let fp = self.telescope_discount(t_prev, t_now, alpha);
+        let fn_ = self.telescope_discount(t_prev, t_now, beta);
+        if (fp - 1.0).abs() < 1e-15 && (fn_ - 1.0).abs() < 1e-15 {
+            return;
+        }
+        for s in &self.slots {
+            if s.key == 0 {
+                continue;
+            }
+            let w = s.w as usize;
+            for a in 0..w {
+                let slot = self.slot_of(s.off, a);
+                let cur = f32::from_bits(self.arena.load(slot));
+                if cur == 0.0 {
+                    continue;
+                }
+                let scaled = if cur > 0.0 {
+                    (cur as f64) * fp
+                } else {
+                    (cur as f64) * fn_
+                };
+                self.arena.store(slot, (scaled as f32).to_bits());
+            }
+        }
+    }
+
+    fn telescope_discount(&self, t_prev: u64, t_now: u64, alpha: f64) -> f64 {
+        if (alpha - 1.0).abs() < 1e-12 {
+            return (t_prev as f64 + 1.0) / (t_now as f64 + 1.0);
+        }
+        if alpha.abs() < 1e-12 {
+            let n = (t_now - t_prev) as f64;
+            return 0.5_f64.powf(n);
+        }
+        let lo = t_prev.saturating_add(1).max(1);
+        let hi = t_now.max(lo);
+        let n = (hi - lo + 1).min(2_000_000);
+        let mut log_sum = 0.0_f64;
+        for s in lo..(lo + n) {
+            let sa = (s as f64).powf(alpha);
+            log_sum += (sa / (sa + 1.0)).ln();
+        }
+        log_sum.exp()
+    }
+}
+
 #[cfg(test)]
 mod probe_tests {
     use super::*;
