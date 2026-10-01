@@ -413,7 +413,20 @@ pub fn train_with_threads(
         // doesn't lose the whole parallel run. Uses the same atomic
         // write (tmp+rename) as the outer loop.
         let snap_path = out_dir.join("table.snap");
-        let checkpoint = |t: &RegretTable, iter: u64| -> Result<(), BlueprintError> {
+        let checkpoint = |t: &mut RegretTable, iter: u64| -> Result<(), BlueprintError> {
+            // 2026-10-01 (F5): run the f32 growth-guard renorm pass before
+            // snapshotting, matching the serial path's behaviour. Without
+            // this, hot rows accumulate w_t·σ past the 2^22 guard and
+            // lose low-order precision. Single-threaded here (workers
+            // have joined).
+            let mut renormed = 0u64;
+            let entries: Vec<(u64, u32, usize)> = t.iter().collect();
+            for (_k, off, w) in entries {
+                if t.renorm_row(off, w) {
+                    renormed += 1;
+                }
+            }
+            let _ = renormed;
             let bytes = t.snapshot();
             let tmp = snap_path.with_extension("tmp");
             std::fs::write(&tmp, &bytes)?;
@@ -783,7 +796,7 @@ fn train_robust_parallel<F>(
     mut checkpoint: F,
 ) -> Result<(), BlueprintError>
 where
-    F: FnMut(&RegretTable, u64) -> Result<(), BlueprintError>,
+    F: FnMut(&mut RegretTable, u64) -> Result<(), BlueprintError>,
 {
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -1027,7 +1040,7 @@ fn train_exploit_parallel<F>(
     mut checkpoint: F,
 ) -> Result<(), BlueprintError>
 where
-    F: FnMut(&RegretTable, u64) -> Result<(), BlueprintError>,
+    F: FnMut(&mut RegretTable, u64) -> Result<(), BlueprintError>,
 {
     use std::sync::atomic::{AtomicU64, Ordering};
 
