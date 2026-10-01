@@ -48,7 +48,14 @@ impl ActionLadder {
 
     /// Raises already made this street (from the deterministic action seq).
     pub fn raises_this_street(street: cham_core::engine::Street, seq: &ActionSeq) -> u32 {
-        seq.count_class(street, ActionClass::Raise) + seq.count_class(street, ActionClass::Bet) // a preflop "bet" over the blind is a raise
+        // F6a (2026-10-01, competitiveness report): cap on RE-RAISES only.
+        // The previous version counted `Bet` toward the cap, so with
+        // `raises_per_street_cap = 1` a postflop Bet immediately exhausted
+        // the budget and the responder's only aggressive option was an
+        // all-in jam. That is not a poker tree. Counting only `Raise`
+        // (re-raises) restores the normal sequence: bet, raise, 3-bet, ...
+        // Preflop has no `Bet` action, so this is behaviour-neutral there.
+        seq.count_class(street, ActionClass::Raise)
     }
 
     pub fn slots(&self, obs: &Observables<'_>, seq: &ActionSeq) -> ArrayVec<AbstractAction, 12> {
