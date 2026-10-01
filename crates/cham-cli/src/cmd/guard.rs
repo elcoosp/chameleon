@@ -39,14 +39,8 @@ pub fn trained_agents() -> &'static [&'static str] {
 
 /// The pure-baseline agent names accepted by `ladder`/`probe`/`ab` that do
 /// NOT require a trained bundle. Kept intentionally small.
-pub const BASELINE_AGENTS: &[&str] = &[
-    "callbot",
-    "raisebot",
-    "jamfix",
-    "random",
-    "fish",
-    "uniform",
-];
+pub const BASELINE_AGENTS: &[&str] =
+    &["callbot", "raisebot", "jamfix", "random", "fish", "uniform"];
 
 /// True when `agent` is a recognized name for evaluation tools — either a
 /// trained routing mode or a known pure baseline. A `false` result means a
