@@ -156,3 +156,8 @@ crates/cham-cli/artifacts/
 # Agent + blueprint test artifacts that the *-test-* pattern misses
 crates/cham-agent/artifacts/
 crates/cham-blueprint/artifacts/runs/ws-robust/
+
+# Test-generated artifacts the tests rewrite (all regenerable):
+crates/*/artifacts/**/*.snap
+crates/*/artifacts/**/*.bin
+crates/*/artifacts/**/*.json

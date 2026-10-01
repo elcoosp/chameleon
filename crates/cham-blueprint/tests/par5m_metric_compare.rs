@@ -1,65 +1,90 @@
-//! F1 (2026-10-01): compare clairvoyant LBR vs infoset-consistent tabular BR
-//! on the SOTA par-5M robust policy. Both metrics load the SAME policy from
-//! disk via CHAM_EXPLOIT_BP.
+//! F1 (2026-10-01): the clairvoyant LBR vs the infoset-consistent tabular BR
+//! on the shipped par-5M robust policy. Both metrics query the SAME loaded
+//! policy through a closure that maintains its own encoder.
 //!
-//! Ignored by default (needs the par-5M artifact); run with:
-//!   cargo nextest run -p cham-blueprint -E 'test(par5m_metric_compare)' --run-ignored all
+//! Run with the par-5M artifact present:
+//!   CHAM_EXPLOIT_BP=$PWD/artifacts/par-5M/robust-7/policy \
+//!     cargo nextest run -p cham-blueprint -E 'test(par5m_metric_compare)' --run-ignored all --no-capture
+//!
+//! Expected: tabular BR < clairvoyant LBR by a large factor. On a uniform
+//! policy the report's kernel measured a 6x reduction; a trained policy
+//! should be similar or larger.
 
 use cham_blueprint::lbr::{lbr_vs, tabular_br};
 use cham_blueprint::policy::BlueprintPolicy;
 use cham_core::engine::Action;
 use cham_core::engine::config::EngineConfig;
-use cham_core::obs::{Agent as _, Observables};
+use cham_core::obs::Observables;
 use cham_engine::config::AbstractionConfig;
 use cham_engine::encoder::{ActionSeq, Encoder};
+
+fn make_policy_closure(
+    policy: &BlueprintPolicy,
+    cfg: AbstractionConfig,
+) -> impl FnMut(&Observables<'_>, &ActionSeq) -> Vec<(Action, f64)> + '_ {
+    // The closure owns its encoder — strategy() needs an &mut Encoder for
+    // per-decision caches. Fresh instance because lbr_vs/tabular_br also hold
+    // their own encoders.
+    let mut my_enc = Encoder::cfg_only(cfg).expect("policy encoder");
+    move |obs: &Observables<'_>, seq: &ActionSeq| -> Vec<(Action, f64)> {
+        let slots = my_enc.slots(obs, seq);
+        match policy.strategy(obs, &mut my_enc, seq) {
+            Some(s) if s.len() == slots.len() => slots
+                .iter()
+                .zip(s.iter())
+                .map(|(slot, p)| (slot.action, *p))
+                .collect(),
+            _ => {
+                // No row, or shape mismatch: uniform over legal.
+                let n = obs.legal.len().max(1) as f64;
+                obs.legal.iter().map(|l| (l.action, 1.0 / n)).collect()
+            }
+        }
+    }
+}
 
 #[test]
 #[ignore = "requires par-5M artifact on disk"]
 fn par5m_metric_compare() {
-    let bp = std::env::var("CHAM_EXPLOIT_BP")
+    let bp_dir = std::env::var("CHAM_EXPLOIT_BP")
         .unwrap_or_else(|_| "artifacts/par-5M/robust-7/policy".to_string());
-    let bp_path = std::path::PathBuf::from(&bp);
-    let policy = BlueprintPolicy::load(&bp_path, 0).expect("load");
+    let cfg_path = std::env::var("CHAM_EXPLOIT_CONFIG")
+        .unwrap_or_else(|_| "config/abstraction-tiny.toml".to_string());
+
+    // Load the abstraction config the policy was trained against.
+    let cfg = std::fs::read_to_string(&cfg_path)
+        .ok()
+        .and_then(|t| cham_engine::config::parse_config(&t).ok())
+        .unwrap_or_else(AbstractionConfig::tiny);
+
+    let policy = BlueprintPolicy::load(std::path::Path::new(&bp_dir), 0).expect("load policy");
     let engine = EngineConfig::depth(100);
-    let cfg = AbstractionConfig::tiny();
 
-    // Closure that queries the policy at a decision.
-    let mut enc1 = Encoder::cfg_only(cfg.clone()).expect("enc1");
-    let mut enc2 = Encoder::cfg_only(cfg.clone()).expect("enc2");
-    let _ = &mut enc1;
+    // Two independent encoders so the metrics do not share caches.
+    let mut enc_lbr = Encoder::cfg_only(cfg.clone()).expect("enc_lbr");
+    let mut enc_tab = Encoder::cfg_only(cfg.clone()).expect("enc_tab");
 
-    // Both metrics share the same policy object. We use two closures because
-    // the metrics take FnMut, and BlueprintPolicy::strategy needs &self +
-    // &mut Encoder. Each closure clones the sequence it needs.
-    let policy_ref = &policy;
+    // Clairvoyant LBR seat 1.
+    let mut lbr_policy = make_policy_closure(&policy, cfg.clone());
+    let clair = lbr_vs(&mut lbr_policy, 1, engine, &mut enc_lbr, 500, 0x1B2).expect("clair");
 
-    // LBR sees (obs, seq) and must return the fixed-policy distribution.
-    let mut lbr_policy = |obs: &Observables<'_>, seq: &ActionSeq| -> Vec<(Action, f64)> {
-        let slots = Encoder::cfg_only(AbstractionConfig::tiny())
-            .unwrap()
-            .slots(obs, seq);
-        let _ = slots;
-        // Simplified: use obs.legal uniform. The precise distribution can be
-        // plugged in later; the point of this test is the metric comparison.
-        let n = obs.legal.len().max(1) as f64;
-        obs.legal.iter().map(|l| (l.action, 1.0 / n)).collect()
-    };
-    let clair = lbr_vs(&mut lbr_policy, 1, engine, &mut enc1, 500, 0x1B2).expect("clair");
+    // Tabular BR seat 1.
+    let mut tab_policy = make_policy_closure(&policy, cfg);
+    let tab = tabular_br(&mut tab_policy, 1, engine, &mut enc_tab, 300, 200, 12, 0x1B2)
+        .expect("tab");
 
-    let mut tab_policy = |obs: &Observables<'_>, _seq: &ActionSeq| -> Vec<(Action, f64)> {
-        let n = obs.legal.len().max(1) as f64;
-        obs.legal.iter().map(|l| (l.action, 1.0 / n)).collect()
-    };
-    let tab = tabular_br(&mut tab_policy, 1, engine, &mut enc2, 200, 300, 10, 0x1B2).expect("tab");
+    eprintln!();
+    eprintln!("=== par-5M robust: clairvoyant vs tabular (seat 1) ===");
+    eprintln!("  clairvoyant LBR:  {:>8.1} mb/hand ({:.3} bb/hand)",
+        clair.lbr_mb_per_hand, clair.lbr_bb_per_hand);
+    eprintln!("  tabular BR:       {:>8.1} mb/hand ({:.3} bb/hand)",
+        tab.lbr_mb_per_hand, tab.lbr_bb_per_hand);
+    eprintln!("  clairvoyant / tabular ratio: {:.2}x",
+        clair.lbr_mb_per_hand / tab.lbr_mb_per_hand.max(1e-9));
+    eprintln!();
 
-    eprintln!("par-5M policy:");
-    eprintln!(
-        "  clairvoyant LBR seat 1: {:.1} mb/hand",
-        clair.lbr_mb_per_hand
+    assert!(
+        tab.lbr_mb_per_hand <= clair.lbr_mb_per_hand + 1.0,
+        "tabular BR must be ≤ clairvoyant LBR on the same policy"
     );
-    eprintln!(
-        "  tabular BR     seat 1: {:.1} mb/hand",
-        tab.lbr_mb_per_hand
-    );
-    let _ = policy_ref;
 }
