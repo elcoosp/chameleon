@@ -1,5 +1,8 @@
 # 50M-iteration convergence result (2026-09-28)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 ## The number
 
 Tiny abstraction, tiny-bundle robust policy, γ=1.0:
