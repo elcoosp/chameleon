@@ -1,5 +1,8 @@
 # V2-DEV-PLAN — Agent Runbook (supersedes QUALITY-PLAN.md as the operational doc)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 > **Status:** [TODO] — next major phase — not started; prerequisites complete (see BOARD.md)
 
 You are a coding agent implementing the merged v2 quality roadmap (source documents in
