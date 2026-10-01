@@ -300,6 +300,26 @@ impl<'a> Traversal<'a> {
                             self.table
                                 .as_ref()
                                 .sigma_rms_eps(off, w_slots, self.explore_eps);
+                        // F3 (2026-10-01, chameleon-competitiveness-report):
+                        // accumulate the AVERAGE strategy at the OPPONENT
+                        // node. In external-sampling MCCFR the traverser
+                        // enumerates its own actions, so the opponent node
+                        // is where the sampling itself supplies the
+                        // reach-weight the average needs. The previous
+                        // site (hero node, no reach factor) is the
+                        // production scheme the report flagged.
+                        if !self.warmup_only {
+                            for a in 0..w_slots {
+                                sink.add_strat(
+                                    self.table.as_ref(),
+                                    off,
+                                    w_slots,
+                                    a,
+                                    (w_t * sigma[a]) as f32,
+                                );
+                            }
+                            sink.add_weight(self.table.as_ref(), off, w_slots, w_t as f32);
+                        }
                         sigma
                             .iter()
                             .enumerate()
@@ -446,16 +466,23 @@ impl<'a> Traversal<'a> {
         for a in 0..w_slots {
             sink.add_regret(self.table.as_ref(), off, a, (v[a] - v_bar) as f32);
         }
-        for a in 0..w_slots {
-            sink.add_strat(
-                self.table.as_ref(),
-                off,
-                w_slots,
-                a,
-                (w_t * sigma[a]) as f32,
-            );
+        // F3 (2026-10-01): in Robust mode the average strategy is
+        // accumulated at the OPPONENT node (see above). Skip it here so
+        // it is not double-counted. Exploit modes (one-sided vs a
+        // scripted opponent) keep the hero-node accumulation — there is
+        // no opponent row to accumulate at.
+        if self.mode != TrainModeTag::Robust {
+            for a in 0..w_slots {
+                sink.add_strat(
+                    self.table.as_ref(),
+                    off,
+                    w_slots,
+                    a,
+                    (w_t * sigma[a]) as f32,
+                );
+            }
+            sink.add_weight(self.table.as_ref(), off, w_slots, w_t as f32);
         }
-        sink.add_weight(self.table.as_ref(), off, w_slots, w_t as f32);
         sink.add_visit(self.table.as_ref(), off, w_slots);
         v_bar
     }
