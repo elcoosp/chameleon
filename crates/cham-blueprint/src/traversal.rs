@@ -20,6 +20,7 @@ use cham_core::rng::Rng;
 
 use crate::modes::TrainModeTag;
 use crate::table::{DeltaBuffer, RegretTable};
+use arrayvec::ArrayVec;
 
 /// Update sink for hero-node writes (PERF-PLAN T3).
 ///
@@ -425,7 +426,9 @@ impl<'a> Traversal<'a> {
             .as_ref()
             .sigma_rms_eps(off, w_slots, self.explore_eps);
         let mut v = [0f64; 12];
-        let mut computed: Vec<usize> = Vec::with_capacity(w_slots);
+        // F9-alloc (2026-10-01, competitiveness report): ArrayVec instead
+        // of a per-node Vec. Slot count ≤ 12 (invariant I8).
+        let mut computed: ArrayVec<usize, 12> = ArrayVec::new();
         for a in 0..w_slots {
             let zero_regret = self.table.as_ref().regret(off, w_slots, a) <= 0.0;
             if prune_enabled && zero_regret && visits > theta_t && sigma[a] <= 0.0 {
