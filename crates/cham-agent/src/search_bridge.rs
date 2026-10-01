@@ -29,6 +29,7 @@ use cham_engine::encoder::ActionSeq;
 
 use crate::modes::AgentMode;
 use crate::tracker::Tracker;
+use cham_search::subgame::Class;
 
 /// Number of villain strength classes used for the subgame build.
 pub const DEFAULT_VILLAIN_CLASSES: usize = 3;
@@ -88,6 +89,81 @@ impl SearchBridgeCfg {
     }
 }
 
+/// Build a villain range from the tracker's observed opponent behaviour.
+///
+/// F1 upgrade (2026-10-01): replaces the previous uniform K-class spread.
+/// The uniform spread put 1/3 of villain mass at strength 1.0, which is a
+/// monster range, not a caller's range. Against a calling-heavy opponent
+/// (callbot, arch:station) that made the solver refuse to value-bet and
+/// cost ~−11 000 mb/seating vs search-OFF (`F1-SEARCH-CORRECTED-2026-10-01.md`).
+///
+/// Two signals drive the shape:
+///   * `showdown_reach_freq` (f[6]) = how often the opponent goes to
+///     showdown. High → wide range → shift the mean strength down.
+///   * `river_bet_freq` (f[5]) = how often the opponent bets the river.
+///     High → polar range (strong + bluffs) → increase the spread and
+///     the extreme mass.
+///
+/// Falls back to a symmetric 3-class range around 0.5 when the tracker
+/// has fewer than `MIN_HANDS_FOR_RANGE` hands observed (a fresh session
+/// has no information to model).
+pub const MIN_HANDS_FOR_RANGE: u64 = 30;
+
+pub fn villain_range_from_tracker(tracker: &Tracker) -> Vec<Class> {
+    let f = tracker.raw_opponent_frequencies();
+    let showdown_reach = f[6].clamp(0.0, 1.0);
+    let river_bet = f[5].clamp(0.0, 1.0);
+
+    if tracker.hands < MIN_HANDS_FOR_RANGE {
+        // No information yet: a symmetric spread around 0.5 is honest.
+        return vec![
+            Class {
+                weight: 1.0 / 3.0,
+                strength: 0.20,
+            },
+            Class {
+                weight: 1.0 / 3.0,
+                strength: 0.50,
+            },
+            Class {
+                weight: 1.0 / 3.0,
+                strength: 0.80,
+            },
+        ];
+    }
+
+    // "Wideness": high showdown reach = wide range = lower mean strength.
+    let wideness = showdown_reach;
+    let mean_strength = (0.70 - 0.55 * wideness).clamp(0.15, 0.70);
+
+    // "Polarity": high river bet = polar range = wider spread + more
+    // extreme mass.
+    let polarity = (river_bet / 0.6).clamp(0.0, 1.0);
+    let spread = (0.20 + 0.25 * polarity).clamp(0.20, 0.45);
+    let extreme_mass = (0.30 + 0.30 * polarity).clamp(0.30, 0.60);
+
+    let low = (mean_strength - spread).clamp(0.0, 1.0);
+    let mid = mean_strength;
+    let high = (mean_strength + spread).clamp(0.0, 1.0);
+    let half_extreme = extreme_mass / 2.0;
+    let mid_mass = 1.0 - extreme_mass;
+
+    vec![
+        Class {
+            weight: half_extreme,
+            strength: low,
+        },
+        Class {
+            weight: mid_mass,
+            strength: mid,
+        },
+        Class {
+            weight: half_extreme,
+            strength: high,
+        },
+    ]
+}
+
 /// Try to run a live solve at the current decision.
 ///
 /// Returns `Some(outcome)` only when every prerequisite is satisfied:
@@ -101,7 +177,7 @@ pub fn try_solve(
     // an agnostic K-class uniform spread rather than tracker-derived.
     // A later pass will read tracker frequencies and the robust policy
     // reach to build a genuine villain range.
-    _tracker: &Tracker,
+    tracker: &Tracker,
     _encoder: &cham_engine::encoder::Encoder,
     _robust: &cham_blueprint::policy::BlueprintPolicy,
     obs: &Observables<'_>,
@@ -130,26 +206,9 @@ pub fn try_solve(
         strength: hero_strength,
     }];
 
-    // Villain classes: K uniform-weight classes spread over the middle
-    // of the equity range. First-pass agnostic model.
-    let k = DEFAULT_VILLAIN_CLASSES.max(1);
-    let spread = VILLAIN_SPREAD.clamp(0.1, 2.0);
-    let villain_classes: Vec<cham_search::subgame::Class> = (0..k)
-        .map(|i| {
-            let t = if k == 1 {
-                0.5
-            } else {
-                i as f64 / (k - 1) as f64
-            };
-            // Map t in [0,1] to strength in [0.5 - spread/2, 0.5 + spread/2],
-            // clamped to [0,1].
-            let s = (0.5 + (t - 0.5) * spread).clamp(0.0, 1.0);
-            cham_search::subgame::Class {
-                weight: 1.0 / k as f64,
-                strength: s,
-            }
-        })
-        .collect();
+    // F1 upgrade (2026-10-01): tracker-derived villain range. See
+    // `villain_range_from_tracker` for the derivation and the fallback.
+    let villain_classes: Vec<cham_search::subgame::Class> = villain_range_from_tracker(tracker);
 
     let pot_bb = obs.pot_bb().max(1.0);
     let stack_bb = obs.effective_stack_bb().max(0.5);
