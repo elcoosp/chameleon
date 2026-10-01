@@ -1,5 +1,14 @@
 # F1: the honest exploitability is 8.4x smaller than the reported LBR (2026-10-01)
 
+> **Budget caveat (2026-10-01 late):** the tabular numbers here were
+> measured at `(300 train / 200 test / 12 sweeps)`. `tabular_br` is an
+> iterated best-response learner and its value is budget-sensitive at
+> low budgets; on some policies the sum `BR(0)+BR(1)` is still negative
+> at 300/200/12 and shrinks toward the true value as the budget grows.
+> Quote these numbers *with their budget*. See
+> `docs/plans/TABULAR-BR-CONVERGENCE-2026-10-01.md`.
+
+
 ## The measurement
 
 The clairvoyant `lbr::lbr_vs` (the metric every prior session used)
