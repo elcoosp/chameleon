@@ -79,29 +79,30 @@ fn table_snapshot_roundtrip() {
 }
 
 #[test]
-fn renorm_preserves_strategy() {
+fn renorm_is_a_noop_under_f64_strategy_arena() {
+    // F4 (2026-10-01): the strategy sum + averaging weight now live in
+    // an f64 arena with no f32 saturation ceiling, so the historical
+    // `renorm_row` scaling pass is obsolete. The method is retained as a
+    // stub for API compatibility but always returns `false`.
     let mut t = RegretTable::new(ThreadMode::Deterministic);
     let (off, w) = t.entry_or_insert(0xACE1 | (1 << 63), 3);
-    // strat sums near f32 saturation territory (2^22 guard)
     t.strat_add(off, w, 0, 5_000_000.0);
     t.strat_add(off, w, 1, 3_000_000.0);
     t.add_weight(off, w, 8_000_000.0);
     let before = t.avg_strategy(off, w);
     let scaled = t.renorm_row(off, w);
-    assert!(scaled, "renorm should trigger above 2^22");
+    assert!(!scaled, "F4: renorm is a no-op in the f64-arena table");
     let after = t.avg_strategy(off, w);
     for (b, a) in before.iter().zip(after.iter()) {
-        assert!(
-            (b - a).abs() < 1e-6,
-            "normalized strategy preserved: {b} vs {a}"
-        );
+        assert!((b - a).abs() < 1e-12, "noop preserves: {b} vs {a}");
     }
+    // f64 sums are not scaled; the max strat_sum remains well above 2^22.
     let max_after = (0..w)
         .map(|a| t.strat(off, w, a).abs())
         .fold(0.0f32, f32::max);
     assert!(
-        max_after <= 1_048_576.0,
-        "max strat_sum brought under 2^20: {max_after}"
+        max_after >= 4_000_000.0,
+        "f64 arena does not scale strat sums; got {max_after}"
     );
 }
 

@@ -153,7 +153,7 @@ impl DeltaBuffer {
         // Strategy sums: plain associative adds, one per slot.
         Self::flush_pairs(&mut self.strats, &mut |key, sum| {
             let slot = (key >> 12) as usize + ((key >> 8) & 0xf) as usize + (key & 0xff) as usize;
-            table.add_f32_slot(slot, sum);
+            table.add_f64_slot(slot, sum as f64);
         });
         // Average weights: one per row.
         Self::flush_pairs(&mut self.weights, &mut |key, sum| {
@@ -205,7 +205,7 @@ impl DeltaBuffer {
         }
         Self::flush_pairs(&mut self.strats, &mut |key, sum| {
             let slot = (key >> 12) as usize + ((key >> 8) & 0xf) as usize + (key & 0xff) as usize;
-            table.add_f32_slot(slot, sum);
+            table.add_f64_slot(slot, sum as f64);
         });
         Self::flush_pairs(&mut self.weights, &mut |key, sum| {
             let off = (key >> 8) as u32;
@@ -513,6 +513,21 @@ impl RegretTable {
         while self.arena.len() < self.arena_len as usize {
             self.arena.cells.push(std::sync::atomic::AtomicU32::new(0));
         }
+        // F4 (2026-10-01): grow the f64 sibling arena in lockstep. This
+        // was the missing piece: the initial patch added `arena64` but
+        // only seeded it at construction; every subsequent row insert
+        // pushed f32 cells without pushing f64 cells, so the f64 arena
+        // ran out of slots at the first reallocation.
+        if self.arena64.cells.len() < self.arena_len as usize {
+            self.arena64
+                .cells
+                .reserve(self.arena_len as usize - self.arena64.cells.len());
+        }
+        while self.arena64.cells.len() < self.arena_len as usize {
+            self.arena64
+                .cells
+                .push(std::sync::atomic::AtomicU64::new(0));
+        }
         let step = hash_step(key, self.mask);
         let mut i = hash_key(key) & self.mask;
         while self.slots[i].key != 0 {
@@ -597,7 +612,8 @@ impl RegretTable {
     /// Exposed for the external-sampling audit (`strat_sum` has no reach
     /// factor by SPECS/04 §4; the test asserts exact deltas).
     pub fn strat_sum(&self, off: u32, w: usize, a: usize) -> f32 {
-        f32::from_bits(self.arena.load(self.slot_of(off, w + a)))
+        // F4: read from the f64 arena (see strat / strat_add).
+        self.arena64.load(self.slot_of(off, w + a)) as f32
     }
 
     pub fn avg_weight(&self, off: u32, w: usize) -> f32 {
@@ -672,6 +688,12 @@ impl RegretTable {
     /// Batched plain float add at an absolute arena slot (snapbatch flush path).
     pub fn add_f32_slot(&self, slot: usize, delta: f32) {
         self.arena.add_f32(slot, delta);
+    }
+
+    /// F4 (2026-10-01): f64 sibling of `add_f32_slot`, used by
+    /// `DeltaBuffer::flush` for strategy-sum deltas.
+    pub fn add_f64_slot(&self, slot: usize, delta: f64) {
+        self.arena64.add_f64(slot, delta);
     }
 
     /// Regret-matching+ strategy: σ(a) ∝ max(R_a, 0); uniform if all ≤ 0.
