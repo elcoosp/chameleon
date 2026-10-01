@@ -1,5 +1,8 @@
 # The 09-28 argmax ladder numbers reproduce on the current codebase (2026-09-30)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 **Correction 13:20:** the SOTA doc's stated argmax mean (+6 567) does
 not match its own per-opponent column (sum 64 085 → mean 7 120). The
 re-measurement below inherits the same error in its original form.
