@@ -348,18 +348,22 @@ impl<'a> Traversal<'a> {
         let slots = enc.slots(&obs, seq);
         let key = enc.key_for(&obs, seq, &slots);
         let w_slots = slots.len();
-        // PERF (2026-09-29): in parallel (allow_insert=false) mode, missing
-        // keys are simply skipped — the row will be created in the next
-        // warmup slice.
+        // 2026-10-01 (F3): in parallel (allow_insert=false) mode, a missing
+        // row means the subtree was never evaluated. Returning 0.0 biases
+        // the ancestor's regret update toward whichever branch happened to
+        // hit cold rows. Return f64::NAN instead — a sentinel that says
+        // "no information about this subtree". Callers detect NaN and skip
+        // the CFR+ update entirely (rather than fold a wrong value).
+        // Legitimate payoffs are finite bb values, so NaN cannot collide.
         let off = match self.table.as_ref().find(key.0) {
             Some(off) => off,
             None => {
                 if !self.allow_insert {
-                    return 0.0;
+                    return f64::NAN;
                 }
                 match self.table.entry_or_insert(key.0, w_slots) {
                     Some((off, _w)) => off,
-                    None => return 0.0,
+                    None => return f64::NAN,
                 }
             }
         };
@@ -407,6 +411,13 @@ impl<'a> Traversal<'a> {
                     v[a] = worst; // pessimistic: regret stays floored at 0
                 }
             }
+        }
+        // 2026-10-01 (F3): if any action's subtree returned NaN, we have no
+        // information about this node's value. Skip the CFR+ update rather
+        // than fold a wrong (biased) value. The sentinel propagates to the
+        // root, where the trainer discards that traversal.
+        if v[..w_slots].iter().any(|x| x.is_nan()) {
+            return f64::NAN;
         }
         let v_bar: f64 = (0..w_slots).map(|a| sigma[a] * v[a]).sum();
         // WARMUP ONLY (2026-09-29): skip all CFR+ updates. The row was
