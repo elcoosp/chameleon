@@ -1,5 +1,8 @@
 # CHAMELEON v3 Brainstorm — Competitive Against Nash, Inside the Fence
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 > **Status:** [DRAFT] — brainstorm v0.1; nothing committed to implement
 
 > **Status**: brainstorm draft v0.1 for review.
