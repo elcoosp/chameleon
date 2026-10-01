@@ -151,3 +151,4 @@ artifacts/dcfr-gamma-honest.log
 # trained bundles, benches). Explicitly tracked fixtures live under
 # crates/*/artifacts/ (which this doesn't match).
 /artifacts/
+crates/cham-cli/artifacts/
