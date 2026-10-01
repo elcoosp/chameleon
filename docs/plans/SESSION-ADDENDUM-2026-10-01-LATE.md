@@ -110,3 +110,59 @@ F9-alloc sites 1/2 (handoff §5.6) are DONE. Both
     # clean except artifacts/ledger and this addendum before its commit
 
 Still nothing to push until the user says so.
+
+## 7. New finding: tabular BR worsens as the corrected trainer improves
+
+The overnight curve (still running at 20:30) is producing a pattern that
+neither the handoff nor the F1 metric doc anticipated. The two arms
+that have finished so far:
+
+| arm | clairvoyant (bb/hand) | tabular (bb/hand) |
+|---|---:|---:|
+| 500k | 20.48 | -1.59 |
+| 5M   | 14.21 | -3.30 |
+
+The **clairvoyant** metric improves by 6.3 bb/hand as the trainer goes
+from 500k to 5M iterations under the new F3+F4+F6a code path. That is
+the expected direction: the new average-accumulation site is a real
+trainer fix, and more iterations are finding a better policy.
+
+The **tabular** metric moves in the *opposite* direction: from -1.59
+to -3.30 bb/hand. A best response's value against a policy that is
+getting closer to Nash should *decrease* toward the game value — so
+the direction is correct. The magnitude raises the question of what
+the game value of the tiny abstraction is for seat 1.
+
+Two explanations are consistent with the data:
+
+1. **The tiny abstraction's game value for seat 1 is genuinely
+   negative in the -1 to -3 bb/hand range.** A coarse abstraction can
+   produce large equilibrium losses for one seat, especially when the
+   ladder cap is 1 (no 3-bets below all-in — see the report's F6a).
+   If this is the case, both -1.59 and -3.30 are correct: they say
+   "the BR seat cannot recover the abstraction's structural loss",
+   which is consistent with the report's diagnosis.
+2. **`tabular_br` has a perspective or sign bug that does not show
+   on the par-5M artifact.** Possible but less likely: the same
+   function produces a clean +2532.6 on par-5M under identical inputs.
+
+To distinguish, the successor should:
+
+- Measure `tabular_br` on the uniform policy (already done at 2.8
+  bb/hand at depth 50) **and** on the shipped `agent-honest-19dim`
+  bundle at depth 100. If the shipped bundle also produces a negative
+  seat-1 tabular BR, explanation (1) is confirmed and the number is
+  not a bug.
+- Measure seat 0 as well. The F1 metric doc only ever reports seat 1.
+  If seat 0's tabular BR is strongly positive (say +5 or more), the
+  abstraction is unbalanced and seat 1's negative value is a
+  structural property, not a measurement error.
+- If explanation (1) holds, the handoff's headline ("2.53 bb/hand on
+  par-5M, competitive with low-to-mid-strength GTO") needs revision:
+  2.53 is the par-5M number under the **old** trainer. The new
+  trainer's artifacts produce negative seat-1 tabular BR, which is a
+  different statement about the same game.
+
+**This is the most important open question of the session.** Until it
+is resolved, no corrected-metric number from the overnight curve
+should be quoted as "exploitability" without the seat-1 sign caveat.
