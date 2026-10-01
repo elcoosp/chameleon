@@ -1,5 +1,8 @@
 # CHAMELEON — New Experiment Brainstorm (post v3-execution-roadmap)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 > **Status:** proposal. Written for an implementing agent with repo write
 > access and no prior context beyond this file, `docs/BOARD.md`, and
 > `docs/HANDOFF.md`. Every experiment below states exact files, exact
