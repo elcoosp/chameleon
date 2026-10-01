@@ -1,5 +1,8 @@
 # Ladder matrix — routing mode comparison on agent-honest (2026-09-30)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 **CORRECTION 2026-09-30 (13:21):** The full-hedged numbers in this doc
 were produced by a `ladder` invocation that silently fell through to
 CallBot (the CLI's `TRAINED_AGENTS` guard did not include
