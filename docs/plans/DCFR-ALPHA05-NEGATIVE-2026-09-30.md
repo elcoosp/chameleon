@@ -1,5 +1,8 @@
 # DCFR alpha=0.5 is worse than alpha=0.9 — lever is dead at any discount ≤ 0.9 (2026-09-30)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 ## The prediction
 
 `DCFR-ALPHA05-PREDICTION-2026-09-29.md` predicted alpha=0.5 would land
