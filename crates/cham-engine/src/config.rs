@@ -20,6 +20,21 @@ pub struct BucketConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LadderConfig {
+    /// Preflop open sizes in bb (SPECS/02 §4).
+    ///
+    /// **Deprecated / dead (F6b, 2026-10-01).** This field is validated
+    /// by `AbstractionConfig::validate` and its TOML bytes are folded
+    /// into `abstraction_hash`, so changing it invalidates every
+    /// existing policy artifact — but the ladder never reads it.
+    /// Preflop sizing actually comes from `raise_fracs`. The external
+    /// competitiveness audit (§F6b) flagged the `[2.2, 3.0]`-style
+    /// opens in `abstraction.toml` as fiction for this reason.
+    ///
+    /// Kept as-is for hash stability. A successor should either
+    /// (a) wire it into the preflop ladder (behavior change, requires
+    /// retrain), or (b) delete it in a versioned migration that bumps
+    /// `version` and rebuilds all artifacts. See
+    /// `docs/plans/F6C-SIZE-BUCKET-DESIGN-2026-10-01.md` §5.
     pub preflop_open_bb: Vec<f64>,
     pub raise_fracs: Vec<f64>,
     pub flop_bet_fracs: Vec<f64>,
