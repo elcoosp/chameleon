@@ -1,5 +1,8 @@
 # The mixture/argmax tradeoff (2026-09-28)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 ## The two metrics disagree
 
 Same bundle (`artifacts/agent-honest`, 500k per expert, γ=1.0, synthetic-trained router):
