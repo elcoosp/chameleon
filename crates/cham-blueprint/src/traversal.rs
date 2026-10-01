@@ -330,10 +330,17 @@ impl<'a> Traversal<'a> {
             // CFR+'s regret floor doesn't permanently freeze an action at zero
             // (the pure-strategy collapse diagnosed this session). Unset → 0.0,
             // historical behavior bit-identical.
-            let eps: f64 = std::env::var("CHAM_EXPLORE_EPS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0.0);
+            // F9 (2026-10-01): cached per process, not read per node.
+            let eps: f64 = {
+                use std::sync::OnceLock;
+                static EPS: OnceLock<f64> = OnceLock::new();
+                *EPS.get_or_init(|| {
+                    std::env::var("CHAM_EXPLORE_EPS")
+                        .ok()
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .unwrap_or(0.0)
+                })
+            };
             let dist: Vec<(Action, f64)> = if eps > 0.0 && cham_core::rng::next_f64(rng) < eps {
                 let n = dist.len().max(1) as f64;
                 dist.iter().map(|(a, _)| (*a, 1.0 / n)).collect()

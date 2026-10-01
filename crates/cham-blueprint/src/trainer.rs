@@ -162,25 +162,33 @@ pub fn averaging_weight(t: u64, total: u64, robust: bool) -> f64 {
 /// [`averaging_weight`] with an explicit strategy-sum discount γ (v3 §3.1).
 /// `gamma = 1.0` is pure delayed-linear averaging (no recency tilt).
 pub fn averaging_weight_gamma(t: u64, total: u64, robust: bool, gamma: f32) -> f64 {
+    // F9 (2026-10-01): the two env reads below were previously executed
+    // on EVERY call (i.e. once per training iteration). `std::env::var`
+    // takes a process-global lock and allocates; the values are
+    // immutable for the process lifetime, so cache them once.
+    use std::sync::OnceLock;
+    struct AvgCfg {
+        uniform: bool,
+        delay: Option<u64>,
+    }
+    static CFG: OnceLock<AvgCfg> = OnceLock::new();
+    let cfg = CFG.get_or_init(|| {
+        let uniform = std::env::var("CHAM_AVG_UNIFORM").as_deref() == Ok("1");
+        let delay = std::env::var("CHAM_AVG_DELAY")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok());
+        AvgCfg { uniform, delay }
+    });
+
     // Diagnostic (session 2026-09-27): CHAM_AVG_UNIFORM=1 makes the average
     // window uniform (w=1 for all t). Unset → historical behavior.
-    if std::env::var("CHAM_AVG_UNIFORM").as_deref() == Ok("1") {
+    if cfg.uniform {
         return 1.0;
     }
     // CHAM_AVG_DELAY overrides the delay fraction of the strategy-average
     // window. Default is 1/4 (historical). 0 disables the delay entirely:
     // w_t = t, the standard Linear CFR+ weight from Brown & Sandholm 2019.
-    // This is the next ablation after the γ=1.0 fix (which was worth 40%
-    // on seat 0; see docs/plans/AVG-GAMMA-FINDING-2026-09-28.md).
-    let d = if let Ok(s) = std::env::var("CHAM_AVG_DELAY") {
-        if let Ok(n) = s.parse::<u64>() {
-            n
-        } else {
-            total / 4
-        }
-    } else {
-        total / 4
-    };
+    let d = cfg.delay.unwrap_or(total / 4);
     let base = if t > d { (t - d) as f64 } else { 0.0 };
     if robust {
         // Underflow tripwire (2026-09-28): `γ^(T−t)` underflows to 0 in f64
