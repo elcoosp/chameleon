@@ -5,7 +5,8 @@
 use cham_agent::tracker::Tracker;
 use cham_core::card::Card;
 use cham_core::engine::history::PublicHistory;
-use cham_core::engine::{Action, Player, Street};
+use cham_core::engine::{Action, Street};
+use cham_core::obs::Player;
 
 fn card(s: &str) -> Card {
     Card::parse(s).expect("card")
@@ -20,14 +21,28 @@ fn ph(actions: &[(Street, Player, Action)]) -> PublicHistory {
     }
 }
 
+/// Same as `ph` but marks both holes revealed so the tracker counts a
+/// showdown (used by the caller fixture).
+fn ph_showdown(actions: &[(Street, Player, Action)]) -> PublicHistory {
+    PublicHistory {
+        actions: actions.to_vec(),
+        board: [card("2c"); 5],
+        showdown_holes: [
+            Some(cham_core::card::Hand2::new(card("Ah"), card("Kd"))),
+            Some(cham_core::card::Hand2::new(card("Qh"), card("Jd"))),
+        ],
+        nets: [0, 0],
+    }
+}
+
 /// A caller: raises preflop rarely, calls a lot, reaches showdown often.
 fn caller_tracker() -> Tracker {
     let mut t = Tracker::new();
     for _ in 0..100 {
-        let h = ph(&[
+        let h = ph_showdown(&[
             (Street::Preflop, Player::Bb, Action::Call),
             (Street::Preflop, Player::Sb, Action::Check),
-            (Street::Flop, Player::Bb, Action::Call),
+            (Street::Flop, Player::Bb, Action::Check),
             (Street::Flop, Player::Sb, Action::Bet { to: 200 }),
             (Street::Flop, Player::Bb, Action::Call),
             (Street::Turn, Player::Sb, Action::Bet { to: 400 }),
