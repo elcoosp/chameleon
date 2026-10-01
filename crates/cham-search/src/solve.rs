@@ -69,8 +69,20 @@ pub fn warm_reset_for_tests() {
 /// Solved strategies: per node-path distributions (path = action labels joined).
 #[derive(Clone, Debug, Default)]
 pub struct SolveResult {
+    /// F2 (2026-10-01): marginal hero strategy (Σ_c hero_prior(c) × σ_c(path)),
+    /// preserved for backward compatibility with the pre-F2 callers and
+    /// diagnostics.
     pub our_strategy: BTreeMap<String, Vec<f64>>,
+    /// Marginal villain strategy (Σ_c villain_prior(c) × σ_c(path)).
     pub their_strategy: BTreeMap<String, Vec<f64>>,
+    /// F2 (2026-10-01): class-conditioned hero strategy. This is the
+    /// deployable answer — the acting player should query
+    /// `(path, 0, own_class)` and play the returned distribution. `None`
+    /// only for solvers that don't compute class-conditioned strategies
+    /// (none today; kept as `Option` for future API stability).
+    pub our_class_strategy: Option<ClassStrats>,
+    /// Class-conditioned villain strategy.
+    pub their_class_strategy: Option<ClassStrats>,
     pub iters: u32,
     pub truncated: bool,
     /// (ours, theirs) exploitability in bb on the built tree
@@ -78,6 +90,11 @@ pub struct SolveResult {
 }
 
 type Strats = BTreeMap<String, Vec<f64>>;
+/// F2 (2026-10-01): class-conditioned strategy — (path, player, own_class) -> distribution.
+/// Player 0 = hero, 1 = villain. `own_class` indexes into that player's class list.
+/// The class-conditioned solve keys regrets on this tuple so a hero's strategy can
+/// differ between the nuts and a bluff-catcher at the same public path.
+pub type ClassStrats = BTreeMap<(String, u8, usize), Vec<f64>>;
 
 fn uniform(n: usize) -> Vec<f64> {
     vec![1.0 / n as f64; n]
@@ -184,7 +201,7 @@ fn ev(
     node: &Node,
     seat: u8,
     path: &str,
-    strats: &Strats,
+    strats: &ClassStrats,
     sg: &Subgame,
     hero_c: usize,
     vill_c: usize,
@@ -195,11 +212,6 @@ fn ev(
             hero_invested,
             villain_invested,
         } => {
-            // C-3 / C-4 fix (2026-09-27): a fold terminal is a
-            // class-INDEPENDENT payoff, so it must not go through
-            // `showdown_value` (which branches on hole strength). And a
-            // showdown terminal must credit the pre-river pot — that lives
-            // inside `showdown_value` now.
             let hero_v = match kind {
                 TerminalKind::Showdown => sg.showdown_value(
                     &sg.hero_classes[hero_c],
@@ -214,39 +226,43 @@ fn ev(
             if seat == 0 { hero_v } else { -hero_v }
         }
         Node::Decision {
-            player: _,
+            player,
             actions,
             children,
         } => {
-            let key = path;
+            // F2 (2026-10-01): class-conditioned. The acting player's strategy
+            // depends on their OWN class — hero plays differently with the
+            // nuts than with a bluff-catcher at the same public path.
+            let (c_actor, actor) = if *player == 0 {
+                (hero_c, 0u8)
+            } else {
+                (vill_c, 1u8)
+            };
+            let key = (path.to_string(), actor, c_actor);
             let probs = strats
-                .get(key)
+                .get(&key)
                 .cloned()
                 .unwrap_or_else(|| uniform(actions.len()));
             let mut ev_sum = 0.0;
             let mut total_p = 0.0;
-            for (a, child) in actions.iter().zip(children.iter()) {
-                let p = probs
-                    .get(actions.iter().position(|x| x == a).unwrap_or(0))
-                    .copied()
-                    .unwrap_or(0.0);
+            for (ai, (a, child)) in actions.iter().zip(children.iter()).enumerate() {
+                let p = probs.get(ai).copied().unwrap_or(0.0);
                 if p <= 1e-12 {
                     continue;
                 }
                 let next = if path.is_empty() {
                     a.clone()
                 } else {
-                    format!("{key}/{a}")
+                    format!("{path}/{a}")
                 };
                 ev_sum += p * ev(child, seat, &next, strats, sg, hero_c, vill_c);
                 total_p += p;
             }
             if total_p <= 1e-12 {
-                // all-zero: take first child
                 let next = if path.is_empty() {
                     actions[0].clone()
                 } else {
-                    format!("{key}/{}", actions[0])
+                    format!("{path}/{}", actions[0])
                 };
                 return ev(&children[0], seat, &next, strats, sg, hero_c, vill_c);
             }
@@ -255,13 +271,75 @@ fn ev(
     }
 }
 
+/// F2 (2026-10-01): convert a marginal (path -> probs) table into a
+/// class-conditioned table that assigns the same distribution to every
+/// class of both players. Used for the villain's prior leaf continuation
+/// (which is class-blind) and for warm-start seeds.
+fn strats_to_class(strats: &Strats, n_hero_classes: usize, n_vill_classes: usize) -> ClassStrats {
+    let mut out = ClassStrats::new();
+    for (path, probs) in strats {
+        for c in 0..n_hero_classes {
+            out.insert((path.clone(), 0, c), probs.clone());
+        }
+        for c in 0..n_vill_classes {
+            out.insert((path.clone(), 1, c), probs.clone());
+        }
+    }
+    out
+}
+
+/// F2 (2026-10-01): compute per-class reach along the tree for one player.
+/// `reach_in` is the current class-reach vector at `node` (root = prior).
+/// On the tracked player's decision nodes, each child multiplies the
+/// per-class reach by that class's strategy probability for the action.
+/// The result maps path -> Vec<f64> (one reach per class of the tracked player).
+fn compute_reach(
+    node: &Node,
+    path: &str,
+    player_to_track: u8,
+    strats: &ClassStrats,
+    reach_in: &[f64],
+    out: &mut HashMap<String, Vec<f64>>,
+) {
+    out.insert(path.to_string(), reach_in.to_vec());
+    if let Node::Decision {
+        player,
+        actions,
+        children,
+    } = node
+    {
+        for (ai, (a, child)) in actions.iter().zip(children.iter()).enumerate() {
+            let next = if path.is_empty() {
+                a.clone()
+            } else {
+                format!("{path}/{a}")
+            };
+            let mut child_reach = reach_in.to_vec();
+            if *player == player_to_track {
+                for (c, r) in child_reach.iter_mut().enumerate() {
+                    let p = strats
+                        .get(&(path.to_string(), player_to_track, c))
+                        .and_then(|s| s.get(ai).copied())
+                        .unwrap_or(0.0);
+                    *r *= p;
+                }
+            }
+            compute_reach(child, &next, player_to_track, strats, &child_reach, out);
+        }
+    }
+}
 /// Average EV over class pairs weighted by ranges.
+///
+/// F2 (2026-10-01): accepts a MARGINAL strategy table and expands it to a
+/// class-conditioned one (same distribution per class) before evaluation.
+/// Preserves the historical marginal semantics for the gap diagnostics.
 fn avg_ev(node: &Node, seat: u8, path: &str, strats: &Strats, sg: &Subgame) -> f64 {
+    let class_strats = strats_to_class(strats, sg.hero_classes.len(), sg.villain_classes.len());
     let mut total = 0.0;
     for (hi, hc) in sg.hero_classes.iter().enumerate() {
         for (vi, vc) in sg.villain_classes.iter().enumerate() {
             let pair_weight = hc.weight * vc.weight;
-            total += pair_weight * ev(node, seat, path, strats, sg, hi, vi);
+            total += pair_weight * ev(node, seat, path, &class_strats, sg, hi, vi);
         }
     }
     total
@@ -394,153 +472,223 @@ fn cfr_plus(
     villain_override: Option<&Strats>,
     villain_override_p: f64,
     warm: Option<&Strats>,
-) -> (Strats, Strats, u32) {
-    // regrets per (path, seat)
-    let mut regret: BTreeMap<(String, u8), Vec<f64>> = BTreeMap::new();
-    // B6 warm-start: seed initial regrets so iteration 0 plays the warmed
-    // strategy (same action count required, else fall back to zeros).
+) -> (Strats, Strats, ClassStrats, ClassStrats, u32) {
+    // F2 (2026-10-01): class-conditioned CFR+. Regrets and strat-sums are
+    // keyed by (path, player, own_class). Counterfactual values at hero
+    // infoset (path, c_h) sum over villain's classes weighted by VILLAIN
+    // counterfactual reach along the child path (not the unconditional
+    // prior). Same for villain's regrets (sum over hero classes weighted
+    // by hero reach). Output is the marginal strategy per (path, player):
+    // Σ_c prior_weight(player, c) × normalized_strategy(path, player, c).
+    let n_hero = sg.hero_classes.len();
+    let n_vill = sg.villain_classes.len();
+    let hero_prior: Vec<f64> = sg.hero_classes.iter().map(|c| c.weight).collect();
+    let vill_prior: Vec<f64> = sg.villain_classes.iter().map(|c| c.weight).collect();
+
+    let mut regret: ClassStrats = BTreeMap::new();
+    let mut strat_sum: ClassStrats = BTreeMap::new();
+
+    // B6 warm-start: seed hero regrets per class from the marginal warm
+    // table (same initial strategy for every class).
     if let Some(w) = warm {
         for (path, player, actions, _n) in nodes.iter() {
             if *player != 0 {
-                continue; // only OUR strategy warms (villain blends the prior)
+                continue;
             }
             if let Some(ws) = w.get(path) {
                 if ws.len() == actions.len() {
                     let n = actions.len() as f64;
-                    let entry = regret
-                        .entry((path.clone(), *player))
-                        .or_insert_with(|| vec![0.0; actions.len()]);
-                    for (i, r) in entry.iter_mut().enumerate() {
-                        *r = (ws.get(i).copied().unwrap_or(0.0) - 1.0 / n) * WARM_SCALE;
+                    for c_h in 0..n_hero {
+                        let entry = regret
+                            .entry((path.clone(), 0, c_h))
+                            .or_insert_with(|| vec![0.0; actions.len()]);
+                        for (i, r) in entry.iter_mut().enumerate() {
+                            *r = (ws.get(i).copied().unwrap_or(0.0) - 1.0 / n) * WARM_SCALE;
+                        }
                     }
                 }
             }
         }
     }
-    let mut strat_sum: BTreeMap<(String, u8), Vec<f64>> = BTreeMap::new();
+
     let mut iters_done = 0u32;
     for t in 0..iters {
         if guard.expired() {
             break;
         }
-        // current strategies from regrets (RM+)
-        let mut current: Strats = BTreeMap::new();
+
+        // 1. Current per-class strategies from regrets (RM+).
+        let mut current: ClassStrats = BTreeMap::new();
         for (path, player, actions, _n) in nodes.iter() {
-            let key = (path.clone(), *player);
             let n = actions.len();
-            let entry = regret.entry(key).or_insert_with(|| vec![0.0; n]);
-            let pos: Vec<f64> = entry.iter().map(|&r| r.max(0.0)).collect();
-            let sum: f64 = pos.iter().sum();
-            let cur = if sum > 1e-12 {
-                pos.iter().map(|&p| p / sum).collect()
-            } else {
-                uniform(n)
-            };
-            current.insert(path.clone(), cur);
+            let nc = if *player == 0 { n_hero } else { n_vill };
+            for c in 0..nc {
+                let key = (path.clone(), *player, c);
+                let entry = regret.entry(key.clone()).or_insert_with(|| vec![0.0; n]);
+                let pos: Vec<f64> = entry.iter().map(|&r| r.max(0.0)).collect();
+                let sum: f64 = pos.iter().sum();
+                let cur = if sum > 1e-12 {
+                    pos.iter().map(|&p| p / sum).collect()
+                } else {
+                    uniform(n)
+                };
+                current.insert(key, cur);
+            }
         }
-        // effective strategies: villain override blending for RNR
-        let mut effective: Strats = current.clone();
+
+        // 2. Villain-override blend (same override for every villain class).
+        let mut effective = current.clone();
         if let Some(prior) = villain_override {
             for (path, player, actions, _n) in nodes.iter() {
                 if *player != 1 {
                     continue;
                 }
-                let learned = current
-                    .get(path)
-                    .cloned()
-                    .unwrap_or_else(|| uniform(actions.len()));
                 let prior_s = prior
                     .get(path)
                     .cloned()
                     .unwrap_or_else(|| uniform(actions.len()));
-                let blended: Vec<f64> = (0..actions.len())
-                    .map(|i| {
-                        villain_override_p * prior_s.get(i).copied().unwrap_or(0.0)
-                            + (1.0 - villain_override_p) * learned.get(i).copied().unwrap_or(0.0)
-                    })
-                    .collect();
-                effective.insert(path.clone(), blended);
+                for c_v in 0..n_vill {
+                    let key = (path.clone(), 1, c_v);
+                    let learned = current
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| uniform(actions.len()));
+                    let blended: Vec<f64> = (0..actions.len())
+                        .map(|i| {
+                            villain_override_p * prior_s.get(i).copied().unwrap_or(0.0)
+                                + (1.0 - villain_override_p)
+                                    * learned.get(i).copied().unwrap_or(0.0)
+                        })
+                        .collect();
+                    effective.insert(key, blended);
+                }
             }
         }
-        // CFR+ update: for each seat, per infoset per action, counterfactual value.
-        // C-1 fix (2026-09-27): accumulate regrets IN PLACE. The previous form
-        // declared a fresh `new_regret` map inside this loop and overwrote
-        // `regret` at the end of each iteration, so `+=` never spanned
-        // iterations and RM+ could not converge (matching last-iteration's
-        // instantaneous positive regrets, not cumulative).
+
+        // 3. Compute per-class reaches for both players.
+        let mut hero_reach: HashMap<String, Vec<f64>> = HashMap::new();
+        let mut vill_reach: HashMap<String, Vec<f64>> = HashMap::new();
+        compute_reach(tree, "", 0, &effective, &hero_prior, &mut hero_reach);
+        compute_reach(tree, "", 1, &effective, &vill_prior, &mut vill_reach);
+
+        // 4. Regret updates per (path, player, own_class).
         for (path, player, actions, node) in nodes.iter() {
-            let key = (path.clone(), *player);
-            let opp = 1 - player;
-            // node value for this player under effective strategies
             let n = actions.len();
-            let mut v = vec![0.0; n];
-            for (ai, a) in actions.iter().enumerate() {
-                let next = if path.is_empty() {
-                    a.clone()
-                } else {
-                    format!("{path}/{a}")
-                };
-                let child = match node {
-                    Node::Decision { children, .. } => &children[ai.min(children.len() - 1)],
-                    _ => unreachable!("cham-search: invariant I2"),
-                };
-                v[ai] = avg_ev_child(child, *player, &next, &effective, sg);
-            }
-            let node_v: f64 = {
-                let cur = current.get(path).cloned().unwrap_or_else(|| uniform(n));
-                (0..n)
+            let nc = if *player == 0 { n_hero } else { n_vill };
+            let n_opp = if *player == 0 { n_vill } else { n_hero };
+            for c_own in 0..nc {
+                let mut v = vec![0.0; n];
+                for (ai, a) in actions.iter().enumerate() {
+                    let next = if path.is_empty() {
+                        a.clone()
+                    } else {
+                        format!("{path}/{a}")
+                    };
+                    let child = match node {
+                        Node::Decision { children, .. } => &children[ai.min(children.len() - 1)],
+                        _ => unreachable!("cham-search: invariant I2"),
+                    };
+                    let opp_reach = if *player == 0 {
+                        &vill_reach
+                    } else {
+                        &hero_reach
+                    };
+                    let opp_at_child = opp_reach.get(&next);
+                    let mut val = 0.0;
+                    for c_opp in 0..n_opp {
+                        let r = opp_at_child
+                            .and_then(|v| v.get(c_opp).copied())
+                            .unwrap_or(0.0);
+                        if r <= 1e-12 {
+                            continue;
+                        }
+                        let (hero_c, vill_c) = if *player == 0 {
+                            (c_own, c_opp)
+                        } else {
+                            (c_opp, c_own)
+                        };
+                        val += r * ev(child, *player, &next, &effective, sg, hero_c, vill_c);
+                    }
+                    v[ai] = val;
+                }
+                let key = (path.clone(), *player, c_own);
+                let cur = current.get(&key).cloned().unwrap_or_else(|| uniform(n));
+                let node_v: f64 = (0..n)
                     .map(|i| cur.get(i).copied().unwrap_or(0.0) * v[i])
-                    .sum()
-            };
-            let entry = regret.entry(key.clone()).or_insert_with(|| vec![0.0; n]);
-            for i in 0..n {
-                entry[i] = (entry[i] + (v[i] - node_v)).max(0.0);
+                    .sum();
+                let entry = regret.entry(key).or_insert_with(|| vec![0.0; n]);
+                for i in 0..n {
+                    entry[i] = (entry[i] + (v[i] - node_v)).max(0.0);
+                }
             }
-            let _ = opp;
         }
-        // accumulate average strategy
+
+        // 5. Strat-sum accumulation per class.
         for (path, player, actions, _n) in nodes.iter() {
-            let key = (path.clone(), *player);
             let n = actions.len();
-            let cur = current.get(path).cloned().unwrap_or_else(|| uniform(n));
-            let e = strat_sum.entry(key).or_insert_with(|| vec![0.0; n]);
-            for i in 0..n {
-                e[i] += cur[i];
+            let nc = if *player == 0 { n_hero } else { n_vill };
+            for c in 0..nc {
+                let key = (path.clone(), *player, c);
+                let cur = current.get(&key).cloned().unwrap_or_else(|| uniform(n));
+                let e = strat_sum.entry(key).or_insert_with(|| vec![0.0; n]);
+                for i in 0..n {
+                    e[i] += cur[i];
+                }
             }
         }
+
         iters_done = t + 1;
     }
-    // normalize averages
-    let mut our = Strats::new();
-    let mut their = Strats::new();
-    for ((path, player), sums) in &strat_sum {
+
+    // 6. Normalize per class, then marginalize over class prior.
+    let mut our: Strats = BTreeMap::new();
+    let mut their: Strats = BTreeMap::new();
+    for ((path, player, c), sums) in &strat_sum {
+        let n = sums.len();
         let total: f64 = sums.iter().sum();
-        let norm = if total > 1e-12 {
+        let norm: Vec<f64> = if total > 1e-12 {
             sums.iter().map(|&s| s / total).collect()
         } else {
-            uniform(sums.len())
+            uniform(n)
+        };
+        let w = if *player == 0 {
+            hero_prior.get(*c).copied().unwrap_or(0.0)
+        } else {
+            vill_prior.get(*c).copied().unwrap_or(0.0)
         };
         if *player == 0 {
-            our.insert(path.clone(), norm);
+            let e = our.entry(path.clone()).or_insert_with(|| vec![0.0; n]);
+            for i in 0..n {
+                e[i] += w * norm[i];
+            }
         } else {
-            their.insert(path.clone(), norm);
+            let e = their.entry(path.clone()).or_insert_with(|| vec![0.0; n]);
+            for i in 0..n {
+                e[i] += w * norm[i];
+            }
         }
     }
-    (our, their, iters_done)
-}
 
-/// Average EV of a subtree for `seat` (helper for the CFR+ update).
-fn avg_ev_child(node: &Node, seat: u8, path: &str, strats: &Strats, sg: &Subgame) -> f64 {
-    let mut total = 0.0;
-    for (hi, hc) in sg.hero_classes.iter().enumerate() {
-        for (vi, vc) in sg.villain_classes.iter().enumerate() {
-            total += hc.weight * vc.weight * ev(node, seat, path, strats, sg, hi, vi);
+    // F2: also produce per-class strategies for deployment.
+    let mut our_class: ClassStrats = BTreeMap::new();
+    let mut their_class: ClassStrats = BTreeMap::new();
+    for ((path, player, c), sums) in &strat_sum {
+        let n = sums.len();
+        let total: f64 = sums.iter().sum();
+        let norm: Vec<f64> = if total > 1e-12 {
+            sums.iter().map(|&s| s / total).collect()
+        } else {
+            uniform(n)
+        };
+        if *player == 0 {
+            our_class.insert((path.clone(), 0, *c), norm);
+        } else {
+            their_class.insert((path.clone(), 1, *c), norm);
         }
     }
-    total
+    (our, their, our_class, their_class, iters_done)
 }
 
-/// Solve per the chosen solver (SPECS/06 §4).
 pub fn solve(
     sg: &Subgame,
     prior: &crate::prior::PriorStrats,
@@ -595,10 +743,27 @@ pub fn solve_with_warmkey(
 
     match choice {
         SolverChoice::Fmbr => {
-            // hero best-responds to the prior villain; villain frozen at prior
-            let mut our: Strats = BTreeMap::new();
-            for (path, player, actions, _n) in &nodes {
-                if *player == 0 {
+            // F2 (2026-10-01): class-conditioned best response. For each
+            // (path, hero_class), pick the argmax action under the value
+            // Σ_{villain_class} villain_prior(c_v) × ev_class(child, path·a, ...).
+            // Then output the marginal over hero's class prior, matching
+            // the historical shape for downstream callers.
+            let n_hero = sg.hero_classes.len();
+            let n_vill = sg.villain_classes.len();
+            let hero_prior: Vec<f64> = sg.hero_classes.iter().map(|c| c.weight).collect();
+            let vill_prior: Vec<f64> = sg.villain_classes.iter().map(|c| c.weight).collect();
+            let class_blended = strats_to_class(&blended, n_hero, n_vill);
+
+            let mut per_class: BTreeMap<String, Vec<Vec<f64>>> = BTreeMap::new();
+            for (path, player, actions, node) in &nodes {
+                if *player != 0 {
+                    continue;
+                }
+                let n = actions.len();
+                per_class
+                    .entry(path.clone())
+                    .or_insert_with(|| vec![vec![0.0; n]; n_hero]);
+                for c_h in 0..n_hero {
                     let mut best = 0usize;
                     let mut best_v = f64::NEG_INFINITY;
                     for (ai, a) in actions.iter().enumerate() {
@@ -607,19 +772,45 @@ pub fn solve_with_warmkey(
                         } else {
                             format!("{path}/{a}")
                         };
-                        let child = match _n {
+                        let child = match node {
                             Node::Decision { children, .. } => {
                                 &children[ai.min(children.len() - 1)]
                             }
                             _ => unreachable!("cham-search: invariant I2"),
                         };
-                        let v = avg_ev_child(child, 0, &next, &blended, sg);
-                        if v > best_v {
-                            best_v = v;
+                        let mut val = 0.0;
+                        for (c_v, w) in vill_prior.iter().enumerate() {
+                            val += w * ev(child, 0, &next, &class_blended, sg, c_h, c_v);
+                        }
+                        if val > best_v {
+                            best_v = val;
                             best = ai;
                         }
                     }
-                    our.insert(path.clone(), one_hot(best, actions.len()));
+                    let mut oh = vec![0.0; n];
+                    oh[best] = 1.0;
+                    per_class.get_mut(path).unwrap()[c_h] = oh;
+                }
+            }
+            let mut our: Strats = BTreeMap::new();
+            let mut our_class: ClassStrats = BTreeMap::new();
+            for (path, per_c) in &per_class {
+                let n = per_c[0].len();
+                let mut marginal = vec![0.0; n];
+                for (c, strat) in per_c.iter().enumerate() {
+                    let w = hero_prior[c];
+                    for i in 0..n {
+                        marginal[i] += w * strat[i];
+                    }
+                    our_class.insert((path.clone(), 0, c), strat.clone());
+                }
+                our.insert(path.clone(), marginal);
+            }
+            // Villain class strategy = the blended prior (class-blind).
+            let mut their_class: ClassStrats = BTreeMap::new();
+            for (path, probs) in &blended {
+                for c_v in 0..n_vill {
+                    their_class.insert((path.clone(), 1, c_v), probs.clone());
                 }
             }
             let their = blended.clone();
@@ -629,13 +820,15 @@ pub fn solve_with_warmkey(
             Ok(SolveResult {
                 our_strategy: our,
                 their_strategy: their,
+                our_class_strategy: Some(our_class),
+                their_class_strategy: Some(their_class),
                 iters: 0,
                 truncated: false,
                 lbr_gap: (our_gap, their_gap),
             })
         }
         SolverChoice::Rnr { p } => {
-            let (our, their, done) = cfr_plus(
+            let (our, their, our_class, their_class, done) = cfr_plus(
                 sg,
                 &tree,
                 &nodes,
@@ -652,6 +845,8 @@ pub fn solve_with_warmkey(
             Ok(SolveResult {
                 our_strategy: our,
                 their_strategy: their,
+                our_class_strategy: Some(our_class),
+                their_class_strategy: Some(their_class),
                 iters: done,
                 truncated: done < iters,
                 lbr_gap: (our_gap, their_gap),
@@ -679,7 +874,7 @@ pub fn solve_with_warmkey(
                         .collect(),
                 );
             }
-            let (our, their, done) = cfr_plus(
+            let (our, their, our_class, their_class, done) = cfr_plus(
                 sg,
                 &tree,
                 &nodes,
@@ -696,6 +891,8 @@ pub fn solve_with_warmkey(
             Ok(SolveResult {
                 our_strategy: our,
                 their_strategy: their,
+                our_class_strategy: Some(our_class),
+                their_class_strategy: Some(their_class),
                 iters: done,
                 truncated: done < iters,
                 lbr_gap: (our_gap, their_gap),
@@ -719,10 +916,6 @@ pub fn evaluate(sg: &Subgame, our: &Strats, their: &Strats) -> f64 {
     let tree = sg.tree();
     let both = merge(our.clone(), their.clone());
     avg_ev(&tree, 0, "", &both, sg)
-}
-
-fn one_hot(i: usize, n: usize) -> Vec<f64> {
-    (0..n).map(|k| if k == i { 1.0 } else { 0.0 }).collect()
 }
 
 fn merge(a: Strats, b: Strats) -> Strats {
