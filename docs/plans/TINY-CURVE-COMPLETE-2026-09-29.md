@@ -1,5 +1,8 @@
 # Tiny convergence curve — full picture (2026-09-29)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 ## All measured points, 1000-deal LBR at depth 100
 
 | iters | seat 0 | seat 1 | mean |
