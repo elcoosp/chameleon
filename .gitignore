@@ -152,3 +152,7 @@ artifacts/dcfr-gamma-honest.log
 # crates/*/artifacts/ (which this doesn't match).
 /artifacts/
 crates/cham-cli/artifacts/
+
+# Agent + blueprint test artifacts that the *-test-* pattern misses
+crates/cham-agent/artifacts/
+crates/cham-blueprint/artifacts/runs/ws-robust/
