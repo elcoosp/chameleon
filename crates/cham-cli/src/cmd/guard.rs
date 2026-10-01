@@ -37,6 +37,25 @@ pub fn trained_agents() -> &'static [&'static str] {
     &TRAINED_AGENTS
 }
 
+/// The pure-baseline agent names accepted by `ladder`/`probe`/`ab` that do
+/// NOT require a trained bundle. Kept intentionally small.
+pub const BASELINE_AGENTS: &[&str] = &[
+    "callbot",
+    "raisebot",
+    "jamfix",
+    "random",
+    "fish",
+    "uniform",
+];
+
+/// True when `agent` is a recognized name for evaluation tools — either a
+/// trained routing mode or a known pure baseline. A `false` result means a
+/// typo, a stale binary, or an agent name that hasn't been wired up yet;
+/// callers should refuse LOUDLY rather than fall through to CallBot.
+pub fn is_known_agent(agent: &str) -> bool {
+    requires_trained_artifacts(agent) || BASELINE_AGENTS.contains(&agent)
+}
+
 /// Required bundle files, mirroring `cham_agent::loader::load_agent`
 /// (`abstraction.toml` + buckets + 4 experts + robust).
 fn required_bundle_files() -> Vec<std::path::PathBuf> {

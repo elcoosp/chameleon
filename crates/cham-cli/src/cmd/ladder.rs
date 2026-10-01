@@ -243,6 +243,24 @@ pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str) -> i32 {
     // (ladder does not enable search), but cheap and future-proof.
     let _cache_guard =
         crate::cmd::cache_guard::CachePersist::hydrate("ladder", "artifacts/river-cache.bin");
+
+    // 2026-10-01 (STALE-BINARY-GOTCHA): refuse unknown agent names. If the
+    // release binary is older than the source, a name added to hero.rs but
+    // missing from this binary's TRAINED_AGENTS would otherwise fall
+    // through to CallBot silently. Print the list of known agents so the
+    // caller sees immediately what's recognized.
+    if !crate::cmd::guard::is_known_agent(agent) {
+        eprintln!(
+            "ladder: agent '{agent}' is not a recognized agent name in this binary.\n\
+             ladder: known trained agents: {:?}\n\
+             ladder: known pure baselines: {:?}\n\
+             ladder: (this can also indicate a stale release binary — rebuild with `cargo build --release -p cham-cli`)",
+            crate::cmd::guard::trained_agents(),
+            crate::cmd::guard::BASELINE_AGENTS,
+        );
+        return crate::cmd::EXIT_FAIL;
+    }
+
     // PERF-PLAN T7 guardrail: evaluating a trained agent without its bundle
     // yields silent-fallback mirror rows (meaningless strength numbers).
     if let Err(missing) = crate::cmd::guard::require_agent_artifacts(agent) {

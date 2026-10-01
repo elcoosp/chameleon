@@ -23,6 +23,17 @@ use cham_router::model::SoftmaxModel;
 use cham_router::runtime::RouterRuntime;
 
 pub fn run(agent: &str, diag_fallback: bool, bundle: Option<&str>) -> i32 {
+    // 2026-10-01: refuse unknown agent names (see STALE-BINARY-GOTCHA-2026-10-01.md).
+    if !crate::cmd::guard::is_known_agent(agent) {
+        eprintln!(
+            "probe: agent '{agent}' is not a recognized agent name in this binary.\n\
+             probe: known trained: {:?}\n\
+             probe: known baselines: {:?}",
+            crate::cmd::guard::trained_agents(),
+            crate::cmd::guard::BASELINE_AGENTS,
+        );
+        return crate::cmd::EXIT_FAIL;
+    }
     let bundle = bundle.unwrap_or("artifacts/agent");
     if diag_fallback {
         return run_diag(agent, bundle);
