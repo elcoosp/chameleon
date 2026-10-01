@@ -289,7 +289,7 @@ impl<'a> Traversal<'a> {
             }
             // In Robust mode the opponent is the other seat's CURRENT strategy
             // sampled from its own rows; in Exploit modes the scripted oracle.
-            let dist: Vec<(Action, f64)> = if self.mode == TrainModeTag::Robust {
+            let dist: ArrayVec<(Action, f64), 12> = if self.mode == TrainModeTag::Robust {
                 // One ladder derivation per visit (PERF-PLAN T4): slots feed
                 // the key, the width and the action mapping together.
                 let slots = enc.slots(&obs, seq);
@@ -362,7 +362,7 @@ impl<'a> Traversal<'a> {
                         .unwrap_or(0.0)
                 })
             };
-            let dist: Vec<(Action, f64)> = if eps > 0.0 && cham_core::rng::next_f64(rng) < eps {
+            let dist: ArrayVec<(Action, f64), 12> = if eps > 0.0 && cham_core::rng::next_f64(rng) < eps {
                 let n = dist.len().max(1) as f64;
                 dist.iter().map(|(a, _)| (*a, 1.0 / n)).collect()
             } else {
