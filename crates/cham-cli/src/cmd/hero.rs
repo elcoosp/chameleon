@@ -57,6 +57,17 @@ pub fn build_chameleon(agent: &str, depth_bb: i64) -> Result<ChameleonAgent, Str
     build_chameleon_with_router(agent, depth_bb, None)
 }
 
+/// 2026-10-01 (F1): variant with an explicit search flag. Enables live
+/// river solving for evaluation tools (ladder/probe). Uses `EXP-SEARCH`
+/// as the auditable G4 ledger token when enabled.
+pub fn build_chameleon_with_search(
+    agent: &str,
+    depth_bb: i64,
+    search_enabled: bool,
+) -> Result<ChameleonAgent, String> {
+    build_chameleon_with_router_and_search(agent, depth_bb, None, search_enabled)
+}
+
 /// EXP-015: same as [`build_chameleon`] but the `full` victim's
 /// `RouterRuntime` is built from override hyperparameters instead of the
 /// checked-in defaults. `overrides = (temp, n0, shield_beta, shield_z)`.
@@ -64,6 +75,20 @@ pub fn build_chameleon_with_router(
     agent: &str,
     depth_bb: i64,
     overrides: Option<(f64, f64, f64, f64)>,
+) -> Result<ChameleonAgent, String> {
+    build_chameleon_with_router_and_search(agent, depth_bb, overrides, false)
+}
+
+/// 2026-10-01 (F1): the underlying builder accepts a `search_enabled`
+/// flag that flips `AgentMode.search.enabled`. When true, the mode
+/// carries `g4_ledger_ref = "EXP-SEARCH"` (the auditable opt-in token
+/// per SPECS/06 §7). Existing callers pass `false` and get the
+/// pre-F1 behavior bit-for-bit.
+pub fn build_chameleon_with_router_and_search(
+    agent: &str,
+    depth_bb: i64,
+    overrides: Option<(f64, f64, f64, f64)>,
+    search_enabled: bool,
 ) -> Result<ChameleonAgent, String> {
     // CHAM_AGENT_BUNDLE overrides the default `artifacts/agent` bundle path.
     // Used by competitive-measurement scripts that retrain into a different
@@ -75,12 +100,19 @@ pub fn build_chameleon_with_router(
     let routing = routing_for(agent);
     let loaded = cham_agent::loader::load_agent(bundle, routing, depth_bb)
         .map_err(|e| format!("artifact bundle under {bundle_path} not loadable: {e}"))?;
+    // 2026-10-01 (F1): search is opt-in. The `--search` CLI flag on
+    // ladder/probe/play sets `search_enabled = true`, which carries
+    // `EXP-SEARCH` as the auditable G4 ledger token (SPECS/06 §7).
     let mode = AgentMode {
         routing: routing.to_string(),
         search: SearchCfg {
-            enabled: false,
-            solver: "Rnr".into(),
-            g4_ledger_ref: String::new(),
+            enabled: search_enabled,
+            solver: std::env::var("CHAM_SEARCH_SOLVER").unwrap_or_else(|_| "Rnr".into()),
+            g4_ledger_ref: if search_enabled {
+                "EXP-SEARCH".into()
+            } else {
+                String::new()
+            },
         },
         fallback_mode: std::env::var("CHAM_FALLBACK_MODE").unwrap_or_else(|_| "renorm".into()),
     };

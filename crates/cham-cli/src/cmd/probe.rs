@@ -22,7 +22,7 @@ use cham_core::rng::child;
 use cham_router::model::SoftmaxModel;
 use cham_router::runtime::RouterRuntime;
 
-pub fn run(agent: &str, diag_fallback: bool, bundle: Option<&str>) -> i32 {
+pub fn run(agent: &str, diag_fallback: bool, bundle: Option<&str>, search: bool) -> i32 {
     // 2026-10-01: refuse unknown agent names (see STALE-BINARY-GOTCHA-2026-10-01.md).
     if !crate::cmd::guard::is_known_agent(agent) {
         eprintln!(
@@ -36,7 +36,7 @@ pub fn run(agent: &str, diag_fallback: bool, bundle: Option<&str>) -> i32 {
     }
     let bundle = bundle.unwrap_or("artifacts/agent");
     if diag_fallback {
-        return run_diag(agent, bundle);
+        return run_diag(agent, bundle, search);
     }
     // PERF-PLAN T7 guardrail: probing a trained agent without its bundle
     // yields silent-fallback numbers that look like bot bugs.
@@ -141,7 +141,7 @@ fn pool_ids(pool_path: &str) -> Vec<String> {
     }
 }
 
-fn run_diag(agent: &str, bundle: &str) -> i32 {
+fn run_diag(agent: &str, bundle: &str, search: bool) -> i32 {
     let routing = crate::cmd::hero::routing_for(agent);
     let loaded = match cham_agent::loader::load_agent(Path::new(bundle), routing, 100) {
         Ok(l) => l,
@@ -150,12 +150,18 @@ fn run_diag(agent: &str, bundle: &str) -> i32 {
             return crate::cmd::EXIT_BUDGET;
         }
     };
+    // 2026-10-01 (F1): `--search` opts in to live river solving. Uses
+    // `EXP-SEARCH` as the auditable G4 ledger token (SPECS/06 §7).
     let mode = AgentMode {
         routing: routing.to_string(),
         search: SearchCfg {
-            enabled: false,
+            enabled: search,
             solver: "Rnr".into(),
-            g4_ledger_ref: String::new(),
+            g4_ledger_ref: if search {
+                "EXP-SEARCH".into()
+            } else {
+                String::new()
+            },
         },
         fallback_mode: std::env::var("CHAM_FALLBACK_MODE").unwrap_or_else(|_| "renorm".into()),
     };

@@ -12,7 +12,7 @@
 //!   full-budget run is seed-identical to the old single-shot run).
 //! - B4: the printed `±` is the VR-adjusted (duplicate) SE with `VR ×` factor.
 
-use crate::cmd::hero::{CountingHero, build_chameleon, build_hero};
+use crate::cmd::hero::{CountingHero, build_hero};
 
 /// Deals per SPRT chunk (B3).
 const CHUNK_DEALS: u64 = 250;
@@ -104,6 +104,7 @@ fn run_opponent(
     deals: u64,
     tier: &str,
     sprt: &SprtCfg,
+    search: bool,
 ) -> OppOutcome {
     // SEED RULE (B2): derived, never shared — same scheme as run_pool.
     let base_seed: u64 = 0x1AD ^ ((index as u64) << 32);
@@ -118,7 +119,7 @@ fn run_opponent(
     // pure baselines keep the CallBot factory path.
     let trained = crate::cmd::guard::requires_trained_artifacts(agent);
     let mut hero: CountingHero = if trained {
-        match build_chameleon(agent, 100) {
+        match crate::cmd::hero::build_chameleon_with_search(agent, 100, search) {
             Ok(bot) => CountingHero::chameleon(bot),
             Err(e) => {
                 return OppOutcome {
@@ -238,7 +239,7 @@ fn run_opponent(
     }
 }
 
-pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str) -> i32 {
+pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str, search: bool) -> i32 {
     // B-2: hydrate the persistent river-subgame cache. A no-op today
     // (ladder does not enable search), but cheap and future-proof.
     let _cache_guard =
@@ -291,7 +292,9 @@ pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str) -> i32 {
         let handles: Vec<_> = opps
             .iter()
             .enumerate()
-            .map(|(i, opp)| s.spawn(move || run_opponent(i, opp, agent, deals, tier, sprt_ref)))
+            .map(|(i, opp)| {
+                s.spawn(move || run_opponent(i, opp, agent, deals, tier, sprt_ref, search))
+            })
             .collect();
         handles
             .into_iter()

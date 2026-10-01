@@ -174,6 +174,9 @@ enum Command {
         /// Agent bundle directory (default: artifacts/agent).
         #[arg(long)]
         bundle: Option<String>,
+        /// 2026-10-01 (F1): enable live river solving.
+        #[arg(long)]
+        search: bool,
     },
     /// Diagnostic: probe Apple Metal device + whitelist amendment status (GPU-PLAN G0.1)
     GpuDoctor,
@@ -187,6 +190,9 @@ enum Command {
         agent: String,
         #[arg(long, default_value = "config/pool.toml")]
         pool: String,
+        /// 2026-10-01 (F1): enable live river solving for this ladder run.
+        #[arg(long)]
+        search: bool,
     },
     /// Tier 3 paired A/B with promotion
     Ab {
@@ -431,14 +437,16 @@ fn main() -> anyhow::Result<()> {
             agent,
             diag_fallback,
             bundle,
-        } => cmd::probe::run(&agent, diag_fallback, bundle.as_deref()),
+            search,
+        } => cmd::probe::run(&agent, diag_fallback, bundle.as_deref(), search),
         Command::GpuDoctor => cmd::gpu_doctor::run(),
         Command::Ladder {
             fast,
             full,
             agent,
             pool,
-        } => cmd::ladder::run(fast, full, &agent, &pool),
+            search,
+        } => cmd::ladder::run(fast, full, &agent, &pool, search),
         Command::Ab {
             a,
             b,
