@@ -1,5 +1,8 @@
 # Warmup-fix result at 20M (2026-09-29)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 The parallel trainer's warmup used to run full CFR+ updates on rows it
 already had from previous slices, overwriting accumulated strategy mass.
 Commit 1fa3762 made warmup insert-only. This is the first 20M LBR run
