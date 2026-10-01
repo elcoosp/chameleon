@@ -116,6 +116,10 @@ pub fn try_solve(
     if obs.pot_bb() < cfg.min_pot_bb {
         return None;
     }
+    // F1-A/B guard: refuse any state the subgame tree does not model.
+    if obs.to_call != 0 {
+        return None;
+    }
 
     // Hero classes: one class, weight 1.0, strength = hero's current
     // strength on the river board (0..1).
@@ -271,6 +275,15 @@ pub fn would_trigger(cfg: &SearchBridgeCfg, obs: &Observables<'_>) -> bool {
     cfg.enabled
         && (!cfg.river_only || obs.street == cham_core::engine::Street::River)
         && obs.pot_bb() >= cfg.min_pot_bb
+        // 2026-10-01 (F1-A/B): the solver tree is rooted at hero-acts-
+        // first with actions [check, bet0.5, bet1, jam]. If the hero
+        // faces a bet (to_call > 0), the state has fold/call/raise legal
+        // and the root distribution has no honest mapping onto it. The
+        // 2026-10-01 A/B measured this as a −5 000 mb/seating regression
+        // against every opponent. Restrict the trigger to the exact
+        // state class the subgame models. See
+        // `F1-SEARCH-NEGATIVE-2026-10-01.md`.
+        && obs.to_call == 0
 }
 
 #[cfg(test)]

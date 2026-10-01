@@ -194,3 +194,49 @@ fn search_fires_when_flag_on() {
         );
     }
 }
+
+/// F1-A/B (2026-10-01): search must NOT fire when the hero faces a bet
+/// on the river. The solver tree is rooted at hero-acts-first; there is
+/// no honest mapping from its root distribution onto a {fold, call,
+/// raise} legal set. The bridge refuses this state.
+#[test]
+fn search_does_not_fire_when_facing_bet() {
+    let mut mode = AgentMode::argmax();
+    mode.search = SearchCfg {
+        enabled: true,
+        solver: "Rnr".into(),
+        g4_ledger_ref: "EXP-SEARCH".into(),
+    };
+    let mut agent = make_agent(mode);
+
+    // Drive preflop+flop+turn all-check to the river.
+    let rng = &mut rng_from_seed(0xCAFE);
+    let mut s = State::new(CFG, Deck::shuffled(rng)).expect("state");
+    s.apply(Action::Call).expect("preflop call");
+    s.apply(Action::Check).expect("preflop check");
+    while s.street() == cham_core::engine::Street::Flop {
+        s.apply(Action::Check).expect("flop check");
+    }
+    while s.street() == cham_core::engine::Street::Turn {
+        s.apply(Action::Check).expect("turn check");
+    }
+    // On the river, first to act checks, second bets 100, hero (SB) now
+    // faces the bet.
+    let first = s.to_act();
+    s.apply(Action::Check).expect("river check");
+    let second = s.to_act();
+    assert_ne!(first, second, "two different actors on river");
+    s.apply(Action::Bet { to: 200 }).expect("river bet");
+
+    // Now hero is facing a bet. Act. The trace should NOT record a
+    // search even though search is enabled — the trigger refuses.
+    let hero_seat = s.to_act();
+    let obs = Observables::view(&s, Player::from_usize(hero_seat));
+    assert!(obs.to_call > 0, "we should be facing a bet");
+    let _ = agent.act(&obs, rng);
+    let t = agent.last_trace.as_ref().expect("trace");
+    assert!(
+        t.search.is_none(),
+        "search must NOT fire when to_call > 0 (F1-A/B guard)"
+    );
+}
