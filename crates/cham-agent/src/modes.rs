@@ -32,12 +32,7 @@ fn default_fallback_mode() -> String {
 impl AgentMode {
     pub fn validate(&self) -> Result<(), crate::AgentError> {
         match self.routing.as_str() {
-            "mixture"
-            | "argmax"
-            | "sample-expert"
-            | "hedged"
-            | "robust-only"
-            | "bayes" => {}
+            "mixture" | "argmax" | "sample-expert" | "hedged" | "robust-only" | "bayes" => {}
             other => {
                 return Err(crate::AgentError::Loader(format!(
                     "unknown routing: {other}"

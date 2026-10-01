@@ -537,7 +537,7 @@ fn determinism_same_seed_and_resume() {
             avg_gamma: 0.9,
             checkpoint_every: 0,
             checkpoint_dir: None,
-        explore_eps: 0.0,
+            explore_eps: 0.0,
         };
         let mode = TrainMode::Exploit {
             opponent: cham_opponents::OpponentSpec::CallBot,
@@ -616,7 +616,7 @@ fn resume_continues_bitstream() {
             avg_gamma: 0.9,
             checkpoint_every: 0,
             checkpoint_dir: None,
-        explore_eps: 0.0,
+            explore_eps: 0.0,
         };
         let mode = TrainMode::Exploit {
             opponent: cham_opponents::OpponentSpec::CallBot,

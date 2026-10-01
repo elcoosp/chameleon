@@ -156,7 +156,7 @@ pub fn run(
             avg_gamma,
             checkpoint_every: 0,
             checkpoint_dir: None,
-        explore_eps: 0.0,
+            explore_eps: 0.0,
         };
         let key = cham_blueprint::train_cache::train_cache_key(
             &cfg_peek,
@@ -271,7 +271,7 @@ pub fn run(
             avg_gamma,
             checkpoint_every: 0,
             checkpoint_dir: None,
-        explore_eps: 0.0,
+            explore_eps: 0.0,
         };
         let key = cham_blueprint::train_cache::train_cache_key(
             &cfg_peek,

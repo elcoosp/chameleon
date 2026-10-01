@@ -297,7 +297,10 @@ impl<'a> Traversal<'a> {
                 let w_slots = slots.len();
                 match self.table.as_ref().find(key.0) {
                     Some(off) => {
-                        let sigma = self.table.as_ref().sigma_rms_eps(off, w_slots, self.explore_eps);
+                        let sigma =
+                            self.table
+                                .as_ref()
+                                .sigma_rms_eps(off, w_slots, self.explore_eps);
                         sigma
                             .iter()
                             .enumerate()
@@ -391,7 +394,10 @@ impl<'a> Traversal<'a> {
         let prune_enabled = theta_t > 0.0;
         let visits = self.table.as_ref().visits(off, w_slots) as f64;
 
-        let sigma = self.table.as_ref().sigma_rms_eps(off, w_slots, self.explore_eps);
+        let sigma = self
+            .table
+            .as_ref()
+            .sigma_rms_eps(off, w_slots, self.explore_eps);
         let mut v = [0f64; 12];
         let mut computed: Vec<usize> = Vec::with_capacity(w_slots);
         for a in 0..w_slots {

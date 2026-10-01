@@ -287,7 +287,10 @@ pub fn train_with_threads(
     // previous process-global `TRAIN_EXPLORE_EPS` is deprecated; the
     // blueprint crate no longer reads the env directly.
     if cfg.explore_eps > 0.0 {
-        eprintln!("cham-blueprint: training exploration floor ε = {}", cfg.explore_eps);
+        eprintln!(
+            "cham-blueprint: training exploration floor ε = {}",
+            cfg.explore_eps
+        );
     }
 
     // Compute parallel_requested BEFORE the M-6 warning so we know

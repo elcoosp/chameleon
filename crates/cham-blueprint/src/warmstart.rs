@@ -12,10 +12,7 @@ use crate::table::RegretTable;
 /// `dst` if missing (strategy stays close to robust at t=0; tested by
 /// `warmstart_exact_keys`).
 pub fn warmstart_from_robust(src: &RegretTable, dst: &mut RegretTable) {
-    let entries: Vec<(u64, u32, usize)> = src
-        .iter()
-        .map(|(k, off, w)| (k, off, w))
-        .collect();
+    let entries: Vec<(u64, u32, usize)> = src.iter().collect();
     for (key, src_off, w) in entries {
         let (dst_off, _) = dst.entry_or_insert(key, w);
         for a in 0..w {

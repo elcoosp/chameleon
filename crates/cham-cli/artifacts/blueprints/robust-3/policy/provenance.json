@@ -9,7 +9,7 @@
   "thread_mode": "Deterministic",
   "threads": 8,
   "parent": null,
-  "wall_s": 0.052964084,
+  "wall_s": 0.088059458,
   "infosets": 214,
-  "created_unix": 1790589631
+  "created_unix": 1790854440
 }
