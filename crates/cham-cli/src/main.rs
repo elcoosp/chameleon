@@ -89,6 +89,14 @@ enum Command {
         /// you want recency. See `cham_blueprint::default_avg_gamma`.
         #[arg(long, default_value = "1.0")]
         avg_gamma: f32,
+        /// F5 (2026-10-01): DCFR positive-regret discount exponent alpha.
+        /// CFR+ classic is alpha=1.0; Brown & Sandholm 2019 DCFR uses alpha=1.5.
+        #[arg(long, default_value = "1.0")]
+        dcfr_alpha: f64,
+        /// F5 (2026-10-01): DCFR negative-regret discount exponent beta.
+        /// CFR+ classic is beta=1.0; Brown & Sandholm 2019 DCFR uses beta=0.0.
+        #[arg(long, default_value = "1.0")]
+        dcfr_beta: f64,
         /// Reuse a cached blueprint with identical inputs (V2 A/B speedup)
         #[arg(long)]
         reuse: bool,
@@ -382,6 +390,8 @@ fn main() -> anyhow::Result<()> {
             buckets,
             regret_discount,
             avg_gamma,
+            dcfr_alpha,
+            dcfr_beta,
             reuse,
             resume,
             cache_dir,
@@ -401,6 +411,8 @@ fn main() -> anyhow::Result<()> {
             buckets.as_deref(),
             regret_discount,
             avg_gamma,
+            dcfr_alpha,
+            dcfr_beta,
             reuse,
             resume.as_deref(),
             cache_dir.as_deref(),
