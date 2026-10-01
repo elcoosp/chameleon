@@ -21,7 +21,7 @@ use crate::BlueprintError;
 // from earlier builds must be regenerated (they encode neither the resume
 // position nor anything else that lets a resumed run continue the RNG
 // bitstream). `restore` rejects v2 with a clear message.
-const SNAP_VERSION: u8 = 3;
+const SNAP_VERSION: u8 = 4;
 
 /// Threading mode recorded in provenance (SPECS/00 §3.5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,6 +305,50 @@ impl Arena {
     }
 }
 
+/// F4 (2026-10-01, competitiveness report): f64 sibling of [`Arena`] for
+/// the strategy sum and the averaging weight. The previous f32-only path
+/// lost precision past 2^22; the snapshot renorm "fixed" that by scaling
+/// rows, which the report showed biases the average toward whatever came
+/// *after* the scaling. f64 removes the ceiling.
+struct Arena64 {
+    cells: Vec<std::sync::atomic::AtomicU64>,
+}
+
+impl Arena64 {
+    fn with_capacity(n: usize) -> Arena64 {
+        Arena64 {
+            cells: (0..n)
+                .map(|_| std::sync::atomic::AtomicU64::new(0))
+                .collect(),
+        }
+    }
+    #[inline]
+    fn load(&self, i: usize) -> f64 {
+        use std::sync::atomic::Ordering::*;
+        f64::from_bits(self.cells[i].load(Relaxed))
+    }
+    #[inline]
+    #[allow(dead_code)]
+    fn store(&self, i: usize, v: f64) {
+        use std::sync::atomic::Ordering::*;
+        self.cells[i].store(v.to_bits(), Relaxed);
+    }
+    /// CAS-add an f64 (Hogwild-safe; single-threaded = sequential).
+    #[inline]
+    fn add_f64(&self, i: usize, delta: f64) {
+        use std::sync::atomic::Ordering::*;
+        let cell = &self.cells[i];
+        let mut cur = cell.load(Relaxed);
+        loop {
+            let new_val = f64::from_bits(cur) + delta;
+            match cell.compare_exchange_weak(cur, new_val.to_bits(), Relaxed, Relaxed) {
+                Ok(_) => return,
+                Err(observed) => cur = observed,
+            }
+        }
+    }
+}
+
 /// Open-addressing regret table. Rows are variable-width (W = popcount of the
 /// infoset's legal mask, ≤ 12) and stored in a flat atomic arena.
 pub struct RegretTable {
@@ -312,6 +356,9 @@ pub struct RegretTable {
     mask: usize,
     n: usize,
     arena: Arena,
+    /// F4 (2026-10-01): f64 sibling arena for strategy sum + weight cells.
+    /// Same slot indexing as `arena`; the regret + visit cells stay f32/u32.
+    arena64: Arena64,
     arena_len: u32,
     pub mode: ThreadMode,
     /// rows scaled at snapshot time (f32 growth guard, review A8)
@@ -397,6 +444,7 @@ impl RegretTable {
             mask: slots_cap - 1,
             n: 0,
             arena: Arena::with_capacity(slots_cap * 4),
+            arena64: Arena64::with_capacity(slots_cap * 4),
             arena_len: 0,
             mode,
             renorm_events: 0,
@@ -534,11 +582,14 @@ impl RegretTable {
     }
 
     pub fn strat(&self, off: u32, w: usize, a: usize) -> f32 {
-        f32::from_bits(self.arena.load(self.slot_of(off, w + a)))
+        // F4: read from the f64 arena; cast back to f32 for compat with
+        // the many callers that expect f32.
+        self.arena64.load(self.slot_of(off, w + a)) as f32
     }
 
     pub fn strat_add(&self, off: u32, w: usize, a: usize, delta: f32) {
-        self.arena.add_f32(self.slot_of(off, w + a), delta);
+        // F4: f64 accumulation, no f32 ceiling.
+        self.arena64.add_f64(self.slot_of(off, w + a), delta as f64);
     }
 
     /// Read the accumulated strategy-sum for slot `a` of row `off`.
@@ -550,11 +601,13 @@ impl RegretTable {
     }
 
     pub fn avg_weight(&self, off: u32, w: usize) -> f32 {
-        f32::from_bits(self.arena.load(self.slot_of(off, 2 * w)))
+        // F4: read from the f64 arena.
+        self.arena64.load(self.slot_of(off, 2 * w)) as f32
     }
 
     pub fn add_weight(&self, off: u32, w: usize, delta: f32) {
-        self.arena.add_f32(self.slot_of(off, 2 * w), delta);
+        // F4: f64 accumulation.
+        self.arena64.add_f64(self.slot_of(off, 2 * w), delta as f64);
     }
 
     pub fn visits(&self, off: u32, w: usize) -> u32 {
@@ -678,49 +731,29 @@ impl RegretTable {
 
     /// Current strategy from accumulated strat sums (for snapshots/inspection).
     pub fn avg_strategy(&self, off: u32, w: usize) -> Vec<f64> {
-        let total: f32 = (0..w).map(|a| self.strat(off, w, a)).sum();
+        // F4: read the f64 strat sums directly (no f32 round trip).
+        let mut sums: Vec<f64> = (0..w)
+            .map(|a| self.arena64.load(self.slot_of(off, w + a)))
+            .collect();
+        let total: f64 = sums.iter().sum();
         if total <= 0.0 {
             return vec![1.0 / w as f64; w];
         }
-        (0..w)
-            .map(|a| (self.strat(off, w, a) / total) as f64)
-            .collect()
+        for v in sums.iter_mut() {
+            *v /= total;
+        }
+        sums
     }
 
     /// f32 growth guard (SPECS/04 §2): scale strat_sum + avg_weight by 2^-k when
     /// either exceeds 2^22, bringing the max under 2^20. Lossless for normalized
     /// strategies.
-    pub fn renorm_row(&mut self, off: u32, w: usize) -> bool {
-        let mut max_abs: f32 = 0.0;
-        for a in 0..w {
-            max_abs = max_abs.max(self.strat(off, w, a).abs());
-        }
-        max_abs = max_abs.max(self.avg_weight(off, w).abs());
-        if max_abs <= 4_194_304.0 {
-            // 2^22
-            return false;
-        }
-        let mut k = 0u32;
-        let mut m = max_abs;
-        while m > 1_048_576.0 {
-            // 2^20
-            m /= 2.0;
-            k += 1;
-        }
-        for a in 0..w {
-            let cur = self.strat(off, w, a);
-            self.arena.store(
-                self.slot_of(off, w + a),
-                (cur / 2f32.powi(k as i32)).to_bits(),
-            );
-        }
-        let wgt = self.avg_weight(off, w);
-        self.arena.store(
-            self.slot_of(off, 2 * w),
-            (wgt / 2f32.powi(k as i32)).to_bits(),
-        );
-        self.renorm_events += 1;
-        true
+    /// F4 (2026-10-01): obsolete. With the strategy sum and weight in an
+    /// f64 arena there is no f32 precision ceiling to defend against. This
+    /// stub is kept for API compatibility with the serial + parallel
+    /// snapshot passes, which will all see `false`.
+    pub fn renorm_row(&mut self, _off: u32, _w: usize) -> bool {
+        false
     }
 
     /// Iterate all (key, off) pairs in slot order (for snapshots / warm-start).
@@ -783,7 +816,8 @@ impl RegretTable {
         struct Snap {
             n: usize,
             mode: ThreadMode,
-            rows: Vec<(u64, u8, Vec<u32>)>, // key, w, cells
+            /// F4: regret + visit cells (f32/u32 in the packed arena).
+            rows: Vec<(u64, u8, Vec<u32>, Vec<u64>)>,
             /// H-9: global iteration index the table is trained through.
             last_iter: u64,
         }
@@ -797,7 +831,14 @@ impl RegretTable {
             for i in 0..2 * w + 2 {
                 cells.push(self.arena.load(s.off as usize + i));
             }
-            rows.push((s.key, s.w, cells));
+            let mut cells64 = Vec::with_capacity(2 * w + 2);
+            for i in 0..2 * w + 2 {
+                cells64.push(
+                    self.arena64.cells[s.off as usize + i]
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                );
+            }
+            rows.push((s.key, s.w, cells, cells64));
         }
         rows.sort_by_key(|r| r.0);
         let snap = Snap {
@@ -829,8 +870,9 @@ impl RegretTable {
         struct Snap {
             n: usize,
             mode: ThreadMode,
-            rows: Vec<(u64, u8, Vec<u32>)>,
-            /// H-9: resume position. Present since SNAP_VERSION = 3.
+            /// F4: regret/visit + f64 strategy/weight cells.
+            rows: Vec<(u64, u8, Vec<u32>, Vec<u64>)>,
+            /// H-9: resume position.
             last_iter: u64,
         }
         let (version, body) = bytes
@@ -857,14 +899,19 @@ impl RegretTable {
         self.mask = slots_cap - 1;
         self.n = 0;
         self.arena = Arena::with_capacity(slots_cap * 4);
+        self.arena64 = Arena64::with_capacity(slots_cap * 4);
         self.arena_len = 0;
         self.mode = snap.mode;
         self.last_iter = snap.last_iter;
-        for (key, w, cells) in snap.rows {
+        for (key, w, cells, cells64) in snap.rows {
             let (off, w_out) = self.entry_or_insert(key, w as usize);
             debug_assert_eq!(w_out, w as usize);
             for (i, c) in cells.iter().enumerate() {
                 self.arena.store(off as usize + i, *c);
+            }
+            for (i, c) in cells64.iter().enumerate() {
+                self.arena64.cells[off as usize + i]
+                    .store(*c, std::sync::atomic::Ordering::Relaxed);
             }
         }
         Ok(())
