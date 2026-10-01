@@ -2,13 +2,16 @@
 //! on the shipped par-5M robust policy. Both metrics query the SAME loaded
 //! policy through a closure that maintains its own encoder.
 //!
-//! Run with the par-5M artifact present:
+//! Run with any trained policy artifact present:
 //!   CHAM_EXPLOIT_BP=$PWD/artifacts/par-5M/robust-7/policy \
+//!   CHAM_EXPLOIT_LABEL=par-5M \
 //!     cargo nextest run -p cham-blueprint -E 'test(par5m_metric_compare)' --run-ignored all --no-capture
 //!
 //! Expected: tabular BR < clairvoyant LBR by a large factor. On a uniform
 //! policy the report's kernel measured a 6x reduction; a trained policy
-//! should be similar or larger.
+//! should be similar or larger. Tabular BR may be non-positive on an
+//! undertrained policy (observed on the 500k arm of the F5 overnight
+//! curve, 2026-10-01); the ratio is then undefined and reported as n/a.
 
 use cham_blueprint::lbr::{lbr_vs, tabular_br};
 use cham_blueprint::policy::BlueprintPolicy;
@@ -50,6 +53,8 @@ fn par5m_metric_compare() {
         .unwrap_or_else(|_| "artifacts/par-5M/robust-7/policy".to_string());
     let cfg_path = std::env::var("CHAM_EXPLOIT_CONFIG")
         .unwrap_or_else(|_| "config/abstraction-tiny.toml".to_string());
+    let label = std::env::var("CHAM_EXPLOIT_LABEL")
+        .unwrap_or_else(|_| "policy under test".to_string());
 
     // Load the abstraction config the policy was trained against.
     let cfg = std::fs::read_to_string(&cfg_path)
@@ -83,7 +88,7 @@ fn par5m_metric_compare() {
     .expect("tab");
 
     eprintln!();
-    eprintln!("=== par-5M robust: clairvoyant vs tabular (seat 1) ===");
+    eprintln!("=== {label}: clairvoyant vs tabular (seat 1) ===");
     eprintln!(
         "  clairvoyant LBR:  {:>8.1} mb/hand ({:.3} bb/hand)",
         clair.lbr_mb_per_hand, clair.lbr_bb_per_hand
@@ -92,10 +97,14 @@ fn par5m_metric_compare() {
         "  tabular BR:       {:>8.1} mb/hand ({:.3} bb/hand)",
         tab.lbr_mb_per_hand, tab.lbr_bb_per_hand
     );
-    eprintln!(
-        "  clairvoyant / tabular ratio: {:.2}x",
-        clair.lbr_mb_per_hand / tab.lbr_mb_per_hand.max(1e-9)
-    );
+    if tab.lbr_mb_per_hand > 0.0 {
+        eprintln!(
+            "  clairvoyant / tabular ratio: {:.2}x",
+            clair.lbr_mb_per_hand / tab.lbr_mb_per_hand
+        );
+    } else {
+        eprintln!("  clairvoyant / tabular ratio: n/a (tabular <= 0; ratio undefined)");
+    }
     eprintln!();
 
     assert!(
