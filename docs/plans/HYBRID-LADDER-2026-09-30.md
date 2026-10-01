@@ -1,5 +1,8 @@
 # Hybrid bundle: 5M robust fallback helps argmax (+402) but not mixture (2026-09-30)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 ## The argmax result (corrected 13:20)
 
 `--agent full` (argmax+synthetic) on the two bundles, 2500 deals/pair:
