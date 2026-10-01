@@ -1,5 +1,8 @@
 # The synthetic router is degenerate: it always picks class 2 (LAG) (2026-09-30)
 
+> **Metric note (2026-10-01):** LBR figures in this doc use the clairvoyant `lbr::lbr_vs`; the corrected infoset-consistent value is 6-10x smaller (`docs/plans/F1-CORRECTED-METRIC-2026-10-01.md`).
+
+
 **Correction 14:52:** an attempted regression test asserted that the
 default `SoftmaxModel::new(20, 4)` is degenerate on uniform-random
 inputs in [0,1]^20. It is NOT — the default init produces mixed
