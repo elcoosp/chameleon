@@ -60,6 +60,15 @@ fn both_seats_tabular_br() {
         .unwrap_or_else(|_| "config/abstraction-tiny.toml".to_string());
     let label = std::env::var("CHAM_EXPLOIT_LABEL")
         .unwrap_or_else(|_| "policy under test".to_string());
+    let train_deals: u32 = std::env::var("CHAM_TBR_TRAIN")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(300);
+    let test_deals: u32 = std::env::var("CHAM_TBR_TEST")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(200);
+    let sweeps: u32 = std::env::var("CHAM_TBR_SWEEPS")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(12);
+    eprintln!(
+        "[both_seats] train_deals={train_deals} test_deals={test_deals} sweeps={sweeps}"
+    );
 
     let cfg = std::fs::read_to_string(&cfg_path)
         .ok()
@@ -83,8 +92,11 @@ fn both_seats_tabular_br() {
 
         let mut enc_tab = Encoder::cfg_only(cfg.clone()).expect("enc_tab");
         let mut tab_policy = make_policy_closure(&policy, cfg.clone());
-        let tab = tabular_br(&mut tab_policy, seat, engine, &mut enc_tab, 300, 200, 12, 0x1B2)
-            .expect("tab");
+        let tab = tabular_br(
+            &mut tab_policy, seat, engine, &mut enc_tab,
+            train_deals, test_deals, sweeps, 0x1B2,
+        )
+        .expect("tab");
 
         eprintln!(
             "  seat {seat}: clairvoyant {:>9.1} mb/hand ({:>6.3} bb) | tabular {:>9.1} mb/hand ({:>6.3} bb)",
