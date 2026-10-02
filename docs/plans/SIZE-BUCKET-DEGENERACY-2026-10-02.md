@@ -2,9 +2,20 @@
 # information (2026-10-02)
 
 **Finding.** `record_action`'s `size_bucket` — the size-bearing component
-of the infoset key — takes the value **1 for 100% of aggressive actions**
-sampled across all four streets. The "size" dimension of the key is, in
-practice, constant.
+of the infoset key — carries **one bit** of resolution: *jam vs
+normal-sized*. It does not distinguish normal sizes from each other.
+
+Two measurements pin this:
+
+- Sampled real actions (`size_bucket_distribution.rs`, aggressive-only,
+  jams skipped): **100% land at bucket 1.**
+- Enumerated slots at a flop node (`slot_bucket_range.rs`): the two
+  aggressive slots `Bet{to:100}` (0.5 pot) and `Bet{to:9900}` (jam)
+  produce buckets `{1, 12}`.
+
+So the key separates a jam from a non-jam and nothing finer. (An earlier
+draft of this doc said "always 1"; that was wrong — it ignored the jam
+slot, which the sampler had explicitly skipped.)
 
 ## Measurement
 
@@ -34,8 +45,10 @@ stack**. On a 100bb stack that is a 12.5 bb action.
 
 The tiny ladder's postflop sizes are *pot-relative* (flop/turn 0.5 pot,
 river 0.5/1.25 pot). A 0.5-pot bet is only 12.5% of stack once the pot
-reaches 25 bb. Early streets and normal-sized pots never get there, and
-the sampler confirms that in practice **nothing** does.
+reaches 25 bb. Early streets and normal-sized pots never get there, so
+every normal-size bet saturates at the clamp floor (1); only a jam
+escapes to a higher bucket. The sampler confirms no normal-size bet
+reached bucket 2 in 8000 samples.
 
 ## Consequences
 
