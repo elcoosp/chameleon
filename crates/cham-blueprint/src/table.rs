@@ -616,7 +616,9 @@ impl RegretTable {
     }
 
     pub fn strat_add(&self, off: u32, w: usize, a: usize, delta: f64) {
-        // F4: f64 accumulation, no f32 ceiling.
+        // F4 (completed 2026-10-02): f64 accumulation AND f64 increment.
+        // The `delta` arrives as f64 from the caller (w_t * sigma[a]);
+        // no f32 truncation anywhere on the path (bug hunt F1).
         self.arena64.add_f64(self.slot_of(off, w + a), delta);
     }
 
