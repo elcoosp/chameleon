@@ -8,6 +8,79 @@ use cham_core::engine::Action;
 use cham_core::obs::{Agent, AgentError, Observables, is_legal};
 use cham_core::rng::Rng;
 
+/// F6c / report-E6 diagnostic: bets FIXED pot fractions that the tiny
+/// ladder never produces, to exercise the off-tree translation path.
+///
+/// The tiny abstraction's bet fractions are 0.5 (flop/turn) and 0.5/1.25
+/// (river). This bot instead bets 0.25 / 0.6 / 1.5 of the pot, cycling by
+/// decision index, whenever it faces no bet postflop. When facing a bet it
+/// folds (so it never produces an on-tree raise), and preflop it calls or
+/// checks. Every aggressive action it takes is therefore OFF the training
+/// tree, which is exactly what `CHAM_OFFTREE_TRANSLATE` and the
+/// slot-index `size_bucket` are meant to handle.
+///
+/// Used by `probe`/`ladder` runs named `offtree`; see
+/// `docs/plans/F6C-TRANSLATE-2026-10-01.md`.
+pub struct OffTreeBettor {
+    /// Cycling index into `OFF_TREE_FRACS`; advanced on each postflop bet
+    /// opportunity so consecutive bets use different off-tree sizes.
+    cycle: std::cell::Cell<usize>,
+}
+
+/// Pot fractions the tiny ladder never produces (tiny: 0.5 / 1.25).
+// 0.25 is omitted: on the tiny flop (pot 200, min bet 1 bb = 100)
+// a 0.25-pot bet (50) is below the minimum and clamps to 0.5 =
+// on-tree. 0.75 / 0.6 / 1.5 are all legal and all off-tree.
+pub const OFF_TREE_FRACS: [f64; 3] = [0.75, 0.6, 1.5];
+
+impl OffTreeBettor {
+    pub fn new() -> OffTreeBettor {
+        OffTreeBettor {
+            cycle: std::cell::Cell::new(0),
+        }
+    }
+}
+
+impl Agent for OffTreeBettor {
+    fn name(&self) -> &str {
+        "offtree"
+    }
+    fn act(&mut self, obs: &Observables<'_>, _rng: &mut Rng) -> Action {
+        use cham_core::engine::Street;
+        // Preflop: no off-tree bet (the tiny preflop ladder is raise_fracs,
+        // not bet fracs). Call or check.
+        if obs.street == Street::Preflop {
+            if is_legal(obs, Action::Call) {
+                return Action::Call;
+            }
+            return Action::Check;
+        }
+        // Facing a bet: fold. Keeps every aggressive action OFF-tree
+        // (a raise here would be an on-tree size).
+        if obs.to_call > 0 {
+            if is_legal(obs, Action::Fold) {
+                return Action::Fold;
+            }
+            return Action::Call;
+        }
+        // Facing no bet postflop: bet an off-tree pot fraction, clamped to
+        // the legal raise window.
+        let i = self.cycle.get();
+        self.cycle.set((i + 1) % OFF_TREE_FRACS.len());
+        let frac = OFF_TREE_FRACS[i];
+        let raw = (obs.pot as f64 * frac).round() as i64;
+        let to = raw.clamp(obs.min_raise_to.min(obs.max_raise_to), obs.max_raise_to);
+        let a = Action::Bet { to };
+        if is_legal(obs, a) {
+            return a;
+        }
+        if is_legal(obs, Action::Check) {
+            return Action::Check;
+        }
+        Action::Call
+    }
+}
+
 /// Always call (or check when facing nothing).
 pub struct CallBot;
 impl Agent for CallBot {
