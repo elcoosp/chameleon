@@ -29,12 +29,7 @@ fn flop_state() -> State {
     st
 }
 
-fn bucket_for(
-    ladder: &ActionLadder,
-    obs: &Observables<'_>,
-    p: Player,
-    a: Action,
-) -> u8 {
+fn bucket_for(ladder: &ActionLadder, obs: &Observables<'_>, p: Player, a: Action) -> u8 {
     let mut seq = ActionSeq::default();
     record_action(ladder, obs, p, a, &mut seq);
     let s = obs.street.as_u8() as usize;
@@ -102,7 +97,10 @@ fn slot_index_bucket_is_injective() {
     let mut seen = std::collections::BTreeSet::new();
     for slot in 0..12usize {
         let bucket = ((slot + 1).min(15)) as u8;
-        assert!(seen.insert(bucket), "slot {slot} collided at bucket {bucket}");
+        assert!(
+            seen.insert(bucket),
+            "slot {slot} collided at bucket {bucket}"
+        );
     }
     assert_eq!(seen.len(), 12, "expected 12 distinct buckets for 12 slots");
 }

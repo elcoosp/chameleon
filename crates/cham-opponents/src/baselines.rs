@@ -41,6 +41,12 @@ impl OffTreeBettor {
     }
 }
 
+impl Default for OffTreeBettor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Agent for OffTreeBettor {
     fn name(&self) -> &str {
         "offtree"
