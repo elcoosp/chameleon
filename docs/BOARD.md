@@ -1,5 +1,13 @@
 # Project Board — canonical status view
 
+> **Stale as of 2026-10-02.** The "IN PROGRESS" section below predates
+> the F1–F10 competitiveness remediation. The metric it references
+> ("LBR") is the clairvoyant `lbr::lbr_vs`, 6-10x too high; the
+> corrected metric is `lbr::tabular_br`. For current state see the
+> banner at the top of `docs/HANDOFF.md`, or read
+> `docs/plans/OVERNIGHT-CORRECTED-STACK-RESULTS-2026-10-01.md` first.
+
+
 Open this first. One-line-per-item status, updated at end of each session.
 Detail lives in the linked docs; this page is the index.
 
