@@ -27,7 +27,10 @@ impl Rng {
 /// Build `n` card-disjoint hands. `max_rank` controls tie frequency.
 fn sample_hands(n: usize, max_rank: u32, seed: u64) -> (Vec<[u8; 2]>, Vec<u32>, Vec<f64>) {
     // Card-disjoint hands from a single 52-card deck: at most 26.
-    assert!(n <= 26, "sample_hands: n={n} exceeds 26 card-disjoint hands");
+    assert!(
+        n <= 26,
+        "sample_hands: n={n} exceeds 26 card-disjoint hands"
+    );
     let mut rng = Rng(seed | 1);
     let mut deck: Vec<u8> = (0..52).collect();
     // Fisher-Yates shuffle.
@@ -41,7 +44,9 @@ fn sample_hands(n: usize, max_rank: u32, seed: u64) -> (Vec<[u8; 2]>, Vec<u32>, 
         let b = deck[2 * k + 1];
         hands.push([a, b]);
     }
-    let rank: Vec<u32> = (0..n).map(|_| rng.below(max_rank as u64 + 1) as u32).collect();
+    let rank: Vec<u32> = (0..n)
+        .map(|_| rng.below(max_rank as u64 + 1) as u32)
+        .collect();
     let reach: Vec<f64> = (0..n).map(|_| rng.below(1000) as f64 / 1000.0).collect();
     (hands, rank, reach)
 }
@@ -178,7 +183,9 @@ fn sample_range(n: usize, max_rank: u32, seed: u64) -> (Vec<[u8; 2]>, Vec<u32>, 
     for k in 0..n {
         hands.push([deck[2 * k], deck[2 * k + 1]]);
     }
-    let rank: Vec<u32> = (0..n).map(|_| rng.below(max_rank as u64 + 1) as u32).collect();
+    let rank: Vec<u32> = (0..n)
+        .map(|_| rng.below(max_rank as u64 + 1) as u32)
+        .collect();
     let reach: Vec<f64> = (0..n).map(|_| rng.below(1000) as f64 / 1000.0).collect();
     (hands, rank, reach)
 }

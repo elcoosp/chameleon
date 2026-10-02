@@ -1033,12 +1033,36 @@ mod translate_u_tests {
     #[test]
     fn u_is_sensitive_to_each_input() {
         let base = derive_translate_u(100, 1, [2, 2, 0, 0]);
-        assert_ne!(base.to_bits(), derive_translate_u(101, 1, [2, 2, 0, 0]).to_bits(), "hand_idx");
-        assert_ne!(base.to_bits(), derive_translate_u(100, 2, [2, 2, 0, 0]).to_bits(), "street");
-        assert_ne!(base.to_bits(), derive_translate_u(100, 1, [3, 2, 0, 0]).to_bits(), "lens[0]");
-        assert_ne!(base.to_bits(), derive_translate_u(100, 1, [2, 3, 0, 0]).to_bits(), "lens[1]");
-        assert_ne!(base.to_bits(), derive_translate_u(100, 1, [2, 2, 1, 0]).to_bits(), "lens[2]");
-        assert_ne!(base.to_bits(), derive_translate_u(100, 1, [2, 2, 0, 1]).to_bits(), "lens[3]");
+        assert_ne!(
+            base.to_bits(),
+            derive_translate_u(101, 1, [2, 2, 0, 0]).to_bits(),
+            "hand_idx"
+        );
+        assert_ne!(
+            base.to_bits(),
+            derive_translate_u(100, 2, [2, 2, 0, 0]).to_bits(),
+            "street"
+        );
+        assert_ne!(
+            base.to_bits(),
+            derive_translate_u(100, 1, [3, 2, 0, 0]).to_bits(),
+            "lens[0]"
+        );
+        assert_ne!(
+            base.to_bits(),
+            derive_translate_u(100, 1, [2, 3, 0, 0]).to_bits(),
+            "lens[1]"
+        );
+        assert_ne!(
+            base.to_bits(),
+            derive_translate_u(100, 1, [2, 2, 1, 0]).to_bits(),
+            "lens[2]"
+        );
+        assert_ne!(
+            base.to_bits(),
+            derive_translate_u(100, 1, [2, 2, 0, 1]).to_bits(),
+            "lens[3]"
+        );
     }
 
     /// Rough uniformity: over many consecutive hand indices the outputs

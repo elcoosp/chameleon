@@ -28,12 +28,7 @@
 ///
 /// The naive evaluation is O(n^2). This implementation is O(n log n)
 /// for the sort plus O(n) for the two sweeps.
-pub fn showdown_cfv(
-    hands: &[[u8; 2]],
-    rank: &[u32],
-    opp_reach: &[f64],
-    out: &mut [f64],
-) {
+pub fn showdown_cfv(hands: &[[u8; 2]], rank: &[u32], opp_reach: &[f64], out: &mut [f64]) {
     let n = hands.len();
     assert_eq!(rank.len(), n, "rank length mismatch");
     assert_eq!(opp_reach.len(), n, "opp_reach length mismatch");
@@ -120,12 +115,7 @@ pub fn showdown_cfv(
 /// The input `hands` is assumed to be a set of unique combos. Callers
 /// passing duplicate combos get incorrect card-removal correction; the
 /// heads-up subgame never does.
-pub fn fold_cfv(
-    hands: &[[u8; 2]],
-    opp_reach: &[f64],
-    hero_invested: f64,
-    out: &mut [f64],
-) {
+pub fn fold_cfv(hands: &[[u8; 2]], opp_reach: &[f64], hero_invested: f64, out: &mut [f64]) {
     let n = hands.len();
     assert_eq!(opp_reach.len(), n, "opp_reach length mismatch");
     assert_eq!(out.len(), n, "out length mismatch");
@@ -211,8 +201,7 @@ pub fn showdown_cfv_two(
     {
         let mut total = 0.0_f64;
         let mut card = [0.0_f64; 52];
-        let mut both: std::collections::HashMap<(u8, u8), f64> =
-            std::collections::HashMap::new();
+        let mut both: std::collections::HashMap<(u8, u8), f64> = std::collections::HashMap::new();
         let mut jj = 0usize;
         for &i in &ord_h {
             let rh = rank_h[i];
@@ -241,8 +230,7 @@ pub fn showdown_cfv_two(
     {
         let mut total = 0.0_f64;
         let mut card = [0.0_f64; 52];
-        let mut both: std::collections::HashMap<(u8, u8), f64> =
-            std::collections::HashMap::new();
+        let mut both: std::collections::HashMap<(u8, u8), f64> = std::collections::HashMap::new();
         let mut jj = nv;
         for &i in ord_h.iter().rev() {
             let rh = rank_h[i];

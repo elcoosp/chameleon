@@ -227,14 +227,18 @@ impl ActionLadder {
         let mut best: Option<usize> = None;
         let mut best_d = f64::INFINITY;
         for (i, s) in slots.iter().enumerate() {
-            let same = match (want_class, s.action) {
-                (0, Action::Bet { .. }) | (1, Action::Raise { .. }) => true,
-                _ => false,
-            };
+            let same = matches!(
+                (want_class, s.action),
+                (0, Action::Bet { .. }) | (1, Action::Raise { .. })
+            );
             if !same {
                 continue;
             }
-            let sf = if s.frac.is_infinite() { f64::MAX } else { s.frac };
+            let sf = if s.frac.is_infinite() {
+                f64::MAX
+            } else {
+                s.frac
+            };
             let d = (sf - f).abs();
             if d < best_d {
                 best_d = d;
