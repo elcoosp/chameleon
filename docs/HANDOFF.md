@@ -9,7 +9,11 @@
 > not pushed**.
 >
 > For current state, read in this order:
-> 1. `docs/plans/OVERNIGHT-CORRECTED-STACK-RESULTS-2026-10-01.md`
+> 0. `docs/plans/HANDOFF-2026-10-02-EVENING.md` — the most recent
+>    handoff (2026-10-02 evening). Read this before anything else.
+> 1. `docs/plans/CORRECTED-METRIC-LEADERBOARD-2026-10-02.md` — every
+>    measured number in one table.
+> 2. `docs/plans/OVERNIGHT-CORRECTED-STACK-RESULTS-2026-10-01.md`
 >    — the latest measured curve under the corrected stack.
 > 2. `docs/plans/SESSION-ADDENDUM-2026-10-01-LATE.md` — what the
 >    2026-10-01 evening session actually verified.
