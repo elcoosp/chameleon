@@ -141,13 +141,14 @@ impl Default for RbpConfig {
     /// recalibration is deferred to the M2 throughput spike (SPECS/11 fallback
     /// table). The machinery stays; `rbp_matches_full` pins no-corruption.
     fn default() -> Self {
-        // TEST-ONLY diagnostic (session 2026-09-27): CHAM_RBP_THETA0 lets the
-        // sb_internals test (and the CLI) override the pruning threshold
-        // without editing source. Unset → historical value 0.0 (which, per
-        // the code below, actually PRUNES on every zero-regret action — the
-        // comment above claims theta0 = 0 disables pruning; the condition
-        // `visits > theta_t` with theta0 = 0 is `visits > 0`, i.e. always
-        // true. Set to a huge number (e.g. 1e18) to genuinely disable.
+        // TEST-ONLY diagnostic (session 2026-09-27): CHAM_RBP_THETA0 lets
+        // the sb_internals test (and the CLI) override the pruning
+        // threshold without editing source. Unset → 0.0, which disables
+        // pruning entirely (the traversal's `prune_enabled = theta_t > 0.0`
+        // gate treats theta0 = 0 as off). Set a POSITIVE value to enable.
+        // (Bug hunt 2026-10-02: the previous comment claimed theta0 = 0
+        // pruned everything and that 1e18 disabled; both were stale — the
+        // traversal gate was fixed, the comment was not.)
         let theta0 = std::env::var("CHAM_RBP_THETA0")
             .ok()
             .and_then(|v| v.parse::<f64>().ok())
