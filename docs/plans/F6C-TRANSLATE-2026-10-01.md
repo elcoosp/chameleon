@@ -59,6 +59,13 @@ the A/B harness is ready.
 
 ## What remains
 
+> **E6 measured 2026-10-02:** translation is a **no-op** on the
+> shipped bundle — `size_bucket` is stack-fraction-based and saturates
+> at 0 for all normal sizes, so translating the action does not change
+> the key. Translation only matters once the slot-index bucket is on,
+> and that requires a retrain. See
+> `F6C-E6-FALLBACK-MEASUREMENT-2026-10-02.md`.
+
 1. **Replay test with the gate on.** Add a variant of
    `pipeline_deterministic_replay` that sets
    `CHAM_OFFTREE_TRANSLATE=1` in the child process (not in the test
