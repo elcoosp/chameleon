@@ -1,0 +1,82 @@
+# size_bucket is degenerate: the infoset key carries almost no size
+# information (2026-10-02)
+
+**Finding.** `record_action`'s `size_bucket` — the size-bearing component
+of the infoset key — takes the value **1 for 100% of aggressive actions**
+sampled across all four streets. The "size" dimension of the key is, in
+practice, constant.
+
+## Measurement
+
+`crates/cham-engine/tests/size_bucket_distribution.rs` walks 2000 real
+hands (tiny abstraction, 100bb, seed 0..2000), taking an aggressive
+action at every other opportunity so hands progress through streets.
+Over 8000 aggressive actions:
+
+    bucket 1: 8000 (100.0%)
+
+    by street (aggressive / bucket<=1):
+      pre:   2000, 2000 (100.0%)
+      flop:  2000, 2000 (100.0%)
+      turn:  2000, 2000 (100.0%)
+      river: 2000, 2000 (100.0%)
+
+Not a single action reached bucket 2.
+
+## Why
+
+`size_bucket = round(sf * 12).clamp(1, 15)` with
+`sf = (to - current_bet) / effective_stack`.
+
+The clamp floor of 1 absorbs every small `sf`. The bucket leaves 1 only
+when `sf * 12 >= 1.5`, i.e. the action is **>= 12.5% of the effective
+stack**. On a 100bb stack that is a 12.5 bb action.
+
+The tiny ladder's postflop sizes are *pot-relative* (flop/turn 0.5 pot,
+river 0.5/1.25 pot). A 0.5-pot bet is only 12.5% of stack once the pot
+reaches 25 bb. Early streets and normal-sized pots never get there, and
+the sampler confirms that in practice **nothing** does.
+
+## Consequences
+
+1. **The E6 translation no-op is explained.** `translate` maps an
+   off-tree size to an on-tree slot, but the recorded `size_bucket` is
+   1 before and after. Translation cannot change a key whose size
+   component is already constant
+   (`F6C-E6-FALLBACK-MEASUREMENT-2026-10-02.md`).
+
+2. **`CHAM_SLOT_BUCKET` is the only fix that can matter.** Slot-index
+   bucketing (`slot + 1`) gives distinct buckets per abstract slot; it
+   is the only variant that makes the key size-aware. This is why the
+   report couples the translation fix with the bucket fix.
+
+3. **The abstraction is coarser than its config says.** `abstraction.toml`
+   lists several bet fracs per street, implying those sizes are part of
+   the state space. With the size bucket constant, histories that differ
+   only in bet size collide into one key. The effective abstraction is
+   smaller — and less expressive — than the config suggests.
+
+4. **This is a *second* key degeneracy, independent of F6c.** Even with
+   `CHAM_SLOT_BUCKET` off and no translation, the current shipped bundle
+   is trained on keys where size information is collapsed. A retrain with
+   the slot bucket on (the retrain launched 2026-10-02) will be the first
+   to see a size-aware key space.
+
+## Caveats
+
+- The sampler takes "the first non-jam aggressive slot", not a
+  size-distribution-weighted draw. A policy that bets all-in often would
+  reach higher buckets (jam is `sf` large). The point is about
+  *normal-sized* bets, which are what the ladder mostly produces.
+- 100bb / tiny / seed 0..2000. Deeper stacks would raise `sf` at fixed
+  chip sizes but the pot-relative ladder scales with the stack, so the
+  conclusion is depth-robust for pot-relative sizing.
+
+## Follow-up
+
+- After the slot-bucket retrain, re-run this sampler with
+  `CHAM_SLOT_BUCKET=1` and confirm the distribution spreads across
+  `1..n_slots`. If it does, the key is size-aware.
+- Consider whether the clamp floor of 1 should be lower (0), so that
+  sub-12.5%-stack actions are distinguishable from the 12.5%+ ones. That
+  is a separate keying change; the slot bucket supersedes it.
