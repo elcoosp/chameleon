@@ -939,6 +939,16 @@ fn argmax_of(p: &[f64]) -> usize {
 }
 
 fn sample_index(probs: &[f64], rng: &mut Rng) -> usize {
+    // Bug hunt pass 3 (2026-10-02): mirror the L-7 guard that landed in
+    // cham-blueprint::traversal::sample_index. This copy was missed, so
+    // an empty distribution underflowed `probs.len() - 1` here too.
+    if probs.is_empty() {
+        debug_assert!(
+            false,
+            "sample_index called with an empty distribution - a caller bug"
+        );
+        return 0;
+    }
     let u = next_f64(rng);
     let mut acc = 0.0;
     for (i, p) in probs.iter().enumerate() {
