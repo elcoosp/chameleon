@@ -17,6 +17,7 @@
 pub mod budget;
 pub mod cache;
 pub mod cache_persist;
+pub mod kernel;
 pub mod oracle;
 pub mod prior;
 pub mod solve;
