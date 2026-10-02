@@ -96,3 +96,24 @@ not a measure of the current bundle.
 
 Artifacts: `OffTreeBettor` (`1bd2621`), factory wiring (`a352bc7`),
 tests (`3dd62b4`), pool (`0ba5e75`).
+
+## Addendum: on-tree vs off-tree fallback (confounded, recorded for honesty)
+
+A later run compared the shipped bundle against the normal pool
+(`config/pool.toml`, on-tree opponents: arch:station, callbot, jamfix,
+pnash, famB, noisy) versus the off-tree pool:
+
+- **on-tree**: no fallback warning → rate **< 20%** (the
+  `FALLBACK_WARN_RATE` threshold; exact count not printed).
+- **off-tree**: **31.7%** (6888/21733).
+
+This *looks* like "off-tree sizes raise fallback by >11 points," but the
+two runs used **different opponents**, so it is confounded — the pools
+differ in more than tree-fit. It is recorded here as a raw observation,
+not a controlled result. A clean version would run the *same* opponent
+set with and without off-tree sizes, which the current pools do not
+provide.
+
+The controlled result remains the A/B/C/D table above: translation off
+vs on is byte-identical (no-op); the slot bucket changes fallback but
+requires a retrain.
