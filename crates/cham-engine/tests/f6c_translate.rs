@@ -53,10 +53,7 @@ fn ph_prob_lower_is_strictly_decreasing_in_x() {
         let t = k as f64 / 10.0;
         let x = a + t * (b - a);
         let p = ph_prob_lower(a, b, x);
-        assert!(
-            p < prev + 1e-12,
-            "not monotone at x={x}: p={p} prev={prev}"
-        );
+        assert!(p < prev + 1e-12, "not monotone at x={x}: p={p} prev={prev}");
         prev = p;
     }
 }
@@ -67,6 +64,9 @@ fn ph_prob_lower_stays_in_unit_interval() {
     let cases = [(0.5, 1.0, 0.6), (1.0, 3.0, 2.0), (0.1, 0.9, 0.5)];
     for (a, b, x) in cases {
         let p = ph_prob_lower(a, b, x);
-        assert!((0.0..=1.0).contains(&p), "out of range for {a},{b},{x}: {p}");
+        assert!(
+            (0.0..=1.0).contains(&p),
+            "out of range for {a},{b},{x}: {p}"
+        );
     }
 }

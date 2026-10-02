@@ -362,12 +362,13 @@ impl<'a> Traversal<'a> {
                         .unwrap_or(0.0)
                 })
             };
-            let dist: ArrayVec<(Action, f64), 12> = if eps > 0.0 && cham_core::rng::next_f64(rng) < eps {
-                let n = dist.len().max(1) as f64;
-                dist.iter().map(|(a, _)| (*a, 1.0 / n)).collect()
-            } else {
-                dist
-            };
+            let dist: ArrayVec<(Action, f64), 12> =
+                if eps > 0.0 && cham_core::rng::next_f64(rng) < eps {
+                    let n = dist.len().max(1) as f64;
+                    dist.iter().map(|(a, _)| (*a, 1.0 / n)).collect()
+                } else {
+                    dist
+                };
             let a = sample_action(&dist, rng);
             enc.record(&obs, Player::from_usize(p), a, seq);
             let out = state.apply(a).expect("sampled action is legal");

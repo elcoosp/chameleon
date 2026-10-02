@@ -58,17 +58,21 @@ fn both_seats_tabular_br() {
         .unwrap_or_else(|_| "artifacts/par-5M/robust-7/policy".to_string());
     let cfg_path = std::env::var("CHAM_EXPLOIT_CONFIG")
         .unwrap_or_else(|_| "config/abstraction-tiny.toml".to_string());
-    let label = std::env::var("CHAM_EXPLOIT_LABEL")
-        .unwrap_or_else(|_| "policy under test".to_string());
+    let label =
+        std::env::var("CHAM_EXPLOIT_LABEL").unwrap_or_else(|_| "policy under test".to_string());
     let train_deals: u32 = std::env::var("CHAM_TBR_TRAIN")
-        .ok().and_then(|v| v.parse().ok()).unwrap_or(300);
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300);
     let test_deals: u32 = std::env::var("CHAM_TBR_TEST")
-        .ok().and_then(|v| v.parse().ok()).unwrap_or(200);
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(200);
     let sweeps: u32 = std::env::var("CHAM_TBR_SWEEPS")
-        .ok().and_then(|v| v.parse().ok()).unwrap_or(12);
-    eprintln!(
-        "[both_seats] train_deals={train_deals} test_deals={test_deals} sweeps={sweeps}"
-    );
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(12);
+    eprintln!("[both_seats] train_deals={train_deals} test_deals={test_deals} sweeps={sweeps}");
 
     let cfg = std::fs::read_to_string(&cfg_path)
         .ok()
@@ -87,21 +91,25 @@ fn both_seats_tabular_br() {
     for seat in [0usize, 1usize] {
         let mut enc_lbr = Encoder::cfg_only(cfg.clone()).expect("enc_lbr");
         let mut lbr_policy = make_policy_closure(&policy, cfg.clone());
-        let clair = lbr_vs(&mut lbr_policy, seat, engine, &mut enc_lbr, 500, 0x1B2)
-            .expect("clair");
+        let clair = lbr_vs(&mut lbr_policy, seat, engine, &mut enc_lbr, 500, 0x1B2).expect("clair");
 
         let mut enc_tab = Encoder::cfg_only(cfg.clone()).expect("enc_tab");
         let mut tab_policy = make_policy_closure(&policy, cfg.clone());
         let tab = tabular_br(
-            &mut tab_policy, seat, engine, &mut enc_tab,
-            train_deals, test_deals, sweeps, 0x1B2,
+            &mut tab_policy,
+            seat,
+            engine,
+            &mut enc_tab,
+            train_deals,
+            test_deals,
+            sweeps,
+            0x1B2,
         )
         .expect("tab");
 
         eprintln!(
             "  seat {seat}: clairvoyant {:>9.1} mb/hand ({:>6.3} bb) | tabular {:>9.1} mb/hand ({:>6.3} bb)",
-            clair.lbr_mb_per_hand, clair.lbr_bb_per_hand,
-            tab.lbr_mb_per_hand, tab.lbr_bb_per_hand,
+            clair.lbr_mb_per_hand, clair.lbr_bb_per_hand, tab.lbr_mb_per_hand, tab.lbr_bb_per_hand,
         );
 
         total_tab += tab.lbr_bb_per_hand;
@@ -112,6 +120,8 @@ fn both_seats_tabular_br() {
         "  total corrected (BR(0) + BR(1)): {:.3} bb/hand",
         total_tab
     );
-    eprintln!("  (sum < 0 would mean seat-unbalanced policy; sum > 0 means the abstraction favors the trainer)");
+    eprintln!(
+        "  (sum < 0 would mean seat-unbalanced policy; sum > 0 means the abstraction favors the trainer)"
+    );
     eprintln!();
 }

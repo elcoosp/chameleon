@@ -53,8 +53,8 @@ fn par5m_metric_compare() {
         .unwrap_or_else(|_| "artifacts/par-5M/robust-7/policy".to_string());
     let cfg_path = std::env::var("CHAM_EXPLOIT_CONFIG")
         .unwrap_or_else(|_| "config/abstraction-tiny.toml".to_string());
-    let label = std::env::var("CHAM_EXPLOIT_LABEL")
-        .unwrap_or_else(|_| "policy under test".to_string());
+    let label =
+        std::env::var("CHAM_EXPLOIT_LABEL").unwrap_or_else(|_| "policy under test".to_string());
 
     // Load the abstraction config the policy was trained against.
     let cfg = std::fs::read_to_string(&cfg_path)

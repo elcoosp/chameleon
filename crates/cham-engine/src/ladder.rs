@@ -322,16 +322,9 @@ impl ActionLadder {
         if x >= cands[last].1 {
             return cands[last].0;
         }
-        let i = cands
-            .iter()
-            .rposition(|(_, f)| *f <= x)
-            .unwrap_or(0);
+        let i = cands.iter().rposition(|(_, f)| *f <= x).unwrap_or(0);
         let p = ph_prob_lower(cands[i].1, cands[i + 1].1, x);
-        if u < p {
-            cands[i].0
-        } else {
-            cands[i + 1].0
-        }
+        if u < p { cands[i].0 } else { cands[i + 1].0 }
     }
 }
 
