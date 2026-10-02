@@ -1,0 +1,19 @@
+# E6 pool (2026-10-02): off-tree bettors for the F6c fallback-rate A/B.
+# The `offtree` bot bets 0.75 / 0.6 / 1.5 pot — sizes the tiny ladder never
+# produces (tiny flop/turn = 0.5, river = 0.5 / 1.25). Run `ladder` on this
+# pool with CHAM_OFFTREE_TRANSLATE unset vs =1 and compare fallback rate.
+#
+# sigma_pair is a placeholder; the E6 metric is the fallback ratio, not the
+# ladder σ (we are not promoting on this pool).
+
+[[opponents]]
+id = "offtree"
+family = "A"
+sigma_pair = 5.0
+sprt_delta_mb = 25.0
+
+[[opponents]]
+id = "noisy:0.3:offtree"
+family = "noise"
+sigma_pair = 6.0
+sprt_delta_mb = 25.0
