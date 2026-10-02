@@ -29,8 +29,8 @@ use arrayvec::ArrayVec;
 /// [`SnapBatchSink`] and flushes one atomic op per slot.
 pub trait RegretSink {
     fn add_regret(&mut self, table: &RegretTable, off: u32, a: usize, delta: f32);
-    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f32);
-    fn add_weight(&mut self, table: &RegretTable, off: u32, w: usize, delta: f32);
+    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f64);
+    fn add_weight(&mut self, table: &RegretTable, off: u32, w: usize, delta: f64);
     fn add_visit(&mut self, table: &RegretTable, off: u32, w: usize);
 }
 
@@ -53,10 +53,10 @@ impl RegretSink for DirectSink {
             table.regret_add_cfr_plus(off, a, delta);
         }
     }
-    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f32) {
+    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f64) {
         table.strat_add(off, w, a, delta);
     }
-    fn add_weight(&mut self, table: &RegretTable, off: u32, w: usize, delta: f32) {
+    fn add_weight(&mut self, table: &RegretTable, off: u32, w: usize, delta: f64) {
         table.add_weight(off, w, delta);
     }
     fn add_visit(&mut self, table: &RegretTable, off: u32, w: usize) {
@@ -113,13 +113,13 @@ impl RegretSink for SnapBatchSink {
             self.flush(table);
         }
     }
-    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f32) {
+    fn add_strat(&mut self, table: &RegretTable, off: u32, w: usize, a: usize, delta: f64) {
         self.buf.push_strat(off, w, a, delta);
         if self.buf.strats_full() {
             self.buf.flush(table);
         }
     }
-    fn add_weight(&mut self, _table: &RegretTable, off: u32, w: usize, delta: f32) {
+    fn add_weight(&mut self, _table: &RegretTable, off: u32, w: usize, delta: f64) {
         self.buf.push_weight(off, w, delta);
     }
     fn add_visit(&mut self, _table: &RegretTable, off: u32, w: usize) {
@@ -317,10 +317,10 @@ impl<'a> Traversal<'a> {
                                     off,
                                     w_slots,
                                     a,
-                                    (w_t * sigma[a]) as f32,
+                                    w_t * sigma[a],
                                 );
                             }
-                            sink.add_weight(self.table.as_ref(), off, w_slots, w_t as f32);
+                            sink.add_weight(self.table.as_ref(), off, w_slots, w_t);
                         }
                         sigma
                             .iter()
@@ -478,15 +478,9 @@ impl<'a> Traversal<'a> {
         // no opponent row to accumulate at.
         if self.mode != TrainModeTag::Robust {
             for a in 0..w_slots {
-                sink.add_strat(
-                    self.table.as_ref(),
-                    off,
-                    w_slots,
-                    a,
-                    (w_t * sigma[a]) as f32,
-                );
+                sink.add_strat(self.table.as_ref(), off, w_slots, a, w_t * sigma[a]);
             }
-            sink.add_weight(self.table.as_ref(), off, w_slots, w_t as f32);
+            sink.add_weight(self.table.as_ref(), off, w_slots, w_t);
         }
         sink.add_visit(self.table.as_ref(), off, w_slots);
         v_bar

@@ -47,9 +47,9 @@ pub enum ThreadMode {
 pub struct DeltaBuffer {
     /// packed key `(off << 8) | (w << 4) | a`, delta
     regrets: Vec<(u64, f32)>,
-    strats: Vec<(u64, f32)>,
+    strats: Vec<(u64, f64)>,
     /// packed key `(off << 8) | w`, delta
-    weights: Vec<(u64, f32)>,
+    weights: Vec<(u64, f64)>,
     /// packed key `(off << 8) | w`
     visits: Vec<u64>,
     traversals_since_flush: u32,
@@ -90,11 +90,11 @@ impl DeltaBuffer {
         self.regrets.push((Self::regret_key(off, a), delta));
     }
 
-    pub fn push_strat(&mut self, off: u32, w: usize, a: usize, delta: f32) {
+    pub fn push_strat(&mut self, off: u32, w: usize, a: usize, delta: f64) {
         self.strats.push((Self::strat_key(off, w, a), delta));
     }
 
-    pub fn push_weight(&mut self, off: u32, w: usize, delta: f32) {
+    pub fn push_weight(&mut self, off: u32, w: usize, delta: f64) {
         self.weights.push((Self::row_key(off, w), delta));
     }
 
@@ -153,7 +153,7 @@ impl DeltaBuffer {
         // Strategy sums: plain associative adds, one per slot.
         Self::flush_pairs(&mut self.strats, &mut |key, sum| {
             let slot = (key >> 12) as usize + ((key >> 8) & 0xf) as usize + (key & 0xff) as usize;
-            table.add_f64_slot(slot, sum as f64);
+            table.add_f64_slot(slot, sum);
         });
         // Average weights: one per row.
         Self::flush_pairs(&mut self.weights, &mut |key, sum| {
@@ -205,7 +205,7 @@ impl DeltaBuffer {
         }
         Self::flush_pairs(&mut self.strats, &mut |key, sum| {
             let slot = (key >> 12) as usize + ((key >> 8) & 0xf) as usize + (key & 0xff) as usize;
-            table.add_f64_slot(slot, sum as f64);
+            table.add_f64_slot(slot, sum);
         });
         Self::flush_pairs(&mut self.weights, &mut |key, sum| {
             let off = (key >> 8) as u32;
@@ -226,12 +226,12 @@ impl DeltaBuffer {
         self.clear();
     }
 
-    fn flush_pairs(lane: &mut [(u64, f32)], apply: &mut impl FnMut(u64, f32)) {
+    fn flush_pairs(lane: &mut [(u64, f64)], apply: &mut impl FnMut(u64, f64)) {
         lane.sort_by_key(|a| a.0);
         let mut i = 0;
         while i < lane.len() {
             let k = lane[i].0;
-            let mut sum = 0.0f32;
+            let mut sum = 0.0f64;
             while i < lane.len() && lane[i].0 == k {
                 sum += lane[i].1;
                 i += 1;
@@ -602,9 +602,22 @@ impl RegretTable {
         self.arena64.load(self.slot_of(off, w + a)) as f32
     }
 
-    pub fn strat_add(&self, off: u32, w: usize, a: usize, delta: f32) {
+    /// F4 (2026-10-02): full-precision read of the strategy sum. The
+    /// `strat` getter casts to f32 for legacy callers; warm-start needs
+    /// the exact f64 value or it re-introduces the rounding the f64
+    /// arena exists to remove.
+    pub fn strat_f64(&self, off: u32, w: usize, a: usize) -> f64 {
+        self.arena64.load(self.slot_of(off, w + a))
+    }
+
+    /// F4 (2026-10-02): full-precision read of the average weight.
+    pub fn avg_weight_f64(&self, off: u32, w: usize) -> f64 {
+        self.arena64.load(self.slot_of(off, 2 * w))
+    }
+
+    pub fn strat_add(&self, off: u32, w: usize, a: usize, delta: f64) {
         // F4: f64 accumulation, no f32 ceiling.
-        self.arena64.add_f64(self.slot_of(off, w + a), delta as f64);
+        self.arena64.add_f64(self.slot_of(off, w + a), delta);
     }
 
     /// Read the accumulated strategy-sum for slot `a` of row `off`.
@@ -621,9 +634,9 @@ impl RegretTable {
         self.arena64.load(self.slot_of(off, 2 * w)) as f32
     }
 
-    pub fn add_weight(&self, off: u32, w: usize, delta: f32) {
+    pub fn add_weight(&self, off: u32, w: usize, delta: f64) {
         // F4: f64 accumulation.
-        self.arena64.add_f64(self.slot_of(off, 2 * w), delta as f64);
+        self.arena64.add_f64(self.slot_of(off, 2 * w), delta);
     }
 
     pub fn visits(&self, off: u32, w: usize) -> u32 {

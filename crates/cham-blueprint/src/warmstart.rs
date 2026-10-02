@@ -20,10 +20,10 @@ pub fn warmstart_from_robust(src: &RegretTable, dst: &mut RegretTable) {
             dst.regret_add(dst_off, a, r);
         }
         for a in 0..w {
-            let s = src.strat(src_off, w, a) * 0.1; // 0.1 prior weight
+            let s = src.strat_f64(src_off, w, a) * 0.1; // 0.1 prior weight
             dst.strat_add(dst_off, w, a, s);
         }
-        let wgt = src.avg_weight(src_off, w) * 0.1;
+        let wgt = src.avg_weight_f64(src_off, w) * 0.1;
         dst.add_weight(dst_off, w, wgt);
         for _ in 0..src.visits(src_off, w) {
             dst.add_visit(dst_off, w);
