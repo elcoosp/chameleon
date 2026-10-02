@@ -139,3 +139,57 @@ nothing for the bucket to distinguish.
 3. The next real experiment is `abstraction-tiny-rich` + slot bucket,
    measured with the corrected metric. That is a ladder change, a
    retrain, and a fresh curve — the report's Phase 2.
+
+## The rich ladder: more sizes, same collapse
+
+`crates/cham-engine/tests/ladder_inventory_compare.rs` compares the tiny
+and `abstraction-tiny-rich.toml` ladders directly.
+
+**Distinct normal aggressive sizes per street:**
+
+| street | tiny | rich |
+|---|---:|---:|
+| preflop | 2 | 2 |
+| flop | 1 | 3 |
+| turn | 1 | 3 |
+| river | 2 | 3 |
+| **total** | **6** | **11** |
+
+So the rich ladder *does* offer more sizes — "use the rich ladder" is a
+real lever (11 vs 6 distinct sizes).
+
+**But the stack-fraction bucket collapses them anyway.** At a flop node
+the rich ladder's three normal sizes are 100 / 150 / 300 chips
+(0.33 / 0.75 / 1.5 pot). All three map to stack-bucket **1**:
+
+    rich flop slots (to, stack_bucket, is_jam):
+      (100, 1, false), (150, 1, false), (300, 1, false), (9900, 12, true)
+
+Three distinct sizes, one bucket. The bucket does not distinguish them.
+
+### The complete chain
+
+Size resolution in the infoset key requires **both**:
+
+1. **A richer ladder** (more distinct sizes) — `abstraction-tiny-rich.toml`
+   gives 11 vs tiny's 6.
+2. **The slot-index bucket** (`CHAM_SLOT_BUCKET=1`) — the only bucketing
+   that maps distinct slots to distinct buckets. With the rich ladder's
+   3 flop slots, slot+1 = 1/2/3, so the key finally separates them.
+
+Neither alone is sufficient:
+
+- Rich ladder + stack-fraction bucket → 3 sizes collapse to bucket 1
+  (this test).
+- Tiny ladder + slot bucket → only 1 normal slot to distinguish, so it
+  buys ~1 bit (`SIZE-BUCKET-DEGENERACY` §ladder-inventory).
+
+### Consequence for the roadmap
+
+The experiment that would actually test size resolution is:
+
+    abstraction-tiny-rich.toml  +  CHAM_SLOT_BUCKET=1  +  retrain
+
+measured with `tabular_br`. That is the report's Phase 2 "Real tree"
+work, now with a precise, measured justification for both halves of the
+change.
