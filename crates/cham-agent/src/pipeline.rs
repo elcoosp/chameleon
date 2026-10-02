@@ -996,3 +996,64 @@ impl Agent for ChameleonAgent {
         self.seq = ActionSeq::default();
     }
 }
+
+#[cfg(test)]
+mod translate_u_tests {
+    use super::derive_translate_u;
+
+    /// Output must lie in [0, 1). The derivation shifts off the top 53
+    /// bits of a u64 and divides by 2^53, so the maximum value is
+    /// (2^53 - 1) / 2^53 < 1.
+    #[test]
+    fn u_is_in_unit_interval() {
+        for hand in [0u64, 1, 7, 1_000_000, u64::MAX] {
+            for street in 0u8..4 {
+                for lens in [[0u8; 4], [1, 0, 0, 0], [8, 8, 8, 8], [255; 4]] {
+                    let u = derive_translate_u(hand, street, lens);
+                    assert!(
+                        (0.0..1.0).contains(&u),
+                        "u={u} out of range for ({hand},{street},{lens:?})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Purity: same inputs → same output, every time.
+    #[test]
+    fn u_is_deterministic() {
+        let a = derive_translate_u(42, 2, [3, 1, 0, 0]);
+        let b = derive_translate_u(42, 2, [3, 1, 0, 0]);
+        assert_eq!(a.to_bits(), b.to_bits(), "not bit-identical");
+    }
+
+    /// Sensitivity: changing any one input must change the output.
+    /// A weak hash that ignored a field would silently break replay
+    /// determinism per (hand, street, seq).
+    #[test]
+    fn u_is_sensitive_to_each_input() {
+        let base = derive_translate_u(100, 1, [2, 2, 0, 0]);
+        assert_ne!(base.to_bits(), derive_translate_u(101, 1, [2, 2, 0, 0]).to_bits(), "hand_idx");
+        assert_ne!(base.to_bits(), derive_translate_u(100, 2, [2, 2, 0, 0]).to_bits(), "street");
+        assert_ne!(base.to_bits(), derive_translate_u(100, 1, [3, 2, 0, 0]).to_bits(), "lens[0]");
+        assert_ne!(base.to_bits(), derive_translate_u(100, 1, [2, 3, 0, 0]).to_bits(), "lens[1]");
+        assert_ne!(base.to_bits(), derive_translate_u(100, 1, [2, 2, 1, 0]).to_bits(), "lens[2]");
+        assert_ne!(base.to_bits(), derive_translate_u(100, 1, [2, 2, 0, 1]).to_bits(), "lens[3]");
+    }
+
+    /// Rough uniformity: over many consecutive hand indices the outputs
+    /// should not clump. A coarse histogram with 10 bins should have
+    /// every bin non-empty for 10000 samples.
+    #[test]
+    fn u_is_roughly_uniform() {
+        let mut bins = [0u32; 10];
+        for hand in 0..10_000u64 {
+            let u = derive_translate_u(hand, 0, [0, 0, 0, 0]);
+            let b = ((u * 10.0) as usize).min(9);
+            bins[b] += 1;
+        }
+        for (i, c) in bins.iter().enumerate() {
+            assert!(*c > 0, "bin {i} empty (clumping): {bins:?}");
+        }
+    }
+}
