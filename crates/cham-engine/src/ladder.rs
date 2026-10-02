@@ -334,6 +334,22 @@ fn cham_min_raise(obs: &Observables<'_>) -> i64 {
     obs.min_raise_to - obs.current_bet
 }
 
+/// F6c (2026-10-02): whether `size_bucket` is quantized from the abstract
+/// slot index rather than the raw stack fraction. Default OFF — the
+/// shipped bundle was keyed with stack-fraction buckets, so enabling
+/// this without a retrain would break every key. Set
+/// `CHAM_SLOT_BUCKET=1` to enable (Phase 2 of the competitiveness report).
+fn slot_bucket_enabled() -> bool {
+    use std::sync::OnceLock;
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| {
+        std::env::var("CHAM_SLOT_BUCKET")
+            .ok()
+            .map(|v| v == "1")
+            .unwrap_or(false)
+    })
+}
+
 /// Deterministic seq recording: append `(actor, class, size_bucket)` for `action`
 /// given the pre-action observables. Pure function of inputs (depth-free).
 pub fn record_action(
@@ -350,10 +366,19 @@ pub fn record_action(
         Action::Bet { .. } => ActionClass::Bet,
         Action::Raise { .. } => ActionClass::Raise,
     };
-    let sf = ladder.stack_frac_of(obs_before, a);
     let bucket = if matches!(a, Action::Fold | Action::Check | Action::Call) {
         0u8
+    } else if slot_bucket_enabled() {
+        // F6c (2026-10-02): quantize size_bucket from the SLOT INDEX, not
+        // the stack fraction. `nearest_slot` returns the exact position
+        // for an on-tree action and the nearest position for an off-tree
+        // one, so this is stable under both translation paths. Gated
+        // because it is a keying change: the shipped bundle was trained
+        // with the stack-fraction bucketing below and would regress.
+        let slot = ladder.nearest_slot(obs_before, seq, a);
+        ((slot + 1).min(15)) as u8
     } else {
+        let sf = ladder.stack_frac_of(obs_before, a);
         ((sf * 12.0).round() as i64).clamp(1, 15) as u8
     };
     seq.push(
