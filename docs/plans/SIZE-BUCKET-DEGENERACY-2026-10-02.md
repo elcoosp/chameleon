@@ -93,3 +93,49 @@ reached bucket 2 in 8000 samples.
 - Consider whether the clamp floor of 1 should be lower (0), so that
   sub-12.5%-stack actions are distinguishable from the 12.5%+ ones. That
   is a separate keying change; the slot bucket supersedes it.
+
+## The deeper limit: the ladder has ~1 size per street
+
+`crates/cham-engine/tests/slot_inventory.rs` enumerates the aggressive
+slots the tiny ladder offers, sampled over 300 hands:
+
+| street | normal aggressive sizes | jam |
+|---|---:|---:|
+| preflop | 1 | 1 |
+| flop | 1 | 1 |
+| turn | 1 | 1 |
+| river | 2 | 1 |
+
+So the tiny ladder does not merely *quantize* sizes coarsely — it has
+essentially **one** normal bet size per street (two on the river). The
+`size_bucket` degeneracy is a symptom of this: with one size, there is
+nothing for the bucket to distinguish.
+
+### What this means for the fixes
+
+- **Slot-index bucketing (`CHAM_SLOT_BUCKET`) buys at most 1 bit on
+  tiny.** With one normal slot + one jam, the slot bucket yields buckets
+  {normal, jam} — the same 2 values the stack-fraction bucket already
+  produces. On the river (2 normals + jam) it yields 3. That is the
+  ceiling; it cannot make the key "size-rich" because the ladder has no
+  size richness to encode.
+
+- **The real lever is a richer ladder**, not a better bucket. The
+  `config/abstraction-tiny-rich.toml` (bet fracs `[0.33, 0.75, 1.5]`
+  postflop, cap 2) is the config that would give the bucket something to
+  do. F6c's translation machinery only pays off on such a ladder.
+
+- **The retrain launched 2026-10-02 is correctly scoped as a
+  same-ladder control** (it isolates the trainer fixes from any ladder
+  change). A *second* retrain on `abstraction-tiny-rich` — with the slot
+  bucket on — is the experiment that would actually test whether size
+  resolution helps. That is the report's Phase 2 "Real tree" work.
+
+### Revised recommendation
+
+1. Keep the slot-bucket + translation code (it is correct and gated).
+2. Do **not** expect it to move the tiny numbers — it cannot, by the
+   inventory above.
+3. The next real experiment is `abstraction-tiny-rich` + slot bucket,
+   measured with the corrected metric. That is a ladder change, a
+   retrain, and a fresh curve — the report's Phase 2.
