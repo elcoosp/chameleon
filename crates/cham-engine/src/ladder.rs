@@ -199,29 +199,49 @@ impl ActionLadder {
         }
     }
 
-    /// Nearest-slot mapping — deterministic; used ONLY for infoset encoding needs
-    /// where a slot index is required (e.g., off-tree size attribution).
+    /// Nearest same-class slot mapping — deterministic; used for infoset
+    /// encoding where a slot index is required (off-tree size attribution).
+    ///
+    /// For an ON-tree action this returns the exact position. For an
+    /// OFF-tree action it returns the position of the nearest slot **of
+    /// the same class** (Bet vs Raise), so a Raise never matches a Bet
+    /// slot merely because their pot fractions happen to be closer.
+    /// If the ladder has no same-class slot at all (degenerate), it
+    /// falls back to slot 0.
+    ///
+    /// Class-awareness matters for the F6c slot-index `size_bucket`
+    /// (`CHAM_SLOT_BUCKET=1`): a class-blind match would key a raise
+    /// history as if it were a bet, splitting one infoset across two
+    /// buckets.
     pub fn nearest_slot(&self, obs: &Observables<'_>, seq: &ActionSeq, a: Action) -> usize {
         let slots = self.slots(obs, seq);
         if let Some(i) = slots.iter().position(|s| s.action == a) {
             return i;
         }
+        let want_class = match a {
+            Action::Bet { .. } => 0usize,
+            Action::Raise { .. } => 1usize,
+            _ => return 0,
+        };
         let f = self.frac_of(obs, a);
-        let mut best = 0usize;
+        let mut best: Option<usize> = None;
         let mut best_d = f64::INFINITY;
         for (i, s) in slots.iter().enumerate() {
-            let sf = if s.frac.is_infinite() {
-                f64::MAX
-            } else {
-                s.frac
+            let same = match (want_class, s.action) {
+                (0, Action::Bet { .. }) | (1, Action::Raise { .. }) => true,
+                _ => false,
             };
+            if !same {
+                continue;
+            }
+            let sf = if s.frac.is_infinite() { f64::MAX } else { s.frac };
             let d = (sf - f).abs();
             if d < best_d {
                 best_d = d;
-                best = i;
+                best = Some(i);
             }
         }
-        best
+        best.unwrap_or(0)
     }
 
     /// PSEUDO-HARMONIC off-tree weights (review D7): for a real off-tree size with
