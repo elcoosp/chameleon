@@ -73,10 +73,12 @@ the A/B harness is ready.
    bundle under `CHAM_OFFTREE_TRANSLATE=1`. This is a multi-hour
    retrain; the corrected metric (`tabular_br`) must be the measured
    metric, not `lbr_vs`.
-4. **size_bucket re-quantization.** The report's second fix (line 402):
-   quantize `size_bucket` from the abstract slot index, not from the
-   stack fraction. This is a keying change and cannot ship without the
-   retrain from (3). Design not yet written.
+4. **size_bucket re-quantization — CODE LANDED (2026-10-02), gated off.**
+   `record_action` branches on `CHAM_SLOT_BUCKET` (default off); `=1`
+   quantizes from the abstract slot index via the now class-aware
+   `nearest_slot`. Tests in `crates/cham-engine/tests/slot_bucket.rs`.
+   Still a keying change: ships only with the retrain from (3). See
+   `docs/plans/F6C-SIZE-BUCKET-DESIGN-2026-10-01.md`.
 
 ## Relationship to F10
 
