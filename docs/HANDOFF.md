@@ -4,9 +4,10 @@
 > This handoff is from **2026-09-26** and predates the F1–F10
 > competitiveness remediation, the corrected LBR metric
 > (`lbr::tabular_br`), and the F3/F4/F5/F6/F9 trainer fixes.
-> It also claims the repo is "pushed to `origin/gpu/g0`" — it is not;
-> as of 2026-10-02 the tree is **~91 commits ahead of `origin/main`,
-> not pushed**.
+> It also claims the repo is "pushed to `origin/gpu/g0`" — wrong
+> remote, and at the time the tree was unpushed. As of 2026-10-02
+> evening the 2026-10-01 work IS on `origin/main`; only the evening
+> batch (~21 commits) is local. See the 2026-10-02 evening handoff.
 >
 > For current state, read in this order:
 > 0. `docs/plans/HANDOFF-2026-10-02-EVENING.md` — the most recent
