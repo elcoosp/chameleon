@@ -153,3 +153,150 @@ pub fn fold_cfv(
         out[i] = -hero_invested * disjoint;
     }
 }
+
+// =====================================================================
+// Two-range form (F10 step 1b).
+//
+// The symmetric kernel above assumes a single hand pool where every pair
+// is card-disjoint. Real heads-up river play is hero range vs villain
+// range, both drawn from the same 52-card deck. This form expresses that
+// directly: `hero[i]` vs `villain[j]`, with card removal when the two
+// hands share a card.
+// =====================================================================
+
+/// O(n) showdown CFV for hero hands `i` vs villain hands `j`.
+///
+/// For each hero hand `i`:
+///
+///     out[i] = sum_j villain_reach[j] * sign(rank_h[i] - rank_v[j])
+///                        * [hero[i] and villain[j] share no card]
+///
+/// Ties contribute 0. `out` has length `hero.len()`. Ranks must be
+/// ascending with ties equal on both sides.
+pub fn showdown_cfv_two(
+    hero: &[[u8; 2]],
+    rank_h: &[u32],
+    villain: &[[u8; 2]],
+    rank_v: &[u32],
+    villain_reach: &[f64],
+    out: &mut [f64],
+) {
+    let nh = hero.len();
+    let nv = villain.len();
+    assert_eq!(rank_h.len(), nh, "rank_h length mismatch");
+    assert_eq!(rank_v.len(), nv, "rank_v length mismatch");
+    assert_eq!(villain_reach.len(), nv, "villain_reach length mismatch");
+    assert_eq!(out.len(), nh, "out length mismatch");
+    if nh == 0 || nv == 0 {
+        for v in out.iter_mut() {
+            *v = 0.0;
+        }
+        return;
+    }
+
+    // Sort villain indices by rank ascending.
+    let mut order: Vec<usize> = (0..nv).collect();
+    order.sort_by_key(|&j| rank_v[j]);
+
+    // --- Pass 1: strictly-below villain mass per card, no overlap ---
+    let mut below_total = 0.0_f64;
+    let mut below_card = [0.0_f64; 52];
+    let mut below_for_villain = vec![0.0_f64; nv];
+
+    let mut g = 0usize;
+    while g < nv {
+        let r = rank_v[order[g]];
+        let mut h = g;
+        while h < nv && rank_v[order[h]] == r {
+            h += 1;
+        }
+        for &j in &order[g..h] {
+            let a = villain[j][0] as usize;
+            let b = villain[j][1] as usize;
+            below_for_villain[j] = below_total - below_card[a] - below_card[b];
+        }
+        for &j in &order[g..h] {
+            let w = villain_reach[j];
+            below_total += w;
+            below_card[villain[j][0] as usize] += w;
+            below_card[villain[j][1] as usize] += w;
+        }
+        g = h;
+    }
+
+    // --- Pass 2: strictly-above villain mass per card, no overlap ---
+    let mut above_total = 0.0_f64;
+    let mut above_card = [0.0_f64; 52];
+    let mut above_for_villain = vec![0.0_f64; nv];
+
+    let mut g2 = nv;
+    while g2 > 0 {
+        let r = rank_v[order[g2 - 1]];
+        let mut h = g2;
+        while h > 0 && rank_v[order[h - 1]] == r {
+            h -= 1;
+        }
+        for &j in &order[h..g2] {
+            let a = villain[j][0] as usize;
+            let b = villain[j][1] as usize;
+            above_for_villain[j] = above_total - above_card[a] - above_card[b];
+        }
+        for &j in &order[h..g2] {
+            let w = villain_reach[j];
+            above_total += w;
+            above_card[villain[j][0] as usize] += w;
+            above_card[villain[j][1] as usize] += w;
+        }
+        g2 = h;
+    }
+
+    // --- Hero side: accumulate per-hero-hand, subtracting overlapping
+    // villain mass. Naive would be O(nh * nv); the trick is that the
+    // hero only needs the three per-card villain totals (total, per-card,
+    // and the "both cards" correction, which for a fixed villain hand j
+    // is a distinct value we sum once per j as we sweep).
+    //
+    // We do it in O(nh + nv) by noting that for hero hand i with cards
+    // (a, b):
+    //   sum over disjoint j of f(j) = total_f - sum_{j: a in j} f(j)
+    //                                        - sum_{j: b in j} f(j)
+    //                                        + sum_{j: both a,b in j} f(j)
+    // and "both a,b in j" happens for exactly one villain hand if the
+    // villain holds (a,b) (villain hands are unique combos).
+    let mut below_total_all = 0.0_f64;
+    let mut above_total_all = 0.0_f64;
+    let mut below_card_all = [0.0_f64; 52];
+    let mut above_card_all = [0.0_f64; 52];
+    let mut below_both: std::collections::HashMap<(u8, u8), f64> =
+        std::collections::HashMap::new();
+    let mut above_both: std::collections::HashMap<(u8, u8), f64> =
+        std::collections::HashMap::new();
+    for j in 0..nv {
+        let a = villain[j][0];
+        let b = villain[j][1];
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        let w_below = below_for_villain[j];
+        let w_above = above_for_villain[j];
+        below_total_all += w_below;
+        above_total_all += w_above;
+        below_card_all[a as usize] += w_below;
+        below_card_all[b as usize] += w_below;
+        above_card_all[a as usize] += w_above;
+        above_card_all[b as usize] += w_above;
+        *below_both.entry((lo, hi)).or_insert(0.0) += w_below;
+        *above_both.entry((lo, hi)).or_insert(0.0) += w_above;
+    }
+
+    for i in 0..nh {
+        let a = hero[i][0];
+        let b = hero[i][1];
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        let b_both = *below_both.get(&(lo, hi)).unwrap_or(&0.0);
+        let a_both = *above_both.get(&(lo, hi)).unwrap_or(&0.0);
+        let below = below_total_all - below_card_all[a as usize] - below_card_all[b as usize]
+            + b_both;
+        let above = above_total_all - above_card_all[a as usize] - above_card_all[b as usize]
+            + a_both;
+        out[i] = below - above;
+    }
+}
