@@ -142,6 +142,23 @@ impl TrainerConfig {
     }
 }
 
+/// Write a checkpoint snapshot into `dir` atomically (tmp + rename).
+/// Returns the first error encountered; the caller decides whether to
+/// warn (the two call sites do).
+///
+/// Bug hunt 2026-10-02: extracted so the serial and parallel checkpoint
+/// sites share one implementation and neither silently swallows mkdir /
+/// write / rename failures the way the inline `is_ok()` chains did.
+fn write_checkpoint(dir: &std::path::Path, table: &mut RegretTable) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let bytes = table.snapshot();
+    let tmp = dir.join("table.snap.tmp");
+    let dst = dir.join("table.snap");
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::rename(&tmp, &dst)?;
+    Ok(())
+}
+
 /// Provenance for one training run (SPECS/04 §6).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunProvenance {
@@ -746,13 +763,11 @@ pub fn train_with_threads(
             {
                 if let Some(cp_dir) = cfg.checkpoint_dir.as_ref() {
                     let dir = cp_dir.join(format!("iter-{}", t + 1));
-                    if std::fs::create_dir_all(&dir).is_ok() {
-                        let bytes = table.snapshot();
-                        let tmp = dir.join("table.snap.tmp");
-                        let dst = dir.join("table.snap");
-                        if std::fs::write(&tmp, &bytes).is_ok() {
-                            let _ = std::fs::rename(&tmp, &dst);
-                        }
+                    if let Err(e) = write_checkpoint(&dir, &mut table) {
+                        eprintln!(
+                            "cham-blueprint: WARNING - checkpoint failed for {}: {e}",
+                            dir.display()
+                        );
                     }
                 }
             }
@@ -984,13 +999,11 @@ where
         if cfg.checkpoint_every > 0 && slice_end % cfg.checkpoint_every == 0 {
             if let Some(cp_dir) = cfg.checkpoint_dir.as_ref() {
                 let dir = cp_dir.join(format!("iter-{}", slice_end));
-                if std::fs::create_dir_all(&dir).is_ok() {
-                    let bytes = table.snapshot();
-                    let tmp = dir.join("table.snap.tmp");
-                    let dst = dir.join("table.snap");
-                    if std::fs::write(&tmp, &bytes).is_ok() {
-                        let _ = std::fs::rename(&tmp, &dst);
-                    }
+                if let Err(e) = write_checkpoint(&dir, &mut *table) {
+                    eprintln!(
+                        "cham-blueprint: WARNING - checkpoint failed for {}: {e}",
+                        dir.display()
+                    );
                 }
             }
         }
