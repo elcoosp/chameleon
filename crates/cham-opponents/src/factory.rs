@@ -40,6 +40,8 @@ pub enum OpponentSpec {
     JamBot,
     RandomBot,
     FishBot,
+    /// F6c off-tree bettor (0.25/0.6/1.5 pot); exercises translation.
+    OffTreeBettor,
     /// Tilt + δ; the strategy source is injected at build time via
     /// [`build_with_source`] (blueprint-backed) or defaults to uniform.
     Perturbed {
@@ -93,6 +95,7 @@ impl OpponentSpec {
             "jamfix" => return Ok(OpponentSpec::JamBot),
             "random" => return Ok(OpponentSpec::RandomBot),
             "fish" => return Ok(OpponentSpec::FishBot),
+            "offtree" => return Ok(OpponentSpec::OffTreeBettor),
             _ => {}
         }
         if let Some(rest) = id.strip_prefix("pnash:") {
@@ -161,6 +164,7 @@ impl OpponentSpec {
             OpponentSpec::JamBot => "jamfix".into(),
             OpponentSpec::RandomBot => "random".into(),
             OpponentSpec::FishBot => "fish".into(),
+            OpponentSpec::OffTreeBettor => "offtree".into(),
             OpponentSpec::Perturbed { tilt, delta } => format!("pnash:{}:{}", tilt.as_str(), delta),
             OpponentSpec::FamilyB(a) => format!("famB:{}", a.as_str()),
             OpponentSpec::Noisy { inner, epsilon } => format!("noisy:{}:{}", epsilon, inner.id()),
@@ -181,6 +185,7 @@ impl OpponentSpec {
             | OpponentSpec::JamBot
             | OpponentSpec::RandomBot
             | OpponentSpec::FishBot => "A",
+            OpponentSpec::OffTreeBettor => "A",
             OpponentSpec::Perturbed { .. } => "PN",
             OpponentSpec::FamilyB(_) => "B",
             OpponentSpec::Noisy { .. } => "noise",
@@ -225,6 +230,7 @@ pub fn build_with_source(
         OpponentSpec::JamBot => Box::new(JamBot),
         OpponentSpec::RandomBot => Box::new(RandomBot),
         OpponentSpec::FishBot => Box::new(FishBot),
+        OpponentSpec::OffTreeBettor => Box::new(crate::baselines::OffTreeBettor::new()),
         OpponentSpec::Perturbed { tilt, delta } => {
             let mut p = PerturbedNashAgent::new(*tilt, *delta);
             if let Some(src) = source {
