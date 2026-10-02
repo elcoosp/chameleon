@@ -49,6 +49,12 @@ pub fn pick(rng: &mut Rng, n: usize) -> usize {
 pub fn weighted(rng: &mut Rng, weights: &[f64]) -> usize {
     let total: f64 = weights.iter().sum();
     debug_assert!(total > 0.0, "weighted pick needs positive mass");
+    // Bug hunt pass 3 (2026-10-02): guard the empty / zero-mass case in
+    // release. Without this, `u = next_f64 * 0 = 0`, the loop never
+    // fires, and the trailing `weights.len() - 1` underflows usize.
+    if weights.is_empty() || total <= 0.0 {
+        return 0;
+    }
     let mut u = next_f64(rng) * total;
     for (i, w) in weights.iter().enumerate() {
         u -= w;
