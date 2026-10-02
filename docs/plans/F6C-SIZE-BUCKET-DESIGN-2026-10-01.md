@@ -1,7 +1,16 @@
 # F6c — size_bucket re-quantization design (2026-10-01)
 
-**Status:** design only. No code landed. This is a **keying change**
-and cannot ship without a retrain (see section 4).
+**Status (updated 2026-10-02): code landed, gated OFF.**
+`record_action` now branches on `slot_bucket_enabled()` (the
+`CHAM_SLOT_BUCKET` env var, read once per process). Default OFF keeps
+the stack-fraction bucketing for the shipped bundle; `=1` enables the
+slot-index path. `nearest_slot` was also made **class-aware** (a Raise
+never matches a Bet slot). Tests:
+`crates/cham-engine/tests/slot_bucket.rs`. Commits: `e14cf6b`
+`9c733c4` `b091b99`.
+
+Still a **keying change**: shipping the slot-index path requires a
+retrain (section 4).
 
 ## 1. The problem
 
