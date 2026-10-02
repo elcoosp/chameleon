@@ -45,7 +45,7 @@ fn to_flop() -> State {
 
 #[test]
 fn preflop_calls_or_checks_never_raises() {
-    let mut st = new_state();
+    let st = new_state();
     let mut bot = OffTreeBettor::new();
     let mut rng: Rng = rng_from_seed(1);
     let p = actor(&st);
@@ -59,7 +59,7 @@ fn preflop_calls_or_checks_never_raises() {
 
 #[test]
 fn postflop_bet_is_legal_and_off_tree() {
-    let mut st = to_flop();
+    let st = to_flop();
     let mut bot = OffTreeBettor::new();
     let mut rng: Rng = rng_from_seed(2);
     let p = actor(&st);
