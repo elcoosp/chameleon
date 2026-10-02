@@ -229,6 +229,7 @@ fn river_bucket_board_aware() {
 }
 
 #[test]
+#[ignore = "200k-sample quantile calibration (~3 min); run with --run-ignored all"]
 fn river_eq_quantiles() {
     // Committed (equal-mass) edges: bin populations within ±12% of uniform over a
     // fresh 200k (combo, board) sample (the spec's tier).
