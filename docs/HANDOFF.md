@@ -1,5 +1,28 @@
 # Session handoff — 2026-09-26
 
+> **SUPERSEDED — do not treat this as current (2026-10-02).**
+> This handoff is from **2026-09-26** and predates the F1–F10
+> competitiveness remediation, the corrected LBR metric
+> (`lbr::tabular_br`), and the F3/F4/F5/F6/F9 trainer fixes.
+> It also claims the repo is "pushed to `origin/gpu/g0`" — it is not;
+> as of 2026-10-02 the tree is **~91 commits ahead of `origin/main`,
+> not pushed**.
+>
+> For current state, read in this order:
+> 1. `docs/plans/OVERNIGHT-CORRECTED-STACK-RESULTS-2026-10-01.md`
+>    — the latest measured curve under the corrected stack.
+> 2. `docs/plans/SESSION-ADDENDUM-2026-10-01-LATE.md` — what the
+>    2026-10-01 evening session actually verified.
+> 3. `docs/plans/HANDOFF-2026-10-01-EVENING.md` — the evening handoff
+>    (superseded by the addendum for "what was verified").
+> 4. `docs/plans/TABULAR-BR-CONVERGENCE-2026-10-01.md` — the metric's
+>    budget sensitivity (quote tabular BR with its budget).
+> 5. `docs/plans/chameleon-competitiveness-report.md` — the F1–F10 brief.
+>
+> `docs/BOARD.md` is likewise stale; its "IN PROGRESS" section
+> predates this week.
+
+
 > **Status:** current. Open this file first if you are a new agent on this repo.
 > For canonical project status, see `docs/BOARD.md`.
 
