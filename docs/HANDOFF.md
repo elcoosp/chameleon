@@ -23,8 +23,10 @@
 > predates this week.
 
 
-> **Status:** current. Open this file first if you are a new agent on this repo.
-> For canonical project status, see `docs/BOARD.md`.
+> **Status (line below is historical, left as written on 2026-09-26):**
+> ~~current. Open this file first if you are a new agent on this repo.~~
+> The banner above supersedes this. For canonical project status see
+> `docs/BOARD.md` (also stale) and the docs listed in the banner.
 
 ## TL;DR — where we are
 
