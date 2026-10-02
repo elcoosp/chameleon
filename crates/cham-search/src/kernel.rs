@@ -116,6 +116,10 @@ pub fn showdown_cfv(
 /// The sign is negative because `hero_invested` is what the hero has
 /// already put in and loses by folding — the terminal value of a fold
 /// is `-hero_invested` times the still-live opponent mass.
+///
+/// The input `hands` is assumed to be a set of unique combos. Callers
+/// passing duplicate combos get incorrect card-removal correction; the
+/// heads-up subgame never does.
 pub fn fold_cfv(
     hands: &[[u8; 2]],
     opp_reach: &[f64],
@@ -139,20 +143,11 @@ pub fn fold_cfv(
     for i in 0..n {
         let a = hands[i][0] as usize;
         let b = hands[i][1] as usize;
-        // Mass of opponent hands sharing card a, plus those sharing card
-        // b, minus the mass of the (at most one) hand sharing BOTH — which
-        // is hand i itself if the opponent's range includes it. In HU
-        // river subgames the ranges are card-disjoint, so `both` is 0 for
-        // every i; the subtraction keeps the kernel correct even if a
-        // caller passes overlapping ranges.
-        let mut both = 0.0_f64;
-        for (j, h) in hands.iter().enumerate() {
-            if (h[0] as usize == a && h[1] as usize == b)
-                || (h[0] as usize == b && h[1] as usize == a)
-            {
-                both += opp_reach[j];
-            }
-        }
+        // The hand sharing BOTH cards with i is hand i itself (the input
+        // is a set of unique combos; heads-up ranges cannot double-count).
+        // Its mass is `opp_reach[i]`, so the inclusion-exclusion
+        // correction is O(1).
+        let both = opp_reach[i];
         let overlap = card_mass[a] + card_mass[b] - both;
         let disjoint = total - overlap;
         out[i] = -hero_invested * disjoint;
