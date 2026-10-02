@@ -72,9 +72,16 @@ a few ms).
 
 ## Order of work
 
-1. **Vector kernel + tests.** Port `showdown_cfv` and validate against
-   brute force on random 1,081-combo sets. Add fold-terminal CFV.
-   ~1-2 days.
+1. **Vector kernel + tests — DONE (2026-10-02).**
+   `crates/cham-search/src/kernel.rs` now has `showdown_cfv`
+   (symmetric), `showdown_cfv_two` (hero vs villain ranges, overlapping
+   pools), and `fold_cfv`. Validated against O(n^2) brute force in
+   `crates/cham-search/tests/kernel_bruteforce.rs` (8 tests: many-ties,
+   no-ties, all-ties, empty, plus the two-range variants). Note: the
+   symmetric form caps at 26 card-disjoint hands (52-card deck); the
+   two-range form is the one the river CFR+ rewrite should use.
+   Commits: `676d2fe` `d8fed5e` `3cffbe1` `ae6b576` `d89c5f3` `5be30c7`
+   `d0a5288`.
 2. **Vector CFR+ on the river.** Rewrite `cfr_plus` to the vector form.
    Keep the existing class-conditioned solver for the oracle test.
    ~3-4 days.
@@ -86,11 +93,11 @@ a few ms).
 5. **Turn solving.** Same machinery extended to turn, with the exact
    river solve (or a river CFV table) as the depth-limit leaf. ~3-4 days.
 
-## What is being done in this session
+## What has been done
 
-Nothing. The current session's context is nearly exhausted and this is
-a multi-day project. The plan is captured here so the next session can
-start on step 1 immediately.
+**Step 1 (kernel + tests): DONE 2026-10-02.** See the Order of work
+above. Remaining steps 2-5 are still multi-day work; the next session
+continues at step 2 (the vector CFR+ rewrite of `cfr_plus`).
 
 ## Prerequisites already in place
 
