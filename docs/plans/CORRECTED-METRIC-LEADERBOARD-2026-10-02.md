@@ -15,6 +15,7 @@ different budgets are not directly comparable.
 | **shipped `agent-honest-19dim/robust`** | +11.20 | +4.23 | **+15.43** | 35.4 / 17.4 |
 | `par-f5-tiny-5000000` (CFR+ 5M) | -2.03 | +0.58 | **-1.45** | 14.8 / 14.2 |
 | `par-f5-tiny-dcfr15-g2` (DCFR γ=2, 5M) | -1.65 | +0.96 | **-0.70** | 15.3 / 14.5 |
+| **retrained `robust` (DCFR 1.5,0,γ2)** | -2.28 | +0.99 | **-1.29** | 15.3 / 14.5 |
 | `par-f5-tiny-dcfr15` (DCFR, 20M) | -1.74 | +0.25 | **-1.49** | 14.0 / 15.9 |
 
 ## Single-seat measurements (budget 300/200/12 — lower budget, do not compare)
@@ -31,6 +32,12 @@ Recorded for provenance; the both-seat table above supersedes them.
 | medium CFR+ | 20M | 15.72 | -3.02 |
 
 ## Headlines
+
+0. **The retrained robust (DCFR 1.5/0/γ2) measures -1.29 bb**, down from
+   the shipped robust's +15.43 — a 16.7 bb swing, landing in the same
+   range as the fresh policies. First confirmation that the retrain
+   fixes the shipped bundle. (Measured on the robust arm before the
+   experts finished; `retrain-2026-10-02/early-robust-metric.txt`.)
 
 1. **The shipped bundle is ~15 bb exploitable; the fresh tiny policies
    are ~0.** The gap is the F3/F4/F6a trainer fixes, measured. Retrain
