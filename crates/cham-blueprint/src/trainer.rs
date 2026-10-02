@@ -165,6 +165,24 @@ pub struct RunProvenance {
     /// from the same seed, and the ledger needs to see that.
     #[serde(default)]
     pub train_explore_eps: f64,
+    /// F5 (2026-10-02): DCFR positive-regret discount alpha. 1.0 = CFR+
+    /// identity. Recorded so a DCFR arm is auditable from its artifact.
+    #[serde(default = "default_dcfr_alpha")]
+    pub dcfr_alpha: f64,
+    /// F5 (2026-10-02): DCFR negative-regret discount beta. 1.0 = CFR+
+    /// identity.
+    #[serde(default = "default_dcfr_beta")]
+    pub dcfr_beta: f64,
+    /// v3 3.1: strategy-sum discount gamma for the average. 1.0 = pure
+    /// delayed-linear averaging.
+    #[serde(default = "default_avg_gamma")]
+    pub avg_gamma: f32,
+    /// `CHAM_AVG_DELAY` override for the average window's delay fraction.
+    /// `None` = historical `total/4`; `Some(0)` = no delay (Linear CFR+,
+    /// the "gamma = 2" of Brown & Sandholm 2019). Recorded so the DCFR
+    /// schedule is auditable.
+    #[serde(default)]
+    pub avg_delay_override: Option<u64>,
 }
 
 /// Delayed linear averaging weight (SPECS/04 §4): `w_t = max(0, t − D)`, `D = iters/4`;
@@ -776,6 +794,12 @@ pub fn train_with_threads(
         // Read the process-wide floor (already set at startup from
         // CHAM_TRAIN_EPS). Recorded for the same reason thread_mode is.
         train_explore_eps: crate::table::train_explore_eps(),
+        dcfr_alpha: cfg.dcfr_alpha,
+        dcfr_beta: cfg.dcfr_beta,
+        avg_gamma: cfg.avg_gamma,
+        avg_delay_override: std::env::var("CHAM_AVG_DELAY")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok()),
     };
     let prov_path = out_dir.join("provenance.json");
     std::fs::write(&prov_path, serde_json::to_vec_pretty(&prov)?)?;
