@@ -24,7 +24,17 @@ pub struct LbrReport {
     pub lbr_bb_per_hand: f64,
     pub deals_sampled: u32,
     pub depth_bb: i64,
+    /// Standard error of the held-out mean (bb/hand). §3.3: the estimator
+    /// must be able to say "I don't know" — policy deltas below ~2 SE
+    /// (≈1.5 bb on the two-seat sum) are noise, not signal.
+    pub se_bb: f64,
 }
+
+/// Minimum infoset visits before the learned choice may move off the
+/// passive default (§3.3). Thin infosets carry noise, not signal — the
+/// old code took the max over raw sums, which is how converged BRs went
+/// negative.
+pub const MIN_BR_VISITS: u32 = 30;
 
 /// Exact-ish BR vs `policy` (a mapping from observables to (action, prob) pairs)
 /// computed over `deals` seeded chance deals. `br_seat` = 0 (SB) or 1 (BB).
@@ -50,11 +60,14 @@ where
         total += br_walk(&mut state, br_seat, policy, enc, &mut seq, rng);
     }
     let bb = total / deals.max(1) as f64;
+    // Per-deal SE is not tracked in the clairvoyant path (single pass);
+    // report 0 and prefer `tabular_br` (which tracks it) for comparisons.
     Ok(LbrReport {
         lbr_bb_per_hand: bb,
         lbr_mb_per_hand: bb * 1000.0,
         deals_sampled: deals,
         depth_bb: engine_cfg.depth_bb(),
+        se_bb: 0.0,
     })
 }
 
@@ -156,7 +169,10 @@ where
 
 use std::collections::HashMap;
 
-type Cfv = HashMap<u64, (usize, [f64; 12])>; // infoset key -> (width, sum reach_opp * v[a])
+/// Counterfactual-value accumulator per BR infoset: (ladder width,
+/// reach-weighted value sums per slot, visit count). The visit count
+/// gates the `MIN_BR_VISITS` noise guard (§3.3).
+type Cfv = HashMap<u64, (usize, [f64; 12], u32)>; // infoset key -> (width, sum reach_opp * v[a], visits)
 type Choice = HashMap<u64, usize>; // infoset key -> chosen slot index
 
 /// Pick a passive slot (Check / Call) as the neutral initial choice; fall
@@ -173,15 +189,14 @@ fn passive_slot(slots: &[cham_engine::ladder::AbstractAction]) -> usize {
         .unwrap_or(0)
 }
 
-/// One sweep of the tabular BR. `learn` — when `Some`, accumulate
-/// counterfactual values per infoset; when `None`, use the fixed `choice`
-/// only (held-out evaluation).
+/// Inner walk with an optional fine-information key encoder.
 #[allow(clippy::too_many_arguments)]
-fn tab_walk<F>(
+fn tab_walk_keyed<F>(
     st: &mut State,
     br_seat: usize,
     policy: &mut F,
     enc: &mut cham_engine::Encoder,
+    mut key_enc: Option<&mut cham_engine::Encoder>,
     seq: &mut ActionSeq,
     choice: &Choice,
     reach_opp: f64,
@@ -213,11 +228,12 @@ where
             if s2.apply(*a).is_err() {
                 continue;
             }
-            ev += q * tab_walk(
+            ev += q * tab_walk_keyed(
                 &mut s2,
                 br_seat,
                 policy,
                 enc,
+                key_enc.as_deref_mut(),
                 &mut seq2,
                 choice,
                 reach_opp * q,
@@ -230,7 +246,10 @@ where
 
     // BR seat: use (or learn) one action per infoset.
     let slots = enc.slots(&obs, seq);
-    let key = enc.key_for(&obs, seq, &slots).0;
+    let key = match key_enc.as_mut() {
+        Some(ke) => ke.key_for(&obs, seq, &slots).0,
+        None => enc.key_for(&obs, seq, &slots).0,
+    };
     let w = slots.len();
     let pick = *choice.get(&key).unwrap_or(&passive_slot(&slots));
 
@@ -246,20 +265,30 @@ where
         if s2.apply(s.action).is_err() {
             continue;
         }
-        let val = tab_walk(
-            &mut s2, br_seat, policy, enc, &mut seq2, choice, reach_opp, learn, cfv,
+        let val = tab_walk_keyed(
+            &mut s2,
+            br_seat,
+            policy,
+            enc,
+            key_enc.as_deref_mut(),
+            &mut seq2,
+            choice,
+            reach_opp,
+            learn,
+            cfv,
         );
         v[i] = val;
     }
 
     if learn {
-        let entry = cfv.entry(key).or_insert((w, [0.0; 12]));
+        let entry = cfv.entry(key).or_insert((w, [0.0; 12], 0));
         // Guard: if two infoset keys map to different widths this is a bug
         // (invariant I8); use the recorded width.
         let w_use = entry.0;
         for i in 0..w.min(w_use) {
             entry.1[i] += reach_opp * v[i];
         }
+        entry.2 += 1;
     }
     v[pick]
 }
@@ -269,13 +298,77 @@ where
 /// `sweeps` full passes over `train_deals` seeded deals update the per-infoset
 /// action choice (each sweep recomputes the counterfactual values under the
 /// current choices). The final choices are then evaluated on `test_deals`
-/// held-out deals. Returns an `LbrReport` (bb/hand, mb/hand).
+/// held-out deals. Returns an `LbrReport` (bb/hand, mb/hand, SE).
+///
+/// §3.3 noise guards: an infoset keeps the passive default unless visited
+/// at least `MIN_BR_VISITS` times, and the report carries the held-out SE.
 #[allow(clippy::too_many_arguments)]
 pub fn tabular_br<F>(
     policy: &mut F,
     br_seat: usize,
     engine_cfg: EngineConfig,
     enc: &mut cham_engine::Encoder,
+    train_deals: u32,
+    test_deals: u32,
+    sweeps: u32,
+    seed: u64,
+) -> Result<LbrReport, BlueprintError>
+where
+    F: FnMut(&Observables<'_>, &ActionSeq) -> Vec<(cham_core::engine::Action, f64)>,
+{
+    tabular_br_keyed(
+        policy,
+        br_seat,
+        engine_cfg,
+        enc,
+        None,
+        train_deals,
+        test_deals,
+        sweeps,
+        seed,
+    )
+}
+
+/// Fine-information tabular BR (§3.3): the POLICY still sees `enc`, but
+/// the BR keys its infosets with the finer `key_enc` (same ladder /
+/// spr_bands / seq_history_len, finer full-coverage buckets). Report the
+/// ratio same-abstraction : fine-information; ≫1 means the headline
+/// number is an abstraction artifact.
+#[allow(clippy::too_many_arguments)]
+pub fn tabular_br_fine<F>(
+    policy: &mut F,
+    br_seat: usize,
+    engine_cfg: EngineConfig,
+    enc: &mut cham_engine::Encoder,
+    key_enc: &mut cham_engine::Encoder,
+    train_deals: u32,
+    test_deals: u32,
+    sweeps: u32,
+    seed: u64,
+) -> Result<LbrReport, BlueprintError>
+where
+    F: FnMut(&Observables<'_>, &ActionSeq) -> Vec<(cham_core::engine::Action, f64)>,
+{
+    tabular_br_keyed(
+        policy,
+        br_seat,
+        engine_cfg,
+        enc,
+        Some(key_enc),
+        train_deals,
+        test_deals,
+        sweeps,
+        seed,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn tabular_br_keyed<F>(
+    policy: &mut F,
+    br_seat: usize,
+    engine_cfg: EngineConfig,
+    enc: &mut cham_engine::Encoder,
+    mut key_enc: Option<&mut cham_engine::Encoder>,
     train_deals: u32,
     test_deals: u32,
     sweeps: u32,
@@ -293,12 +386,24 @@ where
             let mut st = State::new(engine_cfg, Deck::shuffled(rng))
                 .map_err(|e| BlueprintError::Training(format!("engine: {e}")))?;
             let mut seq = ActionSeq::default();
-            let _ = tab_walk(
-                &mut st, br_seat, policy, enc, &mut seq, &choice, 1.0, true, &mut cfv,
+            let _ = tab_walk_keyed(
+                &mut st,
+                br_seat,
+                policy,
+                enc,
+                key_enc.as_deref_mut(),
+                &mut seq,
+                &choice,
+                1.0,
+                true,
+                &mut cfv,
             );
         }
         let mut changed = 0u32;
-        for (k, (w, v)) in &cfv {
+        for (k, (w, v, n)) in &cfv {
+            if *n < MIN_BR_VISITS {
+                continue; // thin infoset: keep the passive default
+            }
             let mut best = 0usize;
             let mut best_v = f64::NEG_INFINITY;
             for i in 0..*w {
@@ -316,23 +421,40 @@ where
         }
     }
 
-    // Held-out evaluation with the frozen choice.
-    let mut total = 0f64;
+    // Held-out evaluation with the frozen choice (per-deal values → SE).
+    let mut vals: Vec<f64> = Vec::with_capacity(test_deals as usize);
     for d in 0..test_deals {
         let rng = &mut child(seed, &format!("tabtest{d}"));
         let mut st = State::new(engine_cfg, Deck::shuffled(rng))
             .map_err(|e| BlueprintError::Training(format!("engine: {e}")))?;
         let mut seq = ActionSeq::default();
         let mut dummy = Cfv::new();
-        total += tab_walk(
-            &mut st, br_seat, policy, enc, &mut seq, &choice, 1.0, false, &mut dummy,
-        );
+        vals.push(tab_walk_keyed(
+            &mut st,
+            br_seat,
+            policy,
+            enc,
+            key_enc.as_deref_mut(),
+            &mut seq,
+            &choice,
+            1.0,
+            false,
+            &mut dummy,
+        ));
     }
-    let bb = total / test_deals.max(1) as f64;
+    let n = vals.len().max(1) as f64;
+    let bb = vals.iter().sum::<f64>() / n;
+    let se = if vals.len() > 1 {
+        let var = vals.iter().map(|v| (v - bb).powi(2)).sum::<f64>() / (n - 1.0);
+        (var / n).sqrt()
+    } else {
+        0.0
+    };
     Ok(LbrReport {
         lbr_bb_per_hand: bb,
         lbr_mb_per_hand: bb * 1000.0,
         deals_sampled: test_deals,
         depth_bb: engine_cfg.depth_bb(),
+        se_bb: se,
     })
 }
