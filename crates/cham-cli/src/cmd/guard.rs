@@ -52,12 +52,32 @@ pub fn is_known_agent(agent: &str) -> bool {
 
 /// Required bundle files, mirroring `cham_agent::loader::load_agent`
 /// (`abstraction.toml` + buckets + 4 experts + robust).
+/// Resolve the default agent bundle directory. Single source of truth
+/// so `ladder`, `play`, `probe`, and the artifact guard all agree on
+/// which bundle is "the shipped bot".
+///
+///   1. `CHAM_AGENT_BUNDLE` if set;
+///   2. else `artifacts/agent-honest-19dim` if its robust policy exists
+///      (the promoted retrained bundle — gitignored, present on a working
+///      checkout);
+///   3. else `artifacts/agent` (tracked, router-less; keeps a fresh clone
+///      loadable instead of refusing).
+pub fn resolve_agent_bundle() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("CHAM_AGENT_BUNDLE") {
+        return p.into();
+    }
+    let promoted = std::path::Path::new("artifacts/agent-honest-19dim/robust/policy.bin");
+    if promoted.exists() {
+        "artifacts/agent-honest-19dim".into()
+    } else {
+        "artifacts/agent".into()
+    }
+}
+
 fn required_bundle_files() -> Vec<std::path::PathBuf> {
-    // Respect the CHAM_AGENT_BUNDLE override (see hero.rs) so the guard
+    // Single source of truth (see `resolve_agent_bundle`) so the guard
     // agrees with the loader about which bundle we are about to use.
-    let base: std::path::PathBuf = std::env::var("CHAM_AGENT_BUNDLE")
-        .unwrap_or_else(|_| "artifacts/agent".to_string())
-        .into();
+    let base = resolve_agent_bundle();
     let base = base.as_path();
     let mut out = vec![base.join("abstraction.toml"), base.join("buckets")];
     for i in 0..4 {
