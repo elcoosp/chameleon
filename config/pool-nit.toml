@@ -1,0 +1,5 @@
+[[opponents]]
+id = "arch:nit"
+family = "A"
+sigma_pair = 3.5
+sprt_delta_mb = 25.0
