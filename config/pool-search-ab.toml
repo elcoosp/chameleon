@@ -1,0 +1,12 @@
+# Two opponents the search regressed most (callbot -11016, station -6731).
+[[opponents]]
+id = "callbot"
+family = "A"
+sigma_pair = 3.0
+sprt_delta_mb = 25.0
+
+[[opponents]]
+id = "arch:station"
+family = "A"
+sigma_pair = 3.5
+sprt_delta_mb = 25.0
