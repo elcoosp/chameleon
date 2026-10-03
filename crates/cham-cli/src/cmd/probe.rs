@@ -34,7 +34,8 @@ pub fn run(agent: &str, diag_fallback: bool, bundle: Option<&str>, search: bool)
         );
         return crate::cmd::EXIT_FAIL;
     }
-    let bundle = bundle.unwrap_or("artifacts/agent");
+    let resolved = crate::cmd::guard::resolve_agent_bundle();
+    let bundle = bundle.unwrap_or_else(|| resolved.to_str().unwrap_or("artifacts/agent"));
     if diag_fallback {
         return run_diag(agent, bundle, search);
     }
