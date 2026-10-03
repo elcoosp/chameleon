@@ -149,10 +149,18 @@ impl Default for RbpConfig {
         // (Bug hunt 2026-10-02: the previous comment claimed theta0 = 0
         // pruned everything and that 1e18 disabled; both were stale — the
         // traversal gate was fixed, the comment was not.)
-        let theta0 = std::env::var("CHAM_RBP_THETA0")
-            .ok()
-            .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(0.0);
+        //
+        // §3.6 perf: `default()` runs per traversal (per iteration), so the
+        // env read is cached process-wide instead of hitting the syscall
+        // table every iteration.
+        use std::sync::OnceLock;
+        static THETA0: OnceLock<f64> = OnceLock::new();
+        let theta0 = *THETA0.get_or_init(|| {
+            std::env::var("CHAM_RBP_THETA0")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0)
+        });
         RbpConfig { theta0, delta: 1.0 }
     }
 }
@@ -207,6 +215,12 @@ pub struct Traversal<'a> {
     pub table: TableRef<'a>,
     pub opp: &'a mut dyn Agent,
     pub rbp: RbpConfig,
+    /// §3.6 cold-row telemetry: hero nodes skipped because the row is
+    /// missing and `allow_insert == false` (parallel phase). The whole
+    /// traversal's ancestors skip their update (selection bias); the
+    /// trainer prints `cold_rows / hero_nodes` so the rate is known.
+    /// >1% on rich/medium trees ⇒ implement per-thread shard insert.
+    pub cold_rows: u64,
     pub iteration: u64,
     pub mode: TrainModeTag,
     /// counters for the seat histogram / pruning stats (printed by the trainer)
@@ -353,7 +367,13 @@ impl<'a> Traversal<'a> {
             // (the pure-strategy collapse diagnosed this session). Unset → 0.0,
             // historical behavior bit-identical.
             // F9 (2026-10-01): cached per process, not read per node.
-            let eps: f64 = {
+            // §3.6: single source of truth is `self.explore_eps`
+            // (TrainerConfig); the process-global env static is only a
+            // fallback when the field is 0.0, so cfg and env can no
+            // longer silently disagree.
+            let eps: f64 = if self.explore_eps > 0.0 {
+                self.explore_eps
+            } else {
                 use std::sync::OnceLock;
                 static EPS: OnceLock<f64> = OnceLock::new();
                 *EPS.get_or_init(|| {
@@ -395,6 +415,7 @@ impl<'a> Traversal<'a> {
             Some(off) => off,
             None => {
                 if !self.allow_insert {
+                    self.cold_rows += 1;
                     return f64::NAN;
                 }
                 match self.table.entry_or_insert(key.0, w_slots) {
