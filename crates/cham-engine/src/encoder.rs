@@ -131,6 +131,53 @@ impl ActionSeq {
 
 use crate::ladder::SeqEntryRaw;
 
+/// Bucket lookup telemetry (§3.2a): table hits vs suit-blind-fallback
+/// hits per street (index 0=preflop,1=flop,2=turn,3=river). Print at the
+/// end of every train/ladder run; a sampled table shows ~1–2% flop hits.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BucketStats {
+    pub table_hit: [u64; 4],
+    pub fallback_hit: [u64; 4],
+}
+
+impl BucketStats {
+    pub fn hit_rate(&self, street: usize) -> Option<f64> {
+        let t = self.table_hit[street];
+        let f = self.fallback_hit[street];
+        if t + f == 0 {
+            None
+        } else {
+            Some(t as f64 / (t + f) as f64)
+        }
+    }
+}
+
+/// Refuse sampled bucket tables (§3.2a). Flop/turn `meta.json` entries
+/// carry `coverage: "full" | "sampled"`; a sampled table silently routes
+/// ~98% of lookups through the suit-blind `strength_now` fallback.
+/// Returns `Err` unless coverage is full or `CHAM_ALLOW_SAMPLED_BUCKETS`
+/// is set. Call at train / ladder / play startup.
+pub fn require_full_coverage(dir: &Path) -> Result<(), EngineError> {
+    let raw = std::fs::read(dir.join("meta.json"))
+        .map_err(|e| EngineError::Config(format!("require_full_coverage: read meta.json: {e}")))?;
+    let v: serde_json::Value = serde_json::from_slice(&raw)
+        .map_err(|e| EngineError::Config(format!("require_full_coverage: parse: {e}")))?;
+    for st in ["flop", "turn"] {
+        let cov = v
+            .get(st)
+            .and_then(|s| s.get("coverage"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("sampled");
+        if cov != "full" && std::env::var("CHAM_ALLOW_SAMPLED_BUCKETS").is_err() {
+            return Err(EngineError::Config(format!(
+                "{st} bucket table is sampled (fallback = suit-blind strength_now); \
+                 rebuild with full coverage or set CHAM_ALLOW_SAMPLED_BUCKETS=1"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// The infoset key: nonzero u64 (FNV-1a mixed byte stream, high bit forced).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct InfoSetKey(pub u64);
@@ -163,6 +210,8 @@ pub struct Encoder {
     fallback_cache: FxHashMap<u64, u16>,
     /// ExploitBayes belief bin (0 = non-Bayes default; SPECS/04 §5). Part of the key.
     belief_bin: u8,
+    /// §3.2a hit/miss telemetry (interior: `bucket` takes `&mut self`).
+    stats: BucketStats,
 }
 
 const EQ_CACHE_CAP: usize = 400_000;
@@ -212,6 +261,7 @@ impl Encoder {
             eq_cache: FxHashMap::default(),
             fallback_cache: FxHashMap::default(),
             belief_bin: 0,
+            stats: BucketStats::default(),
         })
     }
 
@@ -235,6 +285,7 @@ impl Encoder {
             eq_cache: FxHashMap::default(),
             fallback_cache: FxHashMap::default(),
             belief_bin: 0,
+            stats: BucketStats::default(),
         })
     }
 
@@ -253,6 +304,11 @@ impl Encoder {
 
     pub fn meta(&self) -> &RiverMeta {
         &self.meta
+    }
+
+    /// §3.2a bucket hit/miss telemetry snapshot.
+    pub fn bucket_stats(&self) -> BucketStats {
+        self.stats
     }
 
     /// SPR band for this view.
@@ -278,6 +334,7 @@ impl Encoder {
                     };
                     let b = orbit_bucket(table, obs.hole, board);
                     if b != crate::tables::MISS_SENTINEL {
+                        self.stats.table_hit[obs.street.as_u8() as usize] += 1;
                         return b;
                     }
                 }
@@ -292,6 +349,7 @@ impl Encoder {
                     self.fallback_cache.clear();
                 }
                 self.fallback_cache.insert(key, b);
+                self.stats.fallback_hit[obs.street.as_u8() as usize] += 1;
                 b
             }
             Street::River => {
@@ -393,7 +451,24 @@ impl Encoder {
         bytes[n] = (mask & 0xff) as u8;
         bytes[n + 1] = (mask >> 8) as u8;
         n += 2;
+        // §3.5 Patch 2: with history compression, full detail lives only
+        // on the current street; finished streets collapse to a 2-byte
+        // summary (pot/stack via the SPR band carry what earlier betting
+        // implies). Gated — see `history_compression_enabled`.
+        let cur = obs.street.as_u8() as usize;
+        let compressed = Self::history_compression_enabled();
         for street in 0..4usize {
+            if compressed && street != cur && street < cur {
+                // SUMMARY of a finished street.
+                let (n_agg, last_aggr) = Self::summarize_street(seq, street);
+                bytes[n] = n_agg.min(3);
+                bytes[n + 1] = last_aggr;
+                n += 2;
+                continue;
+            }
+            if compressed && street > cur {
+                continue; // future streets: nothing
+            }
             let len = seq.lens[street] as usize;
             bytes[n] = seq.lens[street];
             n += 1;
@@ -413,6 +488,41 @@ impl Encoder {
             }
         }
         InfoSetKey(fnv1a(&bytes[..n]) | (1 << 63))
+    }
+
+    /// §3.5 Patch 2 — history compression gate. When `CHAM_COMPRESS_HISTORY=1`,
+    /// `key_for` keeps FULL action detail on the current street and a 2-byte
+    /// SUMMARY (aggressive-action count capped at 3, last-aggressor actor or
+    /// 2=none) for finished streets; future streets contribute nothing.
+    /// Imperfect recall (no convergence guarantee, standard in practice):
+    /// KEYING CHANGE — retrain when enabling. Default OFF so shipped bundles
+    /// keep their keys. Gate empirically with the fine-information BR (§3.3):
+    /// keep only if fine-BR does not worsen at equal wall-clock while infosets
+    /// drop several-fold.
+    fn history_compression_enabled() -> bool {
+        use std::sync::OnceLock;
+        static FLAG: OnceLock<bool> = OnceLock::new();
+        *FLAG.get_or_init(|| {
+            std::env::var("CHAM_COMPRESS_HISTORY")
+                .ok()
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        })
+    }
+
+    /// Summary of a finished street: (aggressive-action count capped at 3,
+    /// last-aggressor actor, or 2 when nobody aggressed).
+    fn summarize_street(seq: &ActionSeq, street: usize) -> (u8, u8) {
+        let mut n_agg: u8 = 0;
+        let mut last_aggr: u8 = 2;
+        for i in 0..seq.lens[street] as usize {
+            let e = &seq.entries[street * 8 + i];
+            if e.class == ActionClass::Bet || e.class == ActionClass::Raise {
+                n_agg = n_agg.saturating_add(1).min(3);
+                last_aggr = e.actor;
+            }
+        }
+        (n_agg, last_aggr)
     }
 
     /// Record an action into the seq (deterministic; depth-free sizing).
