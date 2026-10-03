@@ -65,5 +65,11 @@ Both measurements agree, on an idle box, with the current trainer.
   noise is unlikely to flip the conclusion, but a 2-3 seed confirm is
   cheap insurance before promotion.
 - `--fast` tier (2500 deals/pair). The full tier would tighten the CIs.
-- jamfix regression unexplained; worth a targeted look before promotion
+- **jamfix regression confirmed at full tier**: shipped +4738.4 vs
+  retrained +3545.2 = **-1193 mb/seating** (combined SE ~327, ~3.6σ —
+  real, not noise). jamfix is a pure all-in bot; the retrained robust
+  (DCFR 1.5/0/γ2) handles it worse. The regression is specific to
+  shove-only opponents and does not change the overall recommendation
+  (8/9 wins, +2989 mean), but it should be understood before promotion
   if jamfix-class opponents matter for the target use.
+  (`artifacts/jamfix-check-2026-10-03/summary.txt`)
