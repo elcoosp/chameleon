@@ -13,10 +13,11 @@
 //! ## Scope of this first pass
 //!
 //! The subgame build is deliberately conservative. Hero is collapsed to
-//! a single class (weight 1.0, strength = river equity of the actual
-//! hole cards). Villain is collapsed to K classes spread uniformly over
-//! [0, 1] with equal weight — a broad, agnostic model. Later work will
-//! replace the villain spread with the tracker-derived range.
+//! a single class (weight 1.0, strength = EXACT river equity of the
+//! actual hole cards, §3.1). Villain uses the tracker-derived 3-class
+//! range (`villain_range_from_tracker`), falling back to a symmetric
+//! spread around 0.5 with < 30 hands observed. Later work will replace
+//! the villain spread with blueprint-reach combo ranges (Half B).
 //!
 //! The output of `try_solve` is the sampled action plus diagnostic
 //! telemetry for `DecisionTrace.search`. When the solver does not fire,
@@ -41,11 +42,11 @@ pub const VILLAIN_SPREAD: f64 = 1.0;
 
 /// Outcome of a successful search. `action` is the class-conditioned
 /// choice for hero's actual class; `distribution` is that class's
-/// strategy over the root legal actions (indexed by the input slice).
+/// strategy as (action, prob) pairs over REAL engine-legal actions.
 #[derive(Clone, Debug)]
 pub struct SearchOutcome {
     pub action: Action,
-    pub distribution: Vec<f64>,
+    pub distribution: Vec<(Action, f64)>,
     pub solver: String,
     pub iters: u32,
     pub truncated: bool,
@@ -197,10 +198,18 @@ pub fn try_solve(
         return None;
     }
 
-    // Hero classes: one class, weight 1.0, strength = hero's current
-    // strength on the river board (0..1).
+    // Hero classes: one class, weight 1.0, strength = EXACT river equity
+    // of the actual hole cards (suit-aware). `strength_now` is a suit-blind
+    // proxy (ignores flushes/draws); on the river the board is complete so
+    // exact equity is O(1326) and affordable (§3.1/§3.2).
     let board: Vec<cham_core::card::Card> = obs.board[..obs.board_len as usize].to_vec();
-    let hero_strength = cham_core::eval::strength_now(obs.hole, &board);
+    let hero_strength = if obs.board_len as usize >= 5 {
+        let mut b5 = [cham_core::card::Card(0); 5];
+        b5.copy_from_slice(&board[..5]);
+        cham_engine::tables::river_equity(obs.hole, &b5)
+    } else {
+        cham_core::eval::strength_now(obs.hole, &board)
+    };
     let hero_classes = vec![cham_search::subgame::Class {
         weight: 1.0,
         strength: hero_strength,
@@ -256,67 +265,77 @@ pub fn try_solve(
     })
 }
 
-/// Map the solver's root distribution onto the live legal action list.
-/// Returns the argmax legal action and the distribution reordered to
-/// match the live slots.
+/// Convert one solver root label to a REAL engine-legal action.
+///
+/// Solver labels: "check", "bet<frac>" (e.g. "bet0.5"), "jam".
+/// Old behaviour collapsed every bet/jam onto the FIRST aggressive entry
+/// of `obs.legal` (the min-bet) — a 1 bb "value bet" (§3.1). This maps
+/// each label to its intended size: `bet<f>` → `f × pot` clamped to
+/// `[min_to, max_to]`, `jam` → `max_raise_to`. Returns `None` for unknown
+/// labels (refuse, never remap) — the caller skips unmapped mass.
+pub fn label_to_action(obs: &Observables<'_>, label: &str) -> Option<Action> {
+    let max_to = obs.max_raise_to;
+    let min_to = obs.min_raise_to.min(max_to);
+    match label {
+        "check" => Some(Action::Check),
+        "jam" => (max_to > obs.current_bet).then_some(Action::Bet { to: max_to }),
+        l if l.starts_with("bet") => {
+            let f: f64 = l[3..].parse().ok()?;
+            if !f.is_finite() || f <= 0.0 {
+                return None;
+            }
+            // to_call == 0 guard: solver tree is rooted at hero-acts-first.
+            let to = ((f * obs.pot as f64).floor() as i64).clamp(min_to, max_to);
+            Some(Action::Bet { to })
+        }
+        _ => None, // unknown label (fold/call at a to_call==0 root): refuse
+    }
+}
+
+/// Map the solver's root distribution onto REAL actions.
+///
+/// Returns the sampled-or-argmax action plus the distribution over the
+/// returned action set. Mass that maps to the same real action is merged;
+/// mass with no legal mapping is dropped (renormalised below). Returns
+/// `None` when nothing maps (caller keeps its pre-search decision).
 fn map_to_legal(
     obs: &Observables<'_>,
     solver_dist: &[f64],
     sg: &cham_search::subgame::Subgame,
-) -> Option<(Action, Vec<f64>)> {
-    let legal: Vec<Action> = obs.legal.iter().map(|l| l.action).collect();
-    if legal.is_empty() {
-        return None;
-    }
-    let solver_actions = root_action_labels(sg);
-    // Build a live-slot distribution by matching solver labels to legal
-    // actions heuristically: "check" → Check; anything else → Bet/Raise
-    // of the first legal aggressive action. If no aggressive action is
-    // legal, collapse all mass onto the non-check legal action.
-    let check_slot = legal
-        .iter()
-        .position(|a| matches!(a, Action::Check))
-        .unwrap_or(0);
-    let fold_slot = legal.iter().position(|a| matches!(a, Action::Fold));
-    let call_slot = legal.iter().position(|a| matches!(a, Action::Call));
-    let aggressive_slot = legal
-        .iter()
-        .position(|a| matches!(a, Action::Bet { .. } | Action::Raise { .. }));
-
-    let mut live_dist = vec![0.0f64; legal.len()];
-    for (i, label) in solver_actions.iter().enumerate() {
+) -> Option<(Action, Vec<(Action, f64)>)> {
+    let mut out: Vec<(Action, f64)> = Vec::new();
+    for (i, label) in root_action_labels(sg).iter().enumerate() {
         let p = solver_dist.get(i).copied().unwrap_or(0.0);
-        let target = if label == "check" {
-            Some(check_slot)
-        } else if label.starts_with("bet") || label == "jam" {
-            aggressive_slot
-        } else if label == "fold" {
-            fold_slot
-        } else if label == "call" {
-            call_slot
-        } else {
-            None
-        };
-        if let Some(slot) = target {
-            live_dist[slot] += p;
+        if p <= 0.0 {
+            continue;
+        }
+        let a = label_to_action(obs, label)?;
+        if !is_legal(obs, a) {
+            continue;
+        }
+        match out.iter_mut().find(|(b, _)| *b == a) {
+            Some(e) => e.1 += p,
+            None => out.push((a, p)),
         }
     }
-    let total: f64 = live_dist.iter().sum();
+    let total: f64 = out.iter().map(|x| x.1).sum();
     if total <= 1e-12 {
         // Nothing mapped — refuse rather than produce a uniform.
         return None;
     }
-    for v in live_dist.iter_mut() {
-        *v /= total;
+    for x in out.iter_mut() {
+        x.1 /= total;
     }
-    // Pick argmax over the live distribution, filtered by legal action.
+    // Argmax over the mapped distribution, filtered by legality (all
+    // entries are legal by construction; the guard is belt-and-braces).
     let mut best = 0usize;
-    for (i, &p) in live_dist.iter().enumerate() {
-        if p > live_dist[best] && is_legal(obs, legal[i]) {
+    for (i, (a, p)) in out.iter().enumerate() {
+        if *p > out[best].1 && is_legal(obs, *a) {
             best = i;
         }
     }
-    Some((legal[best], live_dist))
+    let action = out[best].0;
+    Some((action, out))
 }
 
 /// Extract the root decision node's action labels from a subgame's tree.
@@ -367,5 +386,60 @@ mod tests {
             cfg.solver,
             cham_search::trigger::SolverChoice::Fmbr
         ));
+    }
+
+    /// §3.1 regression: solver labels must map to REAL sizes, never to the
+    /// min-bet. River, pot 200, deep stacks, to_call == 0.
+    #[test]
+    fn label_to_action_maps_real_sizes() {
+        use cham_core::card::Deck;
+        use cham_core::engine::config::EngineConfig;
+        use cham_core::engine::{Action as EAction, State};
+        use cham_core::obs::Player;
+        let cfg = EngineConfig {
+            start_stack: 10_000,
+            sb: 50,
+            bb: 100,
+        };
+        let mut rng = cham_core::rng::rng_from_seed(42);
+        let mut st = State::new(cfg, Deck::shuffled(&mut rng)).expect("state");
+        // Preflop: SB calls, BB checks. Flop/turn/river: checks through.
+        for a in [
+            EAction::Call,
+            EAction::Check, // preflop
+            EAction::Check,
+            EAction::Check, // flop
+            EAction::Check,
+            EAction::Check, // turn
+        ] {
+            st.apply(a).expect("legal by construction");
+        }
+        assert_eq!(st.street(), cham_core::engine::Street::River);
+        let obs = Observables::view(&st, Player::from_usize(st.to_act()));
+        assert_eq!(obs.to_call, 0);
+        assert_eq!(obs.pot, 200);
+        // bet1 → full pot (200), NOT the min-bet.
+        let b1 = label_to_action(&obs, "bet1").expect("bet1 maps");
+        assert_eq!(b1, EAction::Bet { to: 200 });
+        assert_ne!(
+            b1,
+            EAction::Bet {
+                to: obs.min_raise_to
+            }
+        );
+        // bet0.5 → half pot (100).
+        let b05 = label_to_action(&obs, "bet0.5").expect("bet0.5 maps");
+        assert_eq!(b05, EAction::Bet { to: 100 });
+        // jam → max_raise_to.
+        let jam = label_to_action(&obs, "jam").expect("jam maps");
+        assert_eq!(
+            jam,
+            EAction::Bet {
+                to: obs.max_raise_to
+            }
+        );
+        // unknown labels refuse.
+        assert!(label_to_action(&obs, "fold").is_none());
+        assert!(label_to_action(&obs, "raise-the-moon").is_none());
     }
 }
