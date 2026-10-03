@@ -35,6 +35,7 @@ fn bench_mccfr_iter(c: &mut Criterion) {
                     mode: cham_blueprint::modes::TrainModeTag::Exploit,
                     hero_nodes: 0,
                     pruned_nodes: 0,
+                    cold_rows: 0,
                     regret_discount: 1.0,
                     allow_insert: true,
                     warmup_only: false,
