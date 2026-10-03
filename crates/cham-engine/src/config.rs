@@ -36,6 +36,17 @@ pub struct LadderConfig {
     /// `version` and rebuilds all artifacts. See
     /// `docs/plans/F6C-SIZE-BUCKET-DESIGN-2026-10-01.md` §5.
     pub preflop_open_bb: Vec<f64>,
+    /// `preflop_levels_bb[lvl]` = open sizes in bb when
+    /// `lvl` Raise-class actions already happened preflop. Level 0 = open
+    /// (≈2.5 bb), level 1 = 3-bet (≈8 bb), level 2 = 4-bet (≈20 bb); beyond
+    /// the last level only jam remains. Empty = legacy `raise_fracs`
+    /// behaviour. Keying change: retrain when enabling.
+    ///
+    /// Hash stability: skipped from the hashed serialization while empty,
+    /// so legacy configs keep their `abstraction_hash`; setting levels
+    /// changes the hash loudly (dependent blueprints invalidate).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preflop_levels_bb: Vec<Vec<f64>>,
     pub raise_fracs: Vec<f64>,
     pub flop_bet_fracs: Vec<f64>,
     pub turn_bet_fracs: Vec<f64>,
@@ -74,6 +85,7 @@ impl AbstractionConfig {
             },
             ladder: LadderConfig {
                 preflop_open_bb: vec![2.2, 3.0],
+                preflop_levels_bb: vec![vec![2.5], vec![8.0], vec![20.0]],
                 raise_fracs: vec![0.5, 1.0],
                 flop_bet_fracs: vec![0.33, 0.75],
                 turn_bet_fracs: vec![0.33, 0.75],
@@ -99,6 +111,7 @@ impl AbstractionConfig {
             },
             ladder: LadderConfig {
                 preflop_open_bb: vec![2.5],
+                preflop_levels_bb: vec![],
                 raise_fracs: vec![1.0],
                 flop_bet_fracs: vec![0.5],
                 turn_bet_fracs: vec![0.5],
@@ -143,6 +156,13 @@ impl AbstractionConfig {
             if f.is_empty() || f.iter().any(|x| !x.is_finite() || *x <= 0.0) {
                 return Err(crate::EngineError::Config(
                     "ladder fracs must be positive".into(),
+                ));
+            }
+        }
+        for lvl in &self.ladder.preflop_levels_bb {
+            if lvl.is_empty() || lvl.iter().any(|x| !x.is_finite() || *x <= 0.0) {
+                return Err(crate::EngineError::Config(
+                    "ladder preflop_levels_bb levels must be non-empty and positive".into(),
                 ));
             }
         }
