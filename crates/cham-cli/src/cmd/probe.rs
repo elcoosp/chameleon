@@ -115,6 +115,10 @@ struct DiagStats {
     /// covered. The action came from robust but `fallback_used` was false.
     /// See `ARGMAX-FALLBACK-REALLY-MATTERS-2026-09-30.md`.
     expert_missed_robust_covered: u64,
+    /// Diagnostic (2026-10-03): how often the router chose each expert
+    /// (`last_trace.argmax_k`). Answers "which expert handles this
+    /// opponent", needed for the jamfix-mixture experiment.
+    argmax_pick: [u64; 4],
 }
 
 fn pool_ids(pool_path: &str) -> Vec<String> {
@@ -227,6 +231,9 @@ fn run_diag(agent: &str, bundle: &str, search: bool) -> i32 {
         total.reach_mass_zero += stats.reach_mass_zero;
         total.mix_zero += stats.mix_zero;
         total.expert_missed_robust_covered += stats.expert_missed_robust_covered;
+        for k in 0..4 {
+            total.argmax_pick[k] += stats.argmax_pick[k];
+        }
         println!(
             "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
             opp_id,
@@ -240,6 +247,15 @@ fn run_diag(agent: &str, bundle: &str, search: bool) -> i32 {
             stats.robust_miss,
             stats.reach_mass_zero,
         );
+        if stats.decisions > 0 {
+            println!(
+                "      argmax picks: [{} {} {} {}]",
+                stats.argmax_pick[0],
+                stats.argmax_pick[1],
+                stats.argmax_pick[2],
+                stats.argmax_pick[3],
+            );
+        }
     }
     println!(
         "  {:<26} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
@@ -318,6 +334,11 @@ fn run_diag_inner(bot: &mut ChameleonAgent, opp_id: &str, deals: u64, base_seed:
                     }
                     if t.expert_missed_robust_covered {
                         stats.expert_missed_robust_covered += 1;
+                    }
+                    if let Some(k) = t.argmax_k {
+                        if k < 4 {
+                            stats.argmax_pick[k] += 1;
+                        }
                     }
                 }
                 action
