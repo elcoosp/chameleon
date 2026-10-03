@@ -1,5 +1,4 @@
-# Instrument seat asymmetry is why 45% of the router features are dead
-# (2026-09-29)
+# Instrument seat asymmetry is why 45% of the router features are dead (2026-09-29)
 
 ## The smoking gun
 
