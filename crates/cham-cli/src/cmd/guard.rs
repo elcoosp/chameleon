@@ -150,10 +150,16 @@ pub fn artifact_identity(agent: &str) -> Option<String> {
 /// `ROUTER-EXPERT-ROUTING-2026-10-03.md`).
 pub const ROUTER_DOMINANCE_WARN_RATE: f64 = 0.90;
 
-pub fn check_router_degeneracy(label: &str, picks: [u64; 4]) -> Option<String> {
+pub fn check_router_degeneracy(label: &str, picks: [u64; 4], n_opponents: usize) -> Option<String> {
     let total: u64 = picks.iter().sum();
     if total == 0 {
         return None; // not argmax routing, or no traced decisions
+    }
+    // A single-opponent pool legitimately concentrates (e.g. a nit-only
+    // pool SHOULD route to the nit expert). Only warn across a pool
+    // where the router had a real choice.
+    if n_opponents <= 1 {
+        return None;
     }
     let (top_k, top_n) = picks
         .iter()
@@ -264,25 +270,31 @@ mod tests {
     }
     #[test]
     fn degeneracy_fires_on_concentration() {
-        let w = super::check_router_degeneracy("ladder:full", [990, 5, 3, 2]);
+        let w = super::check_router_degeneracy("ladder:full", [990, 5, 3, 2], 9);
         assert!(w.is_some(), "should warn on 99% concentration");
         assert!(w.unwrap().contains("expert 0"));
     }
 
     #[test]
     fn degeneracy_silent_when_balanced() {
-        assert!(super::check_router_degeneracy("x", [250, 250, 250, 250]).is_none());
-        assert!(super::check_router_degeneracy("x", [800, 100, 50, 50]).is_none());
+        assert!(super::check_router_degeneracy("x", [250, 250, 250, 250], 9).is_none());
+        assert!(super::check_router_degeneracy("x", [800, 100, 50, 50], 9).is_none());
+    }
+
+    #[test]
+    fn degeneracy_exempts_single_opponent_pool() {
+        // A nit-only pool SHOULD route to expert 0; not a degeneracy.
+        assert!(super::check_router_degeneracy("x", [1000, 0, 0, 0], 1).is_none());
     }
 
     #[test]
     fn degeneracy_silent_on_no_decisions() {
-        assert!(super::check_router_degeneracy("x", [0, 0, 0, 0]).is_none());
+        assert!(super::check_router_degeneracy("x", [0, 0, 0, 0], 9).is_none());
     }
 
     #[test]
     fn degeneracy_threshold_is_90_percent() {
-        assert!(super::check_router_degeneracy("x", [90, 10, 0, 0]).is_some());
-        assert!(super::check_router_degeneracy("x", [89, 11, 0, 0]).is_none());
+        assert!(super::check_router_degeneracy("x", [90, 10, 0, 0], 9).is_some());
+        assert!(super::check_router_degeneracy("x", [89, 11, 0, 0], 9).is_none());
     }
 }
