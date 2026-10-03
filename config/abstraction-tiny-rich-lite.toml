@@ -1,0 +1,36 @@
+# RICH-LITE (2026-10-03): size resolution within a trainable infoset budget.
+#
+# Motivation: `abstraction-tiny-rich.toml` exploded to 3.2M infosets (40x
+# tiny), so 5M iters = 1.5 visits/infoset — untrained. The blow-up is
+# combinatorial in (bet sizes per street) x (raises per street) x street
+# depth. This config keeps TWO sizes per street (vs rich's three) and
+# RAISE CAP 1 (vs rich's 2), which is the dominant cut.
+#
+# Goal: land within ~3-5x tiny's infosets so 5-20M iters gives 10-60
+# visits/infoset — enough to actually train the extra size resolution.
+#
+# See docs/plans/RICH-LADDER-INFOSET-EXPLOSION-2026-10-03.md.
+version = 2
+
+spr_bands = [
+  0.3, 0.37104, 0.45874, 0.56723, 0.70122, 0.86668, 1.07134, 1.32414,
+  1.63654, 2.02247, 2.49981, 3.08914, 3.81757, 4.71752, 5.82902, 7.20363,
+  40.0,
+]
+seq_history_len = 8
+
+[buckets]
+preflop = "exact169"
+flop_k = 32
+turn_k = 16
+river_eq_bins = 16
+river_texture_classes = 4
+
+[ladder]
+preflop_open_bb = [2.5]
+raise_fracs = [1.0]
+flop_bet_fracs = [0.5, 1.0]
+turn_bet_fracs = [0.5, 1.0]
+river_bet_fracs = [0.5, 1.25]
+raises_per_street_cap = 1
+all_in_always = true

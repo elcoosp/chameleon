@@ -61,3 +61,18 @@ is uninformative about rich's ceiling — we only learn 5M is too few.
 
 Source: `artifacts/blueprints-f6c-rich/robust/robust-7/provenance.json`
 (infosets: 3196020), vs `artifacts/blueprints-retrain-19dim/...`.
+
+## Measured: rich-lite fixes it (100k-iter comparison)
+
+| config | infosets @100k | wall | ms/iter | projected 5M retrain |
+|---|---:|---:|---:|---:|
+| rich | 275,710 | 705s | 7.0 | **~49h** |
+| rich-lite | 52,193 | 45.7s | 0.46 | **~3.2h** |
+| tiny | 32,054 | 32.8s | 0.33 | ~2.7h |
+
+`config/abstraction-tiny-rich-lite.toml`: 2 bet sizes per street, raise
+cap 1 (vs rich's 3 sizes, cap 2). It is **1.6x tiny's infosets** at
+100k iters (vs rich's 8.6x) and **15x faster per iteration**.
+
+**Conclusion:** rich-lite is the config to use. The rich retrain
+launched 2026-10-03 is infeasible (~49h) and should be replaced.
