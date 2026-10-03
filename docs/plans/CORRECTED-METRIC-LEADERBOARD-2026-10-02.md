@@ -17,6 +17,15 @@ different budgets are not directly comparable.
 | `par-f5-tiny-dcfr15-g2` (DCFR γ=2, 5M) | -1.65 | +0.96 | **-0.70** | 15.3 / 14.5 |
 | **retrained `robust` (DCFR 1.5,0,γ2)** | -2.28 | +0.99 | **-1.29** | 15.3 / 14.5 |
 | `par-f5-tiny-dcfr15` (DCFR, 20M) | -1.74 | +0.25 | **-1.49** | 14.0 / 15.9 |
+| **`f6c-lite` robust** (2 sizes/street, slot bucket) | -1.72 | +1.33 | **-0.40** | 16.5 / 15.9 |
+| `medium-20M` (64/32/32, **OLD trainer**) | +10.70 | +11.63 | **+22.34** | 33.0 / 26.1 |
+
+
+> **2026-10-03 additions.** `f6c-lite` (rich-lite ladder + slot bucket) is
+> the new best corrected-sum policy at **-0.40**. The `medium-20M` row is
+> a **stale artifact** (trained 2026-09-29, pre-F3/F4/F6a) — its +22.34
+> reflects the trainer gap, not the bucket count; do not use it to judge
+> buckets. See `LEVER-COMPARISON-2026-10-03.md`.
 
 ## Single-seat measurements (budget 300/200/12 — lower budget, do not compare)
 
