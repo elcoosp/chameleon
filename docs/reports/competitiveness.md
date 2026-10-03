@@ -100,6 +100,17 @@ In the recorded ledger (`artifacts/ledger/ledger.jsonl`), a 40,000-seating scree
 * vs **`pnash:overfold:0.15`**: $+111.7 \pm 670.8\text{ mb/seating}$ ($+1.1\text{ bb/100}$, within error margin)
 * vs **`callbot`** / **`jamfix`**: $0.0 \pm 0.0\text{ mb/seating}$
 
+> **Erratum — units (§3.7, 2026-10-03):** `mb/seating` = milli-bb per
+> hand, so X mb = X/1000 bb/hand = X/10 bb/100. The bb/100 figures
+> above divided by 100 instead of 10 (10× understated): e.g. station
+> $-471.6\text{ mb}$ = **$-47.2\text{ bb/100}$**, lag $-5,952.1\text{
+> mb}$ = **$-595\text{ bb/100}$**.
+>
+> **Erratum — `pnash` (§3.3, 2026-10-03):** the `pnash` opponent tilts a
+> **uniform-random** base (no strategy source is ever injected), so it
+> is not a Nash-like anchor. Its numbers measure play against a random
+> bot, not against equilibrium.
+
 > **Critical Context from the Codebase (`cmd/guard.rs` & `Broad-perf-plan`):**
 > These specific ledger numbers reflect an **uncompleted training bundle run** where the agent triggered the **fallback guardrail** (mirror play or uniform fallback). When specialist policies are unpopulated, the engine falls back to uniform play, which loses to aggressive opponents like LAG ($-59.5\text{ bb/100}$). The system now enforces a hard exit (exit code 2) via `require_agent_artifacts()` to prevent fallback scores from masquerading as true model strength.
 
