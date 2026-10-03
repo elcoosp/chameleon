@@ -58,12 +58,36 @@ impl PerturbedNashAgent {
         self.source = Some(src);
     }
 
+    /// Whether a real strategy source is injected (false = uniform fallback).
+    pub fn has_source(&self) -> bool {
+        self.source.is_some()
+    }
+
     /// Tilted distribution: shift `delta` mass toward the leak direction and
     /// renormalize (Ganzfried–Sandholm-style safety perturbation, review B1).
+    ///
+    /// §3.3 WARNING: when no strategy source is injected this tilts a
+    /// UNIFORM-random base (uniform over `obs.legal` = fold / call /
+    /// min-raise / jam) — that is a random bot, NOT a Nash-like opponent.
+    /// A one-time stderr warning fires so ladder configs never mistake
+    /// `pnash` for an equilibrium anchor. Wire a real blueprint source via
+    /// `set_source` (different seed, longer robust run, sample mode).
     pub fn tilted(&self, obs: &Observables<'_>) -> ArrayVec<(Action, f64), 12> {
         let base: Vec<(Action, f64)> = match &self.source {
             Some(src) => src(obs),
-            None => uniform_source(obs),
+            None => {
+                use std::sync::atomic::{AtomicBool, Ordering};
+                static WARNED: AtomicBool = AtomicBool::new(false);
+                if !WARNED.swap(true, Ordering::Relaxed) {
+                    eprintln!(
+                        "WARNING PerturbedNashAgent({}): no strategy source injected — \
+                         tilting UNIFORM-random (this opponent is NOT Nash-like; \
+                         wire a blueprint source via set_source/build_with_source)",
+                        self.tilt.as_str()
+                    );
+                }
+                uniform_source(obs)
+            }
         };
         let mut out: ArrayVec<(Action, f64), 12> = ArrayVec::new();
         // The tilt moves EXACTLY min(δ, 1 − target_mass) of probability mass into
