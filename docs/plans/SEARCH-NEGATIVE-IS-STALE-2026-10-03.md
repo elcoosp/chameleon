@@ -110,3 +110,38 @@ The "stale conclusion" pattern this session found repeatedly (exploit
 threading, router degeneracy, F4) does NOT apply here: search's negative
 result reproduces on the current binary. Not every old negative is
 stale; some are just true.
+
+## The clean re-measurement (2026-10-03, 19:33)
+
+Locked, single-runner A/B on the current binary (tracker range active):
+
+| opponent | OFF | ON (`--search`) | delta |
+|---|---:|---:|---:|
+| callbot | +24796.7 | +12325.9 | **-12470.8** |
+| arch:station | +14091.7 | +5738.1 | **-8353.6** |
+
+Both strongly negative. (The ledger/trace does not emit a
+search-fired counter to stdout, but OFF != ON proves search fired and
+changed decisions — for the worse.)
+
+## The real conclusion
+
+**Search (class-conditioned solver + tracker-derived villain range) is
+net-negative on calling-heavy opponents.** The F1 villain-range upgrade
+(approach (c), heuristic templates) is **insufficient**. The remaining
+options per `F1-VILLAIN-RANGE-PLAN-2026-10-02.md`:
+
+- **Approach (a): blueprint-reach villain range** — walk the public
+  action sequence, reweight villain classes by the robust policy's
+  action probabilities. 1-2 days. The principled version.
+- **F10 vector solver** — replace the class-conditioned solver with a
+  combo-level one. 1-2 weeks.
+
+Until one of those lands, **`--search` stays OFF** (already the default).
+
+## Lesson (corrected)
+
+The "stale conclusion" pattern this session found repeatedly (exploit
+threading, router degeneracy, F4) does NOT apply here: search's negative
+result reproduces on the current binary. Not every old negative is
+stale; some are just true.
