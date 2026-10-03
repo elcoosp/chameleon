@@ -1,4 +1,20 @@
-# The search negative result is STALE — the villain-range fix landed 8 min later (2026-10-03)
+# Search negative CONFIRMED (not stale): the tracker villain range did not fix it (2026-10-03)
+
+> **RETRACTED / CORRECTED (2026-10-03, same day).** I claimed the
+> search negative was "stale" because the villain-range fix landed 8 min
+> after the A/B. **That was wrong.** Re-measured on the CURRENT binary
+> (tracker range active), search is STILL net-negative — and worse:
+>
+> | opponent | OFF | ON (--search) | delta |
+> |---|---:|---:|---:|
+> | callbot | +24797 | +12326 | **-12 471** |
+> | arch:station | +14092 | +5738 | **-8 354** |
+>
+> (stale doc: -11 016 / -6 731.) The tracker-derived villain range did
+> NOT fix search. The negative is REAL, not stale. The lesson is the
+> opposite of what this doc claimed: not "always re-measure after a
+> fix", but "the heuristic villain range (approach c) is insufficient."
+
 
 ## The finding
 
@@ -59,3 +75,38 @@ Each was a *measurement* taken before a *fix*, then quoted as current.
 
 Source: `git log --oneline -- crates/cham-agent/src/search_bridge.rs`,
 `F1-SEARCH-CORRECTED-2026-10-01.md`.
+
+## The clean re-measurement (2026-10-03, 19:33)
+
+Locked, single-runner A/B on the current binary (tracker range active):
+
+| opponent | OFF | ON (`--search`) | delta |
+|---|---:|---:|---:|
+| callbot | +24796.7 | +12325.9 | **-12470.8** |
+| arch:station | +14091.7 | +5738.1 | **-8353.6** |
+
+Both strongly negative. (The ledger/trace does not emit a
+search-fired counter to stdout, but OFF != ON proves search fired and
+changed decisions — for the worse.)
+
+## The real conclusion
+
+**Search (class-conditioned solver + tracker-derived villain range) is
+net-negative on calling-heavy opponents.** The F1 villain-range upgrade
+(approach (c), heuristic templates) is **insufficient**. The remaining
+options per `F1-VILLAIN-RANGE-PLAN-2026-10-02.md`:
+
+- **Approach (a): blueprint-reach villain range** — walk the public
+  action sequence, reweight villain classes by the robust policy's
+  action probabilities. 1-2 days. The principled version.
+- **F10 vector solver** — replace the class-conditioned solver with a
+  combo-level one. 1-2 weeks.
+
+Until one of those lands, **`--search` stays OFF** (already the default).
+
+## Lesson (corrected)
+
+The "stale conclusion" pattern this session found repeatedly (exploit
+threading, router degeneracy, F4) does NOT apply here: search's negative
+result reproduces on the current binary. Not every old negative is
+stale; some are just true.
