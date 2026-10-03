@@ -31,7 +31,8 @@ pub fn run(agent: &str, depth: i64, search_warmstart: bool, search_enabled: bool
     // concurrent sessions overwrite last-writer-wins (acceptable: the
     // cache is a speed optimization, not a correctness input).
     let _cache_guard = CachePersist::hydrate("play", "artifacts/river-cache.bin");
-    let bundle = std::path::Path::new("artifacts/agent");
+    let bundle_path = crate::cmd::guard::resolve_agent_bundle();
+    let bundle = bundle_path.as_path();
     // CLI mode names → AgentMode routing strings (SPECS/07 §3 canonical set)
     let routing = match agent {
         "full" | "no-search" | "full-no-search" => "mixture",
@@ -43,7 +44,10 @@ pub fn run(agent: &str, depth: i64, search_warmstart: bool, search_enabled: bool
     let loaded = match cham_agent::loader::load_agent(bundle, routing, depth) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("play: artifact bundle under artifacts/agent not loadable: {e}");
+            eprintln!(
+                "play: artifact bundle under {} not loadable: {e}",
+                bundle.display()
+            );
             eprintln!("play: assemble it with train-buckets + train-bp (robust + 4 experts) first");
             return crate::cmd::EXIT_BUDGET;
         }
