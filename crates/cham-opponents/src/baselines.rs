@@ -157,6 +157,33 @@ impl Agent for JamBot {
             Action::Check
         }
     }
+    /// Analytic shove distribution (2026-10-03). Previously JamBot had no
+    /// `action_probs`, so the exploit trainer (which consumes the opponent
+    /// ONLY through `action_probs`, traversal.rs) fell back to uniform for
+    /// every node — meaning `--opponent jamfix` trained against noise, not
+    /// against a shove-bot. This makes the bot analytic so it can be a real
+    /// training opponent (or a mixture component).
+    ///
+    /// Deterministic: point mass on the all-in when one is legal, else on
+    /// call/check. Matches `act` exactly.
+    fn action_probs(
+        &self,
+        obs: &Observables<'_>,
+    ) -> Result<ArrayVec<(Action, f64), 12>, AgentError> {
+        let mut out: ArrayVec<(Action, f64), 12> = ArrayVec::new();
+        for l in &obs.legal {
+            if l.is_all_in {
+                out.push((l.action, 1.0));
+                return Ok(out);
+            }
+        }
+        if is_legal(obs, Action::Call) {
+            out.push((Action::Call, 1.0));
+        } else {
+            out.push((Action::Check, 1.0));
+        }
+        Ok(out)
+    }
 }
 
 /// Uniform over legal actions (probs analytic — used in coverage tests).
