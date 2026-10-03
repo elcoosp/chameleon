@@ -1,0 +1,6 @@
+# jamfix-only pool for the 2026-10-03 retrain regression check.
+[[opponents]]
+id = "jamfix"
+family = "A"
+sigma_pair = 4.0
+sprt_delta_mb = 25.0
