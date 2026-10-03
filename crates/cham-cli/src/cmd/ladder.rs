@@ -363,9 +363,19 @@ pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str, search: bool) 
     let router_warning = crate::cmd::guard::check_router_degeneracy(
         &format!("ladder[{tier}]:{agent}"),
         total_argmax,
+        outcomes.len(),
     );
     if let Some(w) = &router_warning {
         eprintln!("{w}");
+    }
+    // Always report the distribution at info level so the routing is
+    // visible even when it is healthy (2026-10-03). A single-opponent
+    // pool legitimately concentrates; a 9-opponent pool should not.
+    if total_argmax.iter().sum::<u64>() > 0 {
+        eprintln!(
+            "ladder[{tier}]:{agent} router picks: e0={} e1={} e2={} e3={}",
+            total_argmax[0], total_argmax[1], total_argmax[2], total_argmax[3],
+        );
     }
     let mut ledger = match cham_eval::Ledger::open(std::path::Path::new("artifacts/ledger")) {
         Ok(l) => l,
