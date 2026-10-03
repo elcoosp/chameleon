@@ -90,15 +90,24 @@ pub fn build_chameleon_with_router_and_search(
     overrides: Option<(f64, f64, f64, f64)>,
     search_enabled: bool,
 ) -> Result<ChameleonAgent, String> {
-    // Default bundle is the retrained 19-dim honest bundle
-    // (`artifacts/agent-honest-19dim`, promoted 2026-10-03). The
-    // CHAM_AGENT_BUNDLE override lets competitive-measurement scripts
-    // bench a different directory without swapping the default in place.
+    // Default bundle resolution:
+    //   1. CHAM_AGENT_BUNDLE if set (competitive-measurement override);
+    //   2. else `artifacts/agent-honest-19dim` (the promoted retrained
+    //      19-dim bundle) IF present;
+    //   3. else `artifacts/agent` (the tracked, router-less fallback).
     //
-    // The old `artifacts/agent` path remains in the repo as a tracked,
-    // router-less fallback; this default prefers the router-bearing bundle.
-    let bundle_path = std::env::var("CHAM_AGENT_BUNDLE")
-        .unwrap_or_else(|_| "artifacts/agent-honest-19dim".to_string());
+    // Step 2's path is gitignored: it exists on a working checkout but NOT
+    // on a fresh clone. The fallback to the tracked `artifacts/agent` keeps
+    // a fresh clone loadable instead of refusing outright. Set
+    // CHAM_AGENT_BUNDLE to force either explicitly.
+    let bundle_path = std::env::var("CHAM_AGENT_BUNDLE").unwrap_or_else(|_| {
+        let promoted = std::path::Path::new("artifacts/agent-honest-19dim/robust/policy.bin");
+        if promoted.exists() {
+            "artifacts/agent-honest-19dim".to_string()
+        } else {
+            "artifacts/agent".to_string()
+        }
+    });
     let bundle = std::path::Path::new(&bundle_path);
     let routing = routing_for(agent);
     let loaded = cham_agent::loader::load_agent(bundle, routing, depth_bb)
