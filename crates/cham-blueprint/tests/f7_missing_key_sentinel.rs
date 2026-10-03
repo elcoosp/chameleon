@@ -52,6 +52,7 @@ fn missing_key_in_parallel_mode_returns_nan_not_zero() {
         mode: cham_blueprint::modes::TrainModeTag::Robust,
         hero_nodes: 0,
         pruned_nodes: 0,
+        cold_rows: 0,
         regret_discount: 1.0,
         allow_insert: false,
         warmup_only: false,
