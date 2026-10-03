@@ -76,3 +76,21 @@ cap 1 (vs rich's 3 sizes, cap 2). It is **1.6x tiny's infosets** at
 
 **Conclusion:** rich-lite is the config to use. The rich retrain
 launched 2026-10-03 is infeasible (~49h) and should be replaced.
+
+## Update: rich-lite at 5M (real count, not the 100k proxy)
+
+The 100k-iter comparison above undercounts BOTH configs (the tree is not
+fully explored at 100k). The finished rich-lite robust run:
+
+| config | infosets @5M | visits/infoset | wall (4-thread) |
+|---|---:|---:|---:|
+| tiny | 80,772 | 62 | ~67 min |
+| rich-lite | **190,158** | **26** | **15 min** |
+| rich | ~3.2M | ~1.6 | ~infeasible |
+
+rich-lite is **2.35x** tiny's infosets (not 1.6x) and **15x** faster to
+train per iteration than rich. 26 visits/infoset is trainable — the
+tiny 500k run had ~8 and was called undertrained; 62 is converged.
+
+**Verdict: rich-lite is the config to use.** It fits the F6c size
+resolution into a ~1.5h full retrain.
