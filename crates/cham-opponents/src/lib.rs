@@ -14,6 +14,7 @@ pub mod drift;
 pub mod factory;
 pub mod family_b;
 pub mod frozen;
+pub mod mixer;
 pub mod noisy;
 pub mod params;
 pub mod percentile;
