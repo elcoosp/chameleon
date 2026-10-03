@@ -90,12 +90,15 @@ pub fn build_chameleon_with_router_and_search(
     overrides: Option<(f64, f64, f64, f64)>,
     search_enabled: bool,
 ) -> Result<ChameleonAgent, String> {
-    // CHAM_AGENT_BUNDLE overrides the default `artifacts/agent` bundle path.
-    // Used by competitive-measurement scripts that retrain into a different
-    // directory (e.g. `artifacts/agent-honest`) so they can bench without
-    // swapping directories (which would corrupt the running training).
-    let bundle_path =
-        std::env::var("CHAM_AGENT_BUNDLE").unwrap_or_else(|_| "artifacts/agent".to_string());
+    // Default bundle is the retrained 19-dim honest bundle
+    // (`artifacts/agent-honest-19dim`, promoted 2026-10-03). The
+    // CHAM_AGENT_BUNDLE override lets competitive-measurement scripts
+    // bench a different directory without swapping the default in place.
+    //
+    // The old `artifacts/agent` path remains in the repo as a tracked,
+    // router-less fallback; this default prefers the router-bearing bundle.
+    let bundle_path = std::env::var("CHAM_AGENT_BUNDLE")
+        .unwrap_or_else(|_| "artifacts/agent-honest-19dim".to_string());
     let bundle = std::path::Path::new(&bundle_path);
     let routing = routing_for(agent);
     let loaded = cham_agent::loader::load_agent(bundle, routing, depth_bb)
