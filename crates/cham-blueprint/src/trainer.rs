@@ -687,6 +687,7 @@ pub fn train_with_threads(
                     mode: mode.tag(),
                     hero_nodes: 0,
                     pruned_nodes: 0,
+                    cold_rows: 0,
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
                     warmup_only: false,
@@ -706,6 +707,7 @@ pub fn train_with_threads(
                 mode: mode.tag(),
                 hero_nodes: 0,
                 pruned_nodes: 0,
+                cold_rows: 0,
                 regret_discount: cfg.regret_discount,
                 allow_insert: true,
                 warmup_only: false,
@@ -902,6 +904,7 @@ where
                     mode: TrainModeTag::Robust,
                     hero_nodes: 0,
                     pruned_nodes: 0,
+                    cold_rows: 0,
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
                     // 2026-10-01 (F4): warmup iterations now perform real
@@ -926,6 +929,8 @@ where
             let avg_gamma = cfg.avg_gamma;
             let train_seed = cfg.train_seed;
             let per_worker_hist: std::sync::Mutex<[u64; 2]> = std::sync::Mutex::new([0, 0]);
+            // §3.6 cold-row telemetry: (cold_rows, hero_nodes) per worker.
+            let per_worker_cold: std::sync::Mutex<(u64, u64)> = std::sync::Mutex::new((0, 0));
 
             std::thread::scope(|scope| {
                 for _worker_id in 0..threads {
@@ -933,10 +938,13 @@ where
                     let table_ref: &RegretTable = table;
                     let enc_ref = enc;
                     let per_worker_hist_ref = &per_worker_hist;
+                    let per_worker_cold_ref = &per_worker_cold;
                     scope.spawn(move || {
                         let mut enc_w = enc_ref.clone();
                         let mut dummy = DummyOpponent;
                         let mut local_hist = [0u64; 2];
+                        let mut local_cold = 0u64;
+                        let mut local_hero = 0u64;
                         loop {
                             let t = counter_ref.fetch_add(1, Ordering::Relaxed);
                             if t >= slice_end_local {
@@ -959,6 +967,7 @@ where
                                 mode: TrainModeTag::Robust,
                                 hero_nodes: 0,
                                 pruned_nodes: 0,
+                                cold_rows: 0,
                                 regret_discount,
                                 allow_insert: false,
                                 warmup_only: false,
@@ -973,10 +982,16 @@ where
                                 &mut enc_w,
                                 &mut it_rng,
                             );
+                            local_cold += walker.cold_rows;
+                            local_hero += walker.hero_nodes;
                         }
                         let mut h = per_worker_hist_ref.lock().expect("hist mutex");
                         h[0] += local_hist[0];
                         h[1] += local_hist[1];
+                        drop(h);
+                        let mut c = per_worker_cold_ref.lock().expect("cold mutex");
+                        c.0 += local_cold;
+                        c.1 += local_hero;
                     });
                 }
             });
@@ -984,6 +999,16 @@ where
             let h = per_worker_hist.lock().expect("hist mutex");
             seat_histogram[0] += h[0];
             seat_histogram[1] += h[1];
+            drop(h);
+            // §3.6: cold-row discard rate for this slice (>1% ⇒ shard insert).
+            let (slice_cold, slice_hero) = *per_worker_cold.lock().expect("cold mutex");
+            if slice_hero > 0 {
+                eprintln!(
+                    "cham-blueprint: slice {slice_end}: cold-row discards {:.3}% of hero nodes \
+                     ({slice_cold}/{slice_hero})",
+                    100.0 * slice_cold as f64 / slice_hero as f64
+                );
+            }
         }
 
         // F5: DCFR slice-boundary discount.
@@ -1135,6 +1160,7 @@ where
                     mode: TrainModeTag::Exploit,
                     hero_nodes: 0,
                     pruned_nodes: 0,
+                    cold_rows: 0,
                     regret_discount: cfg.regret_discount,
                     allow_insert: true,
                     warmup_only: false,
@@ -1164,6 +1190,8 @@ where
         let avg_gamma = cfg.avg_gamma;
         let train_seed = cfg.train_seed;
         let per_worker_hist: std::sync::Mutex<[u64; 2]> = std::sync::Mutex::new([0, 0]);
+        // §3.6 cold-row telemetry: (cold_rows, hero_nodes) per worker.
+        let per_worker_cold: std::sync::Mutex<(u64, u64)> = std::sync::Mutex::new((0, 0));
 
         std::thread::scope(|scope| {
             for _worker_id in 0..threads {
@@ -1171,9 +1199,12 @@ where
                 let table_ref: &RegretTable = table;
                 let enc_ref = enc;
                 let per_worker_hist_ref = &per_worker_hist;
+                let per_worker_cold_ref = &per_worker_cold;
                 scope.spawn(move || {
                     let mut enc_w = enc_ref.clone();
                     let mut local_hist = [0u64; 2];
+                    let mut local_cold = 0u64;
+                    let mut local_hero = 0u64;
                     loop {
                         let t = counter_ref.fetch_add(1, Ordering::Relaxed);
                         if t >= slice_end_local {
@@ -1201,6 +1232,7 @@ where
                             mode: TrainModeTag::Exploit,
                             hero_nodes: 0,
                             pruned_nodes: 0,
+                            cold_rows: 0,
                             regret_discount,
                             allow_insert: false,
                             warmup_only: false,
@@ -1215,10 +1247,16 @@ where
                             &mut enc_w,
                             &mut it_rng,
                         );
+                        local_cold += walker.cold_rows;
+                        local_hero += walker.hero_nodes;
                     }
                     let mut h = per_worker_hist_ref.lock().expect("hist mutex");
                     h[0] += local_hist[0];
                     h[1] += local_hist[1];
+                    drop(h);
+                    let mut c = per_worker_cold_ref.lock().expect("cold mutex");
+                    c.0 += local_cold;
+                    c.1 += local_hero;
                 });
             }
         });
@@ -1226,6 +1264,16 @@ where
         let h = per_worker_hist.lock().expect("hist mutex");
         seat_histogram[0] += h[0];
         seat_histogram[1] += h[1];
+        drop(h);
+        // §3.6: cold-row discard rate for this slice (>1% ⇒ shard insert).
+        let (slice_cold, slice_hero) = *per_worker_cold.lock().expect("cold mutex");
+        if slice_hero > 0 {
+            eprintln!(
+                "cham-blueprint: slice {slice_end}: cold-row discards {:.3}% of hero nodes \
+                 ({slice_cold}/{slice_hero})",
+                100.0 * slice_cold as f64 / slice_hero as f64
+            );
+        }
 
         checkpoint(table, slice_end)?;
         slice_start = slice_end;
