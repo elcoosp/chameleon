@@ -182,6 +182,10 @@ pub enum CountingHero {
         bot: Box<ChameleonAgent>,
         decisions: u64,
         fallbacks: u64,
+        /// Per-expert argmax picks (2026-10-03). A router that always
+        /// picks one expert is the "degenerate router" failure mode; the
+        /// ladder guard warns when this histogram concentrates.
+        argmax_picks: [u64; 4],
     },
 }
 
@@ -200,6 +204,7 @@ impl CountingHero {
             bot: Box::new(bot),
             decisions: 0,
             fallbacks: 0,
+            argmax_picks: [0; 4],
         }
     }
 
@@ -214,6 +219,15 @@ impl CountingHero {
         match self {
             CountingHero::Baseline { .. } => 0,
             CountingHero::Chameleon { fallbacks, .. } => *fallbacks,
+        }
+    }
+
+    /// Per-expert argmax pick counts (all zero for baselines). Only
+    /// meaningful in `argmax` routing, where `last_trace.argmax_k` is set.
+    pub fn argmax_picks(&self) -> [u64; 4] {
+        match self {
+            CountingHero::Baseline { .. } => [0; 4],
+            CountingHero::Chameleon { argmax_picks, .. } => *argmax_picks,
         }
     }
 }
@@ -239,11 +253,19 @@ impl cham_core::obs::Agent for CountingHero {
                 bot,
                 decisions,
                 fallbacks,
+                argmax_picks,
             } => {
                 let a = bot.act(obs, rng);
                 *decisions += 1;
-                if bot.last_trace.as_ref().is_some_and(|t| t.fallback_used) {
-                    *fallbacks += 1;
+                if let Some(t) = bot.last_trace.as_ref() {
+                    if t.fallback_used {
+                        *fallbacks += 1;
+                    }
+                    if let Some(k) = t.argmax_k {
+                        if k < 4 {
+                            argmax_picks[k] += 1;
+                        }
+                    }
                 }
                 a
             }
