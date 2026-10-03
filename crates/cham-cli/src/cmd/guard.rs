@@ -262,4 +262,27 @@ mod tests {
             "prominent warning: {w}"
         );
     }
+    #[test]
+    fn degeneracy_fires_on_concentration() {
+        let w = super::check_router_degeneracy("ladder:full", [990, 5, 3, 2]);
+        assert!(w.is_some(), "should warn on 99% concentration");
+        assert!(w.unwrap().contains("expert 0"));
+    }
+
+    #[test]
+    fn degeneracy_silent_when_balanced() {
+        assert!(super::check_router_degeneracy("x", [250, 250, 250, 250]).is_none());
+        assert!(super::check_router_degeneracy("x", [800, 100, 50, 50]).is_none());
+    }
+
+    #[test]
+    fn degeneracy_silent_on_no_decisions() {
+        assert!(super::check_router_degeneracy("x", [0, 0, 0, 0]).is_none());
+    }
+
+    #[test]
+    fn degeneracy_threshold_is_90_percent() {
+        assert!(super::check_router_degeneracy("x", [90, 10, 0, 0]).is_some());
+        assert!(super::check_router_degeneracy("x", [89, 11, 0, 0]).is_none());
+    }
 }
