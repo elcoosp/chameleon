@@ -45,5 +45,5 @@ fn training_feature_means_by_class() {
         let shown: Vec<String> = mean.iter().take(12).map(|v| format!("{v:.3}")).collect();
         eprintln!("  class {c} (n={}): [{}]", counts[c], shown.join(", "));
     }
-    assert!(rows.len() > 0);
+    assert!(!rows.is_empty());
 }
