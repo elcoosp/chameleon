@@ -117,25 +117,63 @@ impl ActionLadder {
                 frac: 0.0,
             });
             let raises = Self::raises_this_street(obs.street, seq);
+            // §3.5: with per-level preflop sizes the level count is its own
+            // cap (open / 3-bet / 4-bet), independent of the global
+            // `raises_per_street_cap` (which stays 2 for postflop).
+            let use_levels = obs.street == cham_core::engine::Street::Preflop
+                && !self.cfg.ladder.preflop_levels_bb.is_empty();
             let can_raise = obs.stack > facing
                 && obs.max_raise_to > obs.current_bet
-                && raises < self.cfg.ladder.raises_per_street_cap;
+                && if use_levels {
+                    (raises as usize) < self.cfg.ladder.preflop_levels_bb.len()
+                } else {
+                    raises < self.cfg.ladder.raises_per_street_cap
+                };
             if can_raise {
-                let min_to = (obs.current_bet + cham_min_raise(obs)).min(obs.max_raise_to);
-                let max_to = obs.max_raise_to;
-                for &f in self.cfg.ladder.raise_fracs.iter() {
-                    let raise_by = f * pot_after_call as f64;
-                    let to = (obs.current_bet as f64 + raise_by).floor() as i64;
-                    let to = to.clamp(min_to, max_to);
-                    if !out
-                        .iter()
-                        .any(|s| matches!(s.action, Action::Raise { to: t } if t == to))
-                    {
-                        out.push(AbstractAction {
-                            action: Action::Raise { to },
-                            is_all_in: to >= max_to,
-                            frac: f,
-                        });
+                // §3.5 Patch 1 — per-level preflop ladder. When configured,
+                // preflop raise sizes come from `preflop_levels_bb[lvl]`
+                // (open / 3-bet / 4-bet in bb) instead of pot-fraction
+                // `raise_fracs`. Beyond the last level only jam remains.
+                // (Keep `all_in_always` jam as the last aggressive option.)
+                if obs.street == cham_core::engine::Street::Preflop
+                    && !self.cfg.ladder.preflop_levels_bb.is_empty()
+                {
+                    let lvl = raises as usize;
+                    if lvl < self.cfg.ladder.preflop_levels_bb.len() {
+                        let min_to = (obs.current_bet + cham_min_raise(obs)).min(obs.max_raise_to);
+                        let max_to = obs.max_raise_to;
+                        for &bb in &self.cfg.ladder.preflop_levels_bb[lvl] {
+                            // 100 chips = 1 bb.
+                            let to = ((bb * 100.0).round() as i64).clamp(min_to, max_to);
+                            if !out
+                                .iter()
+                                .any(|s| matches!(s.action, Action::Raise { to: t } if t == to))
+                            {
+                                out.push(AbstractAction {
+                                    action: Action::Raise { to },
+                                    is_all_in: to >= max_to,
+                                    frac: bb / 100.0,
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    let min_to = (obs.current_bet + cham_min_raise(obs)).min(obs.max_raise_to);
+                    let max_to = obs.max_raise_to;
+                    for &f in self.cfg.ladder.raise_fracs.iter() {
+                        let raise_by = f * pot_after_call as f64;
+                        let to = (obs.current_bet as f64 + raise_by).floor() as i64;
+                        let to = to.clamp(min_to, max_to);
+                        if !out
+                            .iter()
+                            .any(|s| matches!(s.action, Action::Raise { to: t } if t == to))
+                        {
+                            out.push(AbstractAction {
+                                action: Action::Raise { to },
+                                is_all_in: to >= max_to,
+                                frac: f,
+                            });
+                        }
                     }
                 }
             }
