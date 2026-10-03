@@ -93,6 +93,9 @@ struct OppOutcome {
     sprt_stop: Option<String>,
     decisions: u64,
     fallbacks: u64,
+    /// Per-expert argmax pick counts (2026-10-03). Feeds the ladder's
+    /// router-degeneracy guard.
+    argmax_picks: [u64; 4],
     error: Option<String>,
 }
 
@@ -133,6 +136,7 @@ fn run_opponent(
                     sprt_stop: None,
                     decisions: 0,
                     fallbacks: 0,
+                    argmax_picks: [0; 4],
                     error: Some(e),
                 };
             }
@@ -201,6 +205,7 @@ fn run_opponent(
                                 sprt_stop: None,
                                 decisions: hero.decisions(),
                                 fallbacks: hero.fallbacks(),
+                                argmax_picks: hero.argmax_picks(),
                                 error: Some(format!("sprt: {e}")),
                             };
                         }
@@ -219,6 +224,7 @@ fn run_opponent(
                     sprt_stop: None,
                     decisions: hero.decisions(),
                     fallbacks: hero.fallbacks(),
+                    argmax_picks: hero.argmax_picks(),
                     error: Some(format!("{e}")),
                 };
             }
@@ -235,6 +241,7 @@ fn run_opponent(
         sprt_stop,
         decisions: hero.decisions(),
         fallbacks: hero.fallbacks(),
+        argmax_picks: hero.argmax_picks(),
         error: None,
     }
 }
@@ -304,6 +311,7 @@ pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str, search: bool) 
     let mut total_seatings = 0u64;
     let mut total_decisions = 0u64;
     let mut total_fallbacks = 0u64;
+    let mut total_argmax = [0u64; 4];
     let mut total_saved = 0u64;
     let mut per_opp: Vec<(String, f64, f64)> = Vec::new();
     let mut sprt_notes: Vec<serde_json::Value> = Vec::new();
@@ -315,6 +323,9 @@ pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str, search: bool) 
         total_seatings += o.seatings;
         total_decisions += o.decisions;
         total_fallbacks += o.fallbacks;
+        for k in 0..4 {
+            total_argmax[k] += o.argmax_picks[k];
+        }
         total_saved += (o.deals_budget - o.deals_run) * 2;
         per_opp.push((o.id.clone(), o.mb, o.se));
         let stop_mark = o
@@ -344,6 +355,16 @@ pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str, search: bool) 
         total_decisions,
     );
     if let Some(w) = &fallback_warning {
+        eprintln!("{w}");
+    }
+    // Router-degeneracy guard (2026-10-03): warn when the router concentrates
+    // on one expert, which makes the "4 specialists" architecture a
+    // single-expert agent in practice.
+    let router_warning = crate::cmd::guard::check_router_degeneracy(
+        &format!("ladder[{tier}]:{agent}"),
+        total_argmax,
+    );
+    if let Some(w) = &router_warning {
         eprintln!("{w}");
     }
     let mut ledger = match cham_eval::Ledger::open(std::path::Path::new("artifacts/ledger")) {
@@ -378,9 +399,17 @@ pub fn run(_fast: bool, full: bool, agent: &str, pool_path: &str, search: bool) 
         seatings: total_seatings,
         // v3 §2.2: every ledger number carries its bound artifact identity.
         artifact_hash: crate::cmd::guard::artifact_identity(agent),
-        notes: Some(match &fallback_warning {
-            Some(w) => format!("tier {tier} screening — diagnostic, CI per opponent. {w}"),
-            None => format!("tier {tier} screening — diagnostic, CI per opponent"),
+        notes: Some({
+            let mut n = format!("tier {tier} screening — diagnostic, CI per opponent");
+            if let Some(w) = &fallback_warning {
+                n.push_str(" | ");
+                n.push_str(w);
+            }
+            if let Some(w) = &router_warning {
+                n.push_str(" | ");
+                n.push_str(w);
+            }
+            n
         }),
     };
     if let Err(e) = ledger.append(&entry) {
