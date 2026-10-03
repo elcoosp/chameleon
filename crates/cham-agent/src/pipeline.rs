@@ -106,6 +106,14 @@ pub struct ChameleonAgent {
     argmax_k: Option<usize>,
     /// canonical public action sequence (infoset key input)
     seq: ActionSeq,
+    /// §3.4 per-hand exploit commitment (routing "bounded" only):
+    /// `Some(true)` = this whole hand plays the chosen expert's σ,
+    /// `Some(false)` = this whole hand plays robust σ. `None` = not yet
+    /// drawn this hand (drawn lazily on the first `act_impl`, which owns
+    /// the rng; `start_hand_if_needed` has none). Per-hand commitment —
+    /// not per-infoset mixing — is what carries the sequence-form
+    /// guarantee ε ≤ (1−λ)·ε_robust + λ·ε_expert.
+    hand_plays_expert: Option<bool>,
     /// last trace (read by tests/driver)
     pub last_trace: Option<DecisionTrace>,
 }
@@ -143,8 +151,35 @@ impl ChameleonAgent {
             reach: [1.0; 5],
             argmax_k: None,
             seq: ActionSeq::default(),
+            hand_plays_expert: None,
             last_trace: None,
         })
+    }
+
+    /// §3.4 exploit rate for the committed expert this hand.
+    ///
+    /// λ = min(router confidence in k, EXPLOIT_BUDGET_MB /
+    /// expert_exploitability_mb[k]). The budget and per-expert
+    /// exploitabilities come from env (`CHAM_EXPLOIT_BUDGET_MB`,
+    /// `CHAM_EXPERT_EXPL_MB_0..3`, measured by fine-information BR §3.3 —
+    /// NOT the same-abstraction number). Default budget 0 ⇒ λ = 0
+    /// (robust only) until operators set a measured budget.
+    ///
+    /// Free function (not a method): `act_impl` destructures `self`
+    /// mutably and cannot take a second borrow.
+    fn bounded_lambda(k: usize, conf: f64) -> f64 {
+        let budget: f64 = std::env::var("CHAM_EXPLOIT_BUDGET_MB")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0);
+        if budget <= 0.0 {
+            return 0.0;
+        }
+        let expl: f64 = std::env::var(format!("CHAM_EXPERT_EXPL_MB_{k}"))
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2000.0);
+        conf.min((budget / expl.max(1.0)).min(1.0)).clamp(0.0, 1.0)
     }
 
     fn start_hand_if_needed(&mut self) {
@@ -188,9 +223,11 @@ impl ChameleonAgent {
         };
         self.weights = self.router.weights_for_hand(&features, trend_z);
         self.reach = [1.0; 5];
+        self.hand_plays_expert = None; // fresh commitment draw this hand
         self.argmax_k = if self.mode.routing == "argmax"
             || self.mode.routing == "sample-expert"
             || self.mode.routing == "hedged"
+            || self.mode.routing == "bounded"
         {
             let mut best = 0usize;
             for (k, &w) in self.weights.iter().take(4).enumerate() {
@@ -460,12 +497,27 @@ impl ChameleonAgent {
             }
         }
 
-        // dispatch matching act_impl's routing mode
+        // dispatch matching act_impl's routing mode.
+        //
+        // §3.3(5): this hook measures the DEPLOYED agent. `argmax` plays
+        // the mode as a pure strategy, so the hook returns the ONE-HOT
+        // modal action — returning the expert's σ here would understate
+        // the deployed agent's exploitability. Same for the confident
+        // branch of `hedged` and greedy `bayes`.
         let dist: Vec<f64> = match self.mode.routing.as_str() {
             "robust-only" => robust_sigma
                 .clone()
                 .unwrap_or_else(|| vec![1.0 / n as f64; n]),
-            "argmax" | "sample-expert" => {
+            "argmax" => {
+                let k = self.argmax_k.unwrap_or(0);
+                let sigma = expert_sigma[k].clone().unwrap_or_else(|| {
+                    robust_sigma
+                        .clone()
+                        .unwrap_or_else(|| vec![1.0 / n as f64; n])
+                });
+                one_hot(&sigma)
+            }
+            "sample-expert" => {
                 let k = self.argmax_k.unwrap_or(0);
                 expert_sigma[k].clone().unwrap_or_else(|| {
                     robust_sigma
@@ -480,11 +532,12 @@ impl ChameleonAgent {
                     .and_then(|v| v.parse::<f64>().ok())
                     .unwrap_or(0.5);
                 if w[k] >= threshold {
-                    expert_sigma[k].clone().unwrap_or_else(|| {
+                    let sigma = expert_sigma[k].clone().unwrap_or_else(|| {
                         robust_sigma
                             .clone()
                             .unwrap_or_else(|| vec![1.0 / n as f64; n])
-                    })
+                    });
+                    one_hot(&sigma) // confident branch plays the mode purely
                 } else {
                     mix.clone()
                 }
@@ -493,6 +546,26 @@ impl ChameleonAgent {
                 // bayes path is not modeled here (needs bayes blueprint + its
                 // own strategy decode); return None so the caller falls back.
                 return None;
+            }
+            "bounded" => {
+                // §3.4/§3.3(5): expectation over the per-hand commitment —
+                // (1−λ)·robust + λ·expert_k. The BR harness plays this
+                // mixture, matching the hand-average of the deployed agent.
+                let k = self.argmax_k.unwrap_or(0);
+                let lam = Self::bounded_lambda(k, w[k]);
+                let expert = expert_sigma[k].clone().unwrap_or_else(|| {
+                    robust_sigma
+                        .clone()
+                        .unwrap_or_else(|| vec![1.0 / n as f64; n])
+                });
+                let robust_v = robust_sigma
+                    .clone()
+                    .unwrap_or_else(|| vec![1.0 / n as f64; n]);
+                expert
+                    .iter()
+                    .zip(robust_v.iter())
+                    .map(|(e, r)| lam * e + (1.0 - lam) * r)
+                    .collect()
             }
             _ => mix,
         };
@@ -750,6 +823,51 @@ impl ChameleonAgent {
                 }
                 slots[argmax_of(&sigma)].action // NO rng (replayability)
             }
+            "bounded" => {
+                // §3.4 bounded exploitation with a sequence-form guarantee.
+                // Whole-hand commitment drawn once per hand: with prob λ
+                // play the chosen expert's σ, else robust σ. SAMPLE the
+                // committed σ (never the mode). Default λ = 0 (robust
+                // only) until operators set CHAM_EXPLOIT_BUDGET_MB.
+                let k = argmax_k.unwrap_or(0);
+                let plays_expert = match self.hand_plays_expert {
+                    Some(v) => v,
+                    None => {
+                        let conf = weights[k];
+                        let lam = Self::bounded_lambda(k, conf);
+                        let v = next_f64(rng) < lam;
+                        self.hand_plays_expert = Some(v);
+                        v
+                    }
+                };
+                let sigma = if plays_expert {
+                    match expert_sigma[k].as_ref() {
+                        Some(s) => s.clone(),
+                        None => match robust_sigma.as_ref() {
+                            Some(s) => {
+                                tier_missed = true;
+                                s.clone()
+                            }
+                            None => {
+                                tier_missed = true;
+                                vec![1.0 / n as f64; n]
+                            }
+                        },
+                    }
+                } else {
+                    match robust_sigma.as_ref() {
+                        Some(s) => s.clone(),
+                        None => {
+                            tier_missed = true;
+                            vec![1.0 / n as f64; n]
+                        }
+                    }
+                };
+                if expert_missed[k] && robust_sigma.is_none() {
+                    tier_missed = true;
+                }
+                slots[sample_index(&sigma, rng)].action
+            }
             "sample-expert" => {
                 // 2026-10-01 (F7): same routing decision as `argmax`
                 // (pick the argmax expert k), but sample that expert's
@@ -863,7 +981,14 @@ impl ChameleonAgent {
             if crate::search_bridge::would_trigger(&cfg, obs) {
                 match crate::search_bridge::try_solve(&cfg, tracker, encoder, robust, obs, seq) {
                     Some(outcome) => {
-                        action = outcome.action;
+                        // §3.1: the solver emits an AVERAGE strategy — sample
+                        // it, never take its mode.
+                        let probs: Vec<f64> = outcome.distribution.iter().map(|x| x.1).collect();
+                        action = if probs.is_empty() {
+                            outcome.action
+                        } else {
+                            outcome.distribution[sample_index(&probs, rng)].0
+                        };
                         search_trace = Some((
                             outcome.solver,
                             true,
@@ -936,6 +1061,17 @@ fn argmax_of(p: &[f64]) -> usize {
         }
     }
     best
+}
+
+/// One-hot on the modal action (§3.3(5)): what the deployed pure-strategy
+/// (`argmax`) agent actually plays. Ties break to the first index,
+/// matching `argmax_of`.
+fn one_hot(p: &[f64]) -> Vec<f64> {
+    let mut out = vec![0.0f64; p.len()];
+    if !out.is_empty() {
+        out[argmax_of(p)] = 1.0;
+    }
+    out
 }
 
 fn sample_index(probs: &[f64], rng: &mut Rng) -> usize {
