@@ -32,7 +32,11 @@ use crate::BlueprintError;
 use crate::table::RegretTable;
 
 pub const ARTIFACT_MAGIC: u32 = 0x5042_4843; // "CHBP"
-pub const ARTIFACT_VERSION: u32 = 1;
+/// §3.6: v2 = u16 probability quantization (was u8). `load` accepts v1
+/// (legacy decode) and v2; `build_artifact` always writes v2.
+pub const ARTIFACT_VERSION: u32 = 2;
+/// Last readable legacy version (u8 probs, 1e-2 units).
+const ARTIFACT_VERSION_V1: u32 = 1;
 
 /// Provenance record (SPECS/04 §6).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -56,7 +60,13 @@ pub struct ProvenanceRecord {
 /// `magic u32 | version u32 | abstraction_hash u64 | n u32 | pad u32 |
 ///  provenance_len u32 | provenance json bytes |
 ///  keys: n × u64 (ascending) | offsets: (n+1) × u32 |
-///  rows: [w u8 | visits u16 | probs u8 × w] × n`
+///  rows: [w u8 | visits u16 | probs u16 × w] × n`
+///
+/// §3.6 (artifact v2): probabilities are u16 in units of 1/10000 (was u8
+/// in units of 1/100 — actions below 0.5% vanished and mixed strategies
+/// were rounded, harmful once policies serve as re-solve ranges). New
+/// artifacts write v2; `load` still READS v1 (shipped bundles keep
+/// working) and decodes both widths transparently.
 #[derive(Clone, Debug)]
 pub struct BlueprintPolicy {
     bytes: Vec<u8>,
@@ -68,6 +78,8 @@ pub struct BlueprintPolicy {
     n: usize,
     provenance: ProvenanceRecord,
     artifact_hash: u64,
+    /// Probability quantum width in bytes: 1 (v1 legacy) or 2 (v2).
+    prob_width: u8,
 }
 
 const HEADER_LEN: usize = 24;
@@ -88,15 +100,15 @@ impl BlueprintPolicy {
         prov: &ProvenanceRecord,
         out: &Path,
     ) -> Result<(), BlueprintError> {
-        // collect rows: strategy-only, quantized
-        let mut rows: Vec<(u64, u8, u16, Vec<u8>)> = Vec::with_capacity(table.len());
+        // collect rows: strategy-only, quantized (§3.6: u16, 1e-4 units)
+        let mut rows: Vec<(u64, u8, u16, Vec<u16>)> = Vec::with_capacity(table.len());
         for (key, off, _w) in table.iter() {
             let w = table.row_width(off);
             let sigma = table.avg_strategy(off, w);
             let visits = table.visits(off, w).min(u16::MAX as u32) as u16;
-            let probs: Vec<u8> = sigma
+            let probs: Vec<u16> = sigma
                 .iter()
-                .map(|p| ((*p * 100.0).round() as i64).clamp(0, 100) as u8)
+                .map(|p| ((*p * 10000.0).round() as i64).clamp(0, 10000) as u16)
                 .collect();
             rows.push((key, w as u8, visits, probs));
         }
@@ -112,13 +124,15 @@ impl BlueprintPolicy {
         let mut acc: u32 = 0;
         payload.extend_from_slice(&acc.to_le_bytes());
         for (_, _w, _visits, probs) in &rows {
-            acc += (1 + 2 + probs.len()) as u32;
+            acc += (1 + 2 + 2 * probs.len()) as u32;
             payload.extend_from_slice(&acc.to_le_bytes());
         }
         for (_, w, visits, probs) in &rows {
             payload.push(*w);
             payload.extend_from_slice(&visits.to_le_bytes());
-            payload.extend_from_slice(probs);
+            for p in probs {
+                payload.extend_from_slice(&p.to_le_bytes());
+            }
         }
 
         let payload_hash = blake3::hash(&payload);
@@ -181,12 +195,17 @@ impl BlueprintPolicy {
             });
         }
         let version = u32::from_le_bytes(bytes[4..8].try_into().expect("4"));
-        if version != ARTIFACT_VERSION {
-            return Err(BlueprintError::Artifact {
-                path,
-                reason: format!("bad version {version}"),
-            });
-        }
+        // §3.6: write v2, read v1+v2. Anything else is rejected loudly.
+        let prob_width = match version {
+            ARTIFACT_VERSION => 2u8,
+            ARTIFACT_VERSION_V1 => 1u8,
+            v => {
+                return Err(BlueprintError::Artifact {
+                    path,
+                    reason: format!("bad version {v}"),
+                });
+            }
+        };
         let abstraction_hash = u64::from_le_bytes(bytes[8..16].try_into().expect("8"));
         if expected_abstraction_hash != 0 && abstraction_hash != expected_abstraction_hash {
             return Err(BlueprintError::HashMismatch {
@@ -295,6 +314,7 @@ impl BlueprintPolicy {
             n,
             provenance,
             artifact_hash,
+            prob_width,
         })
     }
 
@@ -344,8 +364,8 @@ impl BlueprintPolicy {
             return None;
         }
         let w = self.bytes[start] as usize;
-        let probs = &self.bytes[start + 3..start + 3 + w];
-        let total: u32 = probs.iter().map(|&b| b as u32).sum();
+        let probs = self.decode_row(start + 3, w)?;
+        let total: u64 = probs.iter().sum();
         if total == 0 {
             return Some(vec![1.0 / w as f64; w]);
         }
@@ -367,8 +387,10 @@ impl BlueprintPolicy {
                 continue;
             }
             let w = self.bytes[start] as usize;
-            let probs = &self.bytes[start + 3..start + 3 + w];
-            let total: u32 = probs.iter().map(|&b| b as u32).sum();
+            let Some(probs) = self.decode_row(start + 3, w) else {
+                continue;
+            };
+            let total: u64 = probs.iter().sum();
             let dist = if total == 0 {
                 vec![1.0 / w as f64; w]
             } else {
@@ -420,6 +442,16 @@ impl BlueprintPolicy {
         self.bytes.len()
     }
 
+    /// Decode one row's probability quanta (width-aware: v1 u8 / v2 u16).
+    fn decode_row(&self, at: usize, w: usize) -> Option<Vec<u64>> {
+        decode_row(&self.bytes, self.prob_width, at, w).map(|(v, _)| v)
+    }
+
+    /// Decode one row's quanta plus their scale (v1: 100.0, v2: 10000.0).
+    fn decode_row_scaled(&self, at: usize, w: usize) -> Option<(Vec<u64>, f64)> {
+        decode_row(&self.bytes, self.prob_width, at, w)
+    }
+
     /// Touch every row once (sums dequantized mass): warmup helper for
     /// river-only processes that want decode faults paid up front. Pure read —
     /// never mutates the artifact.
@@ -430,11 +462,36 @@ impl BlueprintPolicy {
             let end = self.rows_off + self.offset_at(i + 1);
             if end > start {
                 let w = self.bytes[start] as usize;
-                for b in &self.bytes[start + 3..start + 3 + w] {
-                    acc += *b as f64 / 100.0;
+                if let Some((probs, scale)) = self.decode_row_scaled(start + 3, w) {
+                    for b in probs {
+                        acc += b as f64 / scale;
+                    }
                 }
             }
         }
         acc
+    }
+}
+
+/// Decode one row's probability payload at either quantum width (§3.6
+/// artifact v2; v1 legacy supported on load). Returns `None` when the
+/// byte range is out of bounds (truncated file that passed the coarse
+/// length check).
+fn decode_row(bytes: &[u8], prob_width: u8, at: usize, w: usize) -> Option<(Vec<u64>, f64)> {
+    match prob_width {
+        1 => {
+            let end = at.checked_add(w)?;
+            let slice = bytes.get(at..end)?;
+            Some((slice.iter().map(|&b| b as u64).collect(), 100.0))
+        }
+        _ => {
+            let end = at.checked_add(w.checked_mul(2)?)?;
+            let slice = bytes.get(at..end)?;
+            let mut out = Vec::with_capacity(w);
+            for c in slice.chunks_exact(2) {
+                out.push(u16::from_le_bytes([c[0], c[1]]) as u64);
+            }
+            Some((out, 10000.0))
+        }
     }
 }
