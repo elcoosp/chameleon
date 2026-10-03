@@ -141,6 +141,39 @@ pub fn artifact_identity(agent: &str) -> Option<String> {
 /// `fallback / total` exceeds [`FALLBACK_WARN_RATE`]; the caller prints it
 /// and writes it into the ledger entry. `total == 0` (no traced decisions,
 /// e.g. pure-baseline factories) yields `None` — nothing to warn about.
+/// Warn when the router concentrates on one expert. In `argmax` routing
+/// a healthy router dispatches across the 4 experts; if one expert takes
+/// >= [`ROUTER_DOMINANCE_WARN_RATE`] of the picks, the "4 specialists"
+/// architecture is effectively a single-expert agent and the router is
+/// not doing its job (see `SYNTHETIC-ROUTER-IS-DEGENERATE-2026-09-30.md`
+/// and `ROUTER-EXPERT-ROUTING-2026-10-03.md`).
+pub const ROUTER_DOMINANCE_WARN_RATE: f64 = 0.90;
+
+pub fn check_router_degeneracy(label: &str, picks: [u64; 4]) -> Option<String> {
+    let total: u64 = picks.iter().sum();
+    if total == 0 {
+        return None; // not argmax routing, or no traced decisions
+    }
+    let (top_k, top_n) = picks
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, n)| **n)
+        .map(|(k, n)| (k, *n))
+        .unwrap_or((0, 0));
+    let rate = top_n as f64 / total as f64;
+    if rate >= ROUTER_DOMINANCE_WARN_RATE {
+        Some(format!(
+            "WARNING: {label} router is degenerate — expert {top_k} took \
+             {top_n}/{total} picks ({:.1}%); the 4-expert routing is \
+             effectively single-expert. See \
+             docs/plans/ROUTER-EXPERT-ROUTING-2026-10-03.md",
+            rate * 100.0,
+        ))
+    } else {
+        None
+    }
+}
+
 pub fn check_fallback_rate(label: &str, fallback: u64, total: u64) -> Option<String> {
     if total == 0 {
         return None;
