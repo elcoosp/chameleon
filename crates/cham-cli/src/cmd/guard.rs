@@ -142,11 +142,12 @@ pub fn artifact_identity(agent: &str) -> Option<String> {
 /// and writes it into the ledger entry. `total == 0` (no traced decisions,
 /// e.g. pure-baseline factories) yields `None` — nothing to warn about.
 /// Warn when the router concentrates on one expert. In `argmax` routing
-/// a healthy router dispatches across the 4 experts; if one expert takes
-/// >= [`ROUTER_DOMINANCE_WARN_RATE`] of the picks, the "4 specialists"
-/// architecture is effectively a single-expert agent and the router is
-/// not doing its job (see `SYNTHETIC-ROUTER-IS-DEGENERATE-2026-09-30.md`
-/// and `ROUTER-EXPERT-ROUTING-2026-10-03.md`).
+/// a healthy router dispatches across the 4 experts. If one expert takes
+/// at least [`ROUTER_DOMINANCE_WARN_RATE`] of the picks, the "4
+/// specialists" architecture is effectively a single-expert agent and
+/// the router is not doing its job (see
+/// `SYNTHETIC-ROUTER-IS-DEGENERATE-2026-09-30.md` and
+/// `ROUTER-EXPERT-ROUTING-2026-10-03.md`).
 pub const ROUTER_DOMINANCE_WARN_RATE: f64 = 0.90;
 
 pub fn check_router_degeneracy(label: &str, picks: [u64; 4]) -> Option<String> {
