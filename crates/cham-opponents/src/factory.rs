@@ -11,6 +11,7 @@ use crate::baselines::{CallBot, FishBot, JamBot, RaiseBot, RandomBot};
 use crate::drift::SwitcherBot;
 use crate::family_b::FamilyBAgent;
 use crate::frozen::{FrozenAgent, FrozenRows};
+use crate::mixer::MixerAgent;
 use crate::noisy::NoisyAgent;
 use crate::params::ArchetypeId;
 use crate::percentile::PercentileChart;
@@ -40,6 +41,12 @@ pub enum OpponentSpec {
     JamBot,
     RandomBot,
     FishBot,
+    /// Weighted mixture of two analytic opponents: `wa * a + (1-wa) * b`.
+    Mix {
+        a: Box<OpponentSpec>,
+        b: Box<OpponentSpec>,
+        wa: f64,
+    },
     /// F6c off-tree bettor (0.25/0.6/1.5 pot); exercises translation.
     OffTreeBettor,
     /// Tilt + δ; the strategy source is injected at build time via
@@ -151,6 +158,23 @@ impl OpponentSpec {
                 switch_at,
             });
         }
+        if let Some(rest) = id.strip_prefix("mix:") {
+            // `mix:<wa>:<a>~<b>` where <a>/<b> are full spec ids (no `~`).
+            let (wa_str, ab) = rest
+                .split_once(':')
+                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            let wa: f64 = wa_str
+                .parse()
+                .map_err(|_| OpponentsError::UnknownId(id.to_string()))?;
+            let (a_id, b_id) = ab
+                .rsplit_once('~')
+                .ok_or_else(|| OpponentsError::UnknownId(id.to_string()))?;
+            return Ok(OpponentSpec::Mix {
+                a: Box::new(OpponentSpec::parse(a_id)?),
+                b: Box::new(OpponentSpec::parse(b_id)?),
+                wa,
+            });
+        }
         Err(OpponentsError::UnknownId(id.to_string()))
     }
 
@@ -164,6 +188,7 @@ impl OpponentSpec {
             OpponentSpec::JamBot => "jamfix".into(),
             OpponentSpec::RandomBot => "random".into(),
             OpponentSpec::FishBot => "fish".into(),
+            OpponentSpec::Mix { a, b, wa } => format!("mix:{wa}:{}~{}", a.id(), b.id()),
             OpponentSpec::OffTreeBettor => "offtree".into(),
             OpponentSpec::Perturbed { tilt, delta } => format!("pnash:{}:{}", tilt.as_str(), delta),
             OpponentSpec::FamilyB(a) => format!("famB:{}", a.as_str()),
@@ -206,6 +231,11 @@ impl OpponentSpec {
             // SELF: our own frozen snapshot — excluded from router training,
             // tuning, and promotion gates (diagnostic self-measurement only).
             OpponentSpec::Frozen { .. } => "SELF",
+            OpponentSpec::Mix { a, b, .. } => {
+                let fa = a.family();
+                let fb = b.family();
+                if fa == fb { fa } else { "mixed" }
+            }
         }
     }
 }
@@ -230,6 +260,13 @@ pub fn build_with_source(
         OpponentSpec::JamBot => Box::new(JamBot),
         OpponentSpec::RandomBot => Box::new(RandomBot),
         OpponentSpec::FishBot => Box::new(FishBot),
+        OpponentSpec::Mix { a, b, wa } => {
+            // The strategy source is consumed by the first child; a mixture
+            // of two `Perturbed` children is not a supported combination.
+            let ca = build_with_source(a, chart, source);
+            let cb = build_with_source(b, chart, None);
+            Box::new(MixerAgent::new(ca, cb, *wa))
+        }
         OpponentSpec::OffTreeBettor => Box::new(crate::baselines::OffTreeBettor::new()),
         OpponentSpec::Perturbed { tilt, delta } => {
             let mut p = PerturbedNashAgent::new(*tilt, *delta);
