@@ -14,7 +14,7 @@ pub struct SearchCfg {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AgentMode {
-    pub routing: String, // "mixture" | "argmax" | "robust-only" | "bayes"
+    pub routing: String, // "mixture" | "argmax" | "sample-expert" | "bounded" | "robust-only" | "bayes"
     pub search: SearchCfg,
     /// EXP-013: mixture composition on strategy miss.
     /// "renorm" (default, R2: drop missed tier + renormalize, fallback only
@@ -32,7 +32,8 @@ fn default_fallback_mode() -> String {
 impl AgentMode {
     pub fn validate(&self) -> Result<(), crate::AgentError> {
         match self.routing.as_str() {
-            "mixture" | "argmax" | "sample-expert" | "hedged" | "robust-only" | "bayes" => {}
+            "mixture" | "argmax" | "sample-expert" | "hedged" | "bounded" | "robust-only"
+            | "bayes" => {}
             other => {
                 return Err(crate::AgentError::Loader(format!(
                     "unknown routing: {other}"
@@ -103,6 +104,21 @@ impl AgentMode {
             fallback_mode: "renorm".into(),
         }
     }
+
+    /// Bounded exploitation (§3.4): per-hand commitment to the chosen
+    /// expert with probability λ (capped by `CHAM_EXPLOIT_BUDGET_MB`),
+    /// robust σ otherwise. Default λ = 0 (robust only).
+    pub fn bounded() -> AgentMode {
+        AgentMode {
+            routing: "bounded".into(),
+            search: SearchCfg {
+                enabled: false,
+                solver: "Rnr".into(),
+                g4_ledger_ref: String::new(),
+            },
+            fallback_mode: "renorm".into(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -123,6 +139,7 @@ mod tests {
         AgentMode::argmax().validate().expect("argmax");
         AgentMode::hedged().validate().expect("hedged");
         AgentMode::robust_only().validate().expect("robust_only");
+        AgentMode::bounded().validate().expect("bounded");
     }
 
     /// Every routing string that `hero.rs::routing_for` can return must
@@ -134,7 +151,14 @@ mod tests {
     /// here without being added to validate(), the test WILL catch it.
     #[test]
     fn every_routing_string_validates() {
-        for s in ["mixture", "argmax", "hedged", "robust-only", "bayes"] {
+        for s in [
+            "mixture",
+            "argmax",
+            "hedged",
+            "bounded",
+            "robust-only",
+            "bayes",
+        ] {
             let mode = AgentMode {
                 routing: s.into(),
                 search: SearchCfg {
