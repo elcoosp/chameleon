@@ -658,16 +658,40 @@ pub fn best5(c: &[Card; 7]) -> ([Card; 5], u16) {
     best.expect("21 subsets always exist")
 }
 
-/// Partial-board strength key: best non-flush packed value over current cards.
-/// Used by the flop/turn EHS proxy (decision D-003): exact off-river equity
-/// (including runouts) is ~10^4× too slow for the P4 budget; this proxy is
-/// analytic, pure and O(1326) per call.
+/// Partial-board strength key: best packed value over current cards,
+/// INCLUDING flushes and straight flushes when 5+ of a suit are present.
+///
+/// §3.2 fix: the old version scored rank counts only (suits never read),
+/// so made flushes bucketed as their best non-flush hand and flush draws
+/// as high cards — ~98% of tiny-bucket lookups fell back here. Category
+/// codes are the high digit of the packed value, so `max` orders the
+/// flush candidate against the non-flush base correctly.
 fn partial_packed(cards: impl Iterator<Item = Card>) -> u32 {
     let mut counts = [0u8; 13];
+    let mut by_suit = [0u16; 4]; // rank bitmask per suit
     for c in cards {
         counts[c.rank() as usize] += 1;
+        by_suit[c.suit() as usize] |= 1 << c.rank();
     }
-    best_nonflush_packed_from_counts(&counts)
+    let base = best_nonflush_packed_from_counts(&counts);
+    let Some(fs) = (0..4).find(|&s| by_suit[s].count_ones() >= 5) else {
+        return base;
+    };
+    let m = by_suit[fs];
+    let sf = STRAIGHT_TABLE.get_or_init(build_straight_table)[m as usize];
+    let cand = if sf != 0xff {
+        pack(CAT_STRAIGHT_FLUSH, &[sf])
+    } else {
+        let (mut top, mut n) = ([0u8; 5], 0);
+        for r in (0..13).rev() {
+            if (m >> r) & 1 == 1 && n < 5 {
+                top[n] = r as u8;
+                n += 1;
+            }
+        }
+        pack(CAT_FLUSH, &top)
+    };
+    base.max(cand)
 }
 
 /// Current-board strength vs uniform (flop/turn proxy; river = exact equity):
