@@ -1,5 +1,4 @@
-# size_bucket is degenerate: the infoset key carries almost no size
-# information (2026-10-02)
+# size_bucket is degenerate: the infoset key carries almost no size information (2026-10-02)
 
 **Finding.** `record_action`'s `size_bucket` — the size-bearing component
 of the infoset key — carries **one bit** of resolution: *jam vs
