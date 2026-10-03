@@ -78,6 +78,16 @@ pub struct FamilyBAgent { arch: ArchetypeId, params: ArchetypeParams, chart: Per
 pub struct NoisyAgent { inner: Box<dyn Agent>, epsilon: f64, rng_label: &'static str }
 ```
 
+> **Correction (§3.3, 2026-10-03):** "built from a loaded robust
+> blueprint" above is the design intent, not the shipped behaviour —
+> **no caller ever injects a strategy source** (`factory::build` passes
+> `None`), so the deployed `pnash` tilts a **uniform-random** base and
+> is a random bot, not a Nash-like opponent. The agent now logs a
+> one-time stderr warning in this state. To make `pnash` what this
+> section claims, wire a blueprint-backed source via
+> `build_with_source(spec, chart, Some(source))` (different seed,
+> longer robust run, sample mode).
+
 `OpponentSpec` gains variants: `Perturbed { tilt, delta, bp_path }`, `FamilyB(ArchetypeId)`, `Noisy { inner: Box<OpponentSpec>, epsilon }`. id strings: `pnash:overfold:0.15`, `famB:tag`, `noisy:0.1:jitter:lag@9231`.
 
 ## 6. Baselines, drift, factory, session — changes only where noted
