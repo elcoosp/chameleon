@@ -1,6 +1,3 @@
-Got it — this dump fills in the trainer, CLI, and search crates plus the workspace rules (`forbid(unsafe_code)`, closed dependency whitelist, edition 2024 / Rust 1.85). Here is the remade README:
-
-````markdown
 <div align="center">
   <img src="docs/logo.png" alt="Chameleon Logo" width="200"/>
   <p>
