@@ -37,10 +37,20 @@ fn fine_br() {
     let cfgp = std::env::var("CHAM_EXPLOIT_CONFIG")
         .unwrap_or_else(|_| "config/abstraction-tiny.toml".into());
     let label = std::env::var("CHAM_EXPLOIT_LABEL").unwrap_or_else(|_| "policy".into());
-    let tr: u32 = std::env::var("CHAM_TBR_TRAIN").ok().and_then(|v| v.parse().ok()).unwrap_or(5000);
-    let te: u32 = std::env::var("CHAM_TBR_TEST").ok().and_then(|v| v.parse().ok()).unwrap_or(500);
-    let sw: u32 = std::env::var("CHAM_TBR_SWEEPS").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
-    let cfg = std::fs::read_to_string(&cfgp).ok()
+    let tr: u32 = std::env::var("CHAM_TBR_TRAIN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5000);
+    let te: u32 = std::env::var("CHAM_TBR_TEST")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    let sw: u32 = std::env::var("CHAM_TBR_SWEEPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30);
+    let cfg = std::fs::read_to_string(&cfgp)
+        .ok()
         .and_then(|t| cham_engine::config::parse_config(&t).ok())
         .unwrap_or_else(AbstractionConfig::tiny);
     let mut fine_cfg = cfg.clone();
@@ -60,9 +70,12 @@ fn fine_br() {
         let mut e2 = Encoder::cfg_only(cfg.clone()).expect("e2");
         let mut ke = Encoder::cfg_only(fine_cfg.clone()).expect("ke");
         let mut p2 = make_policy_closure(&policy, cfg.clone());
-        let f = tabular_br_fine(&mut p2, seat, eng, &mut e2, &mut ke, tr, te, sw, 0x1B2).expect("fine");
-        eprintln!("  seat {seat}: same {:>8.3} +/- {:.3} | fine {:>8.3} +/- {:.3}",
-            s.lbr_bb_per_hand, s.se_bb, f.lbr_bb_per_hand, f.se_bb);
+        let f =
+            tabular_br_fine(&mut p2, seat, eng, &mut e2, &mut ke, tr, te, sw, 0x1B2).expect("fine");
+        eprintln!(
+            "  seat {seat}: same {:>8.3} +/- {:.3} | fine {:>8.3} +/- {:.3}",
+            s.lbr_bb_per_hand, s.se_bb, f.lbr_bb_per_hand, f.se_bb
+        );
         ssum += s.lbr_bb_per_hand;
         fsum += f.lbr_bb_per_hand;
     }
