@@ -10,10 +10,8 @@
     <img src="https://img.shields.io/badge/Crates-12-6F4E37?style=flat-square" alt="Crates"/>
     <img src="https://img.shields.io/badge/unsafe-forbidden-success?style=flat-square" alt="Unsafe forbidden"/>
     <img src="https://img.shields.io/badge/Deps-Closed%20Whitelist-4B32C3?style=flat-square" alt="Closed dependency whitelist"/>
-    <img src="https://img.shields.io/badge/Artifacts-blake3%20Self%2DVerifying-8B0000?style=flat-square" alt="Self-verifying artifacts"/>
     <img src="https://img.shields.io/badge/Verification-Independent%20Oracles-007ACC?style=flat-square" alt="Independent oracles"/>
     <img src="https://img.shields.io/badge/Eval-SPRT%20%2B%20Ledger-228B22?style=flat-square" alt="Eval"/>
-    <img src="https://img.shields.io/badge/Determinism-Byte%2DIdentical%20Eval-FF4500?style=flat-square" alt="Determinism"/>
     <img src="https://img.shields.io/badge/GPU-Optional%20Metal%20%2F%20wgpu-708090?style=flat-square" alt="GPU optional"/>
   </p>
 </div>
