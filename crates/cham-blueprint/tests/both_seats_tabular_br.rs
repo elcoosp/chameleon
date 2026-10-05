@@ -108,14 +108,19 @@ fn both_seats_tabular_br() {
         .expect("tab");
 
         eprintln!(
-            "  seat {seat}: clairvoyant {:>9.1} mb/hand ({:>6.3} bb) | tabular {:>9.1} mb/hand ({:>6.3} bb)",
-            clair.lbr_mb_per_hand, clair.lbr_bb_per_hand, tab.lbr_mb_per_hand, tab.lbr_bb_per_hand,
+            "  seat {seat}: clairvoyant {:>9.1} mb ({:>6.3} bb) | tabular {:>9.1} mb ({:>6.3} +/- {:.3} bb)",
+            clair.lbr_mb_per_hand,
+            clair.lbr_bb_per_hand,
+            tab.lbr_mb_per_hand,
+            tab.lbr_bb_per_hand,
+            tab.se_bb,
         );
 
         total_tab += tab.lbr_bb_per_hand;
     }
 
     eprintln!();
+    eprintln!("  (per-seat +/- is the held-out SE; sum SE is the quadrature)",);
     eprintln!(
         "  total corrected (BR(0) + BR(1)): {:.3} bb/hand",
         total_tab
