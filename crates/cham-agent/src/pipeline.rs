@@ -982,10 +982,17 @@ impl ChameleonAgent {
                 match crate::search_bridge::try_solve(&cfg, tracker, encoder, robust, obs, seq) {
                     Some(outcome) => {
                         // §3.1: the solver emits an AVERAGE strategy — sample
-                        // it, never take its mode.
+                        // it, never take its mode. EXCEPT under the
+                        // CHAM_SEARCH_ARGMAX=1 diagnostic (2026-10-05): take
+                        // the mode instead, to test whether the ON-vs-OFF loss
+                        // is the SAMPLING of a correct mixed strategy scored
+                        // against a pure-best-response-to-bots metric, rather
+                        // than a wrong range.
                         let probs: Vec<f64> = outcome.distribution.iter().map(|x| x.1).collect();
                         action = if probs.is_empty() {
                             outcome.action
+                        } else if search_argmax_enabled() {
+                            outcome.distribution[argmax_of(&probs)].0
                         } else {
                             outcome.distribution[sample_index(&probs, rng)].0
                         };
@@ -1051,6 +1058,16 @@ impl ChameleonAgent {
         self.last_trace = Some(t);
         action
     }
+}
+
+/// Diagnostic (2026-10-05): when `CHAM_SEARCH_ARGMAX=1`, the search bridge
+/// takes the solver's modal action instead of sampling its mixed strategy.
+/// Used to isolate "search loses because it samples a correct mixed
+/// strategy" from "search loses because the villain range is wrong".
+fn search_argmax_enabled() -> bool {
+    use std::sync::OnceLock;
+    static F: OnceLock<bool> = OnceLock::new();
+    *F.get_or_init(|| std::env::var("CHAM_SEARCH_ARGMAX").as_deref() == Ok("1"))
 }
 
 fn argmax_of(p: &[f64]) -> usize {
