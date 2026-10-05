@@ -342,6 +342,36 @@ impl ChameleonAgent {
     /// `mixture`, `argmax`, and `robust-only`. `bayes` routing is not
     /// covered (it consumes the bayes blueprint on the pipeline path);
     /// callers needing bayes should use the `argmax`-style branch.
+    /// The DEPLOYED decision distribution — like `action_distribution`,
+    /// but INCLUDES the live search bridge. `act_impl` samples from
+    /// exactly this. `action_distribution` omits search, so it cannot
+    /// distinguish search ON from OFF; this can (2026-10-05 fair-test fix).
+    pub fn deployed_distribution(
+        &mut self,
+        obs: &Observables<'_>,
+    ) -> Vec<(cham_core::engine::Action, f64)> {
+        self.start_hand_if_needed();
+        if let Some(cfg) = crate::search_bridge::SearchBridgeCfg::from_mode(&self.mode) {
+            if crate::search_bridge::would_trigger(&cfg, obs) {
+                let enc = &self.encoder;
+                let tracker = &self.tracker;
+                let robust = &self.robust;
+                let seq = self.seq;
+                if let Some(outcome) =
+                    crate::search_bridge::try_solve(&cfg, tracker, enc, robust, obs, &seq)
+                {
+                    if !outcome.distribution.is_empty() {
+                        return outcome.distribution;
+                    }
+                }
+            }
+        }
+        self.action_distribution(obs).unwrap_or_else(|| {
+            let n = obs.legal.len().max(1) as f64;
+            obs.legal.iter().map(|l| (l.action, 1.0 / n)).collect()
+        })
+    }
+
     pub fn action_distribution(
         &mut self,
         obs: &Observables<'_>,
