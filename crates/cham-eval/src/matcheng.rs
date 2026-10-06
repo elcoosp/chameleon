@@ -80,7 +80,7 @@ fn play_seating(
         let player = Player::from_usize(seat);
         let obs = Observables::view(state, player);
         let a = if seat == hero_seat {
-            hero.act_with_state(&obs, rng, Some(&state))
+            hero.act_with_state(&obs, rng, Some(state))
         } else {
             opp.act(&obs, rng)
         };
