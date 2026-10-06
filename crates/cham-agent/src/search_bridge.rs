@@ -233,6 +233,12 @@ pub fn try_solve(
     .ok()?;
 
     let prior = cham_search::prior::PriorStrats::empty();
+    // Safe-resolving gadget (2026-10-06): give the opponent a root opt-out
+    // worth their prior counterfactual value, which BOUNDS the re-solved
+    // strategy's exploitability by the prior's. Without this, search was
+    // +5.57 bb MORE exploitable (DEFINITIVE-RESULTS-2026-10-06.md).
+    let v_bp = cham_search::solve::villain_cfv(&sg, &prior.strat);
+    let sg = sg.with_opponent_optout(v_bp);
     let result = cham_search::solve::solve(&sg, &prior, &cfg.solver, cfg.iters).ok()?;
 
     if result.truncated {
