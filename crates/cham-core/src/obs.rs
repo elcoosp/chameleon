@@ -135,6 +135,19 @@ pub trait Agent: Send {
     fn name(&self) -> &str;
     /// Choose one legal action. Must return a member of `obs.legal`.
     fn act(&mut self, obs: &Observables<'_>, rng: &mut Rng) -> Action;
+
+    /// State-aware variant (2026-10-06): some policies (the live river
+    /// search, via the safe-resolve gadget) need the live `State` to
+    /// forward-simulate the subgame and build the blueprint prior. Default:
+    /// ignore the state and call `act`, so every existing agent is unchanged.
+    fn act_with_state(
+        &mut self,
+        obs: &Observables<'_>,
+        rng: &mut Rng,
+        _state: Option<&crate::engine::State>,
+    ) -> Action {
+        self.act(obs, rng)
+    }
     /// Probability oracle for TRAINING (opponent reach). Analytic by construction
     /// (SPECS/03 §4): returns (action, p) pairs covering the agent's full intended
     /// distribution at this decision. Default: Err(NotProbabilistic) — only
