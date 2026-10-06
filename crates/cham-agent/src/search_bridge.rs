@@ -179,10 +179,13 @@ pub fn try_solve(
     // A later pass will read tracker frequencies and the robust policy
     // reach to build a genuine villain range.
     tracker: &Tracker,
-    _encoder: &cham_engine::encoder::Encoder,
-    _robust: &cham_blueprint::policy::BlueprintPolicy,
+    encoder: &cham_engine::encoder::Encoder,
+    robust: &cham_blueprint::policy::BlueprintPolicy,
     obs: &Observables<'_>,
-    _seq: &ActionSeq,
+    seq: &ActionSeq,
+    // 2026-10-06: the live State, for the safe-resolve gadget's blueprint
+    // prior. `None` (tests / no-state callers) => gadget prior is empty.
+    state: Option<&cham_core::engine::State>,
 ) -> Option<SearchOutcome> {
     if !cfg.enabled {
         return None;
@@ -232,11 +235,18 @@ pub fn try_solve(
     )
     .ok()?;
 
-    let prior = cham_search::prior::PriorStrats::empty();
+    // Real blueprint prior (2026-10-06): with the live State, query the
+    // blueprint at every solver-tree node so the prior IS the blueprint's
+    // strategy. Without a State (tests / no-state callers), the prior is
+    // empty and the gadget bounds against uniform.
+    let prior = match state {
+        Some(st) => build_blueprint_prior(&sg, st, robust, encoder, seq, obs.player),
+        None => cham_search::prior::PriorStrats::empty(),
+    };
     // Safe-resolving gadget (2026-10-06): give the opponent a root opt-out
-    // worth their prior counterfactual value, which BOUNDS the re-solved
-    // strategy's exploitability by the prior's. Without this, search was
-    // +5.57 bb MORE exploitable (DEFINITIVE-RESULTS-2026-10-06.md).
+    // worth their BLUEPRINT counterfactual value, which BOUNDS the
+    // re-solved strategy's exploitability by the blueprint's. Without this,
+    // search was +5.57 bb MORE exploitable (DEFINITIVE-RESULTS-2026-10-06.md).
     let v_bp = cham_search::solve::villain_cfv(&sg, &prior.strat);
     let sg = sg.with_opponent_optout(v_bp);
     let result = cham_search::solve::solve(&sg, &prior, &cfg.solver, cfg.iters).ok()?;
@@ -248,11 +258,12 @@ pub fn try_solve(
     // Pick the hero class-conditioned strategy at the root. Under F2 the
     // solver emits `our_class_strategy` keyed by (path, player, class).
     // Our single hero class has index 0 and the root path is "".
+    let hrp = hero_root_path(&sg).to_string();
     let root = result
         .our_class_strategy
         .as_ref()
-        .and_then(|cs| cs.get(&(String::new(), 0u8, 0usize)).cloned())
-        .or_else(|| result.our_strategy.get("").cloned())?;
+        .and_then(|cs| cs.get(&(hrp.clone(), 0u8, 0usize)).cloned())
+        .or_else(|| result.our_strategy.get(&hrp).cloned())?;
 
     // Map the solver's action ordering to the live legal actions. The
     // solver's tree uses labels ("check", "bet0.5", "bet1", "jam"); the
@@ -273,6 +284,112 @@ pub fn try_solve(
 
 /// Convert one solver root label to a REAL engine-legal action.
 ///
+/// Walk the solver tree from the LIVE state, querying the blueprint at each
+/// decision node to build its strategy prior on the tree's action LABELS
+/// (2026-10-06). This is the `v_bp` source for the safe-resolve gadget: with
+/// a real prior, `villain_cfv` is the blueprint's counterfactual value, so
+/// the gadget bounds the re-solved strategy by the BLUEPRINT (not uniform).
+///
+/// `player_of` maps a solver node's player id (0 hero, 1 villain) to a real
+/// `Player`. Falls back to no entry when the blueprint has no row (unvisited)
+/// or a label does not map to a legal real action.
+fn build_blueprint_prior(
+    sg: &cham_search::subgame::Subgame,
+    state: &cham_core::engine::State,
+    robust: &cham_blueprint::policy::BlueprintPolicy,
+    enc0: &cham_engine::encoder::Encoder,
+    seq0: &ActionSeq,
+    hero: cham_core::obs::Player,
+) -> cham_search::prior::PriorStrats {
+    use cham_search::prior::PriorStrats;
+    let mut prior = PriorStrats::empty();
+
+    fn walk(
+        node: &cham_search::subgame::Node,
+        state: &cham_core::engine::State,
+        robust: &cham_blueprint::policy::BlueprintPolicy,
+        enc0: &cham_engine::encoder::Encoder,
+        seq: &ActionSeq,
+        hero: cham_core::obs::Player,
+        path: &str,
+        prior: &mut PriorStrats,
+    ) {
+        let (player_id, actions, children) = match node {
+            cham_search::subgame::Node::Decision {
+                player,
+                actions,
+                children,
+            } => (*player, actions, children),
+            _ => return,
+        };
+        // Map solver player 0/1 -> the real seat. Solver is hero-centric:
+        // 0 = hero, 1 = villain (the other seat).
+        let p = if player_id == 0 {
+            hero
+        } else {
+            match hero {
+                cham_core::obs::Player::Sb => cham_core::obs::Player::Bb,
+                cham_core::obs::Player::Bb => cham_core::obs::Player::Sb,
+            }
+        };
+        let obs = Observables::view(state, p);
+        let mut enc = enc0.clone();
+        if let Some(d) = robust.strategy(&obs, &mut enc, seq) {
+            let slots = enc.slots(&obs, seq);
+            let mut probs = vec![0.0f64; actions.len()];
+            for (ai, label) in actions.iter().enumerate() {
+                if let Some(real) = label_to_action(&obs, label) {
+                    if let Some(si) = slots.iter().position(|s| s.action == real) {
+                        probs[ai] = d.get(si).copied().unwrap_or(0.0);
+                    }
+                }
+            }
+            let tot: f64 = probs.iter().sum();
+            if tot > 1e-9 {
+                for x in probs.iter_mut() {
+                    *x /= tot;
+                }
+                prior.set(path, probs);
+            }
+        }
+        // Recurse, advancing the state along each child's real action.
+        for (label, child) in actions.iter().zip(children.iter()) {
+            if let Some(real) = label_to_action(&obs, label) {
+                let mut next = *state;
+                if next.apply(real).is_ok() {
+                    let mut seq2 = *seq;
+                    enc0.record(&obs, p, real, &mut seq2);
+                    let cp = if path.is_empty() {
+                        label.clone()
+                    } else {
+                        format!("{path}/{label}")
+                    };
+                    walk(child, &next, robust, enc0, &seq2, hero, &cp, prior);
+                }
+            }
+        }
+    }
+
+    // The solver tree is rooted hero-first; if the gadget is on, the root is
+    // the villain opt-out and we start the walk at the "play" child.
+    let tree = sg.tree();
+    let start = match &tree {
+        cham_search::subgame::Node::Decision {
+            actions, children, ..
+        } if actions.first().map(|a| a.as_str()) == Some("terminate") => {
+            children.get(1).unwrap_or(&tree)
+        }
+        other => other,
+    };
+    // Match the solver's `collect` path convention: hero's root is "" without
+    // the gadget, "play" with it (the gadget's root is terminate|play).
+    let start_path = hero_root_path(sg);
+    walk(
+        start, state, robust, enc0, seq0, hero, start_path, &mut prior,
+    );
+    prior
+}
+
 /// Solver labels: "check", "bet<frac>" (e.g. "bet0.5"), "jam".
 /// Old behaviour collapsed every bet/jam onto the FIRST aggressive entry
 /// of `obs.legal` (the min-bet) — a 1 bb "value bet" (§3.1). This maps
@@ -347,8 +464,28 @@ fn map_to_legal(
 /// Extract the root decision node's action labels from a subgame's tree.
 fn root_action_labels(sg: &cham_search::subgame::Subgame) -> Vec<String> {
     match sg.tree() {
+        // Gadget root is [terminate | play]; hero's decision is the play child.
+        cham_search::subgame::Node::Decision {
+            actions, children, ..
+        } if actions.first().map(|a| a.as_str()) == Some("terminate") => match children.get(1) {
+            Some(cham_search::subgame::Node::Decision { actions, .. }) => actions.clone(),
+            _ => Vec::new(),
+        },
         cham_search::subgame::Node::Decision { actions, .. } => actions,
         _ => Vec::new(),
+    }
+}
+
+/// The solver path string of HERO's root decision. `""` without the gadget;
+/// `"play"` when the gadget's root opt-out is present (mirrors `collect`).
+fn hero_root_path(sg: &cham_search::subgame::Subgame) -> &'static str {
+    match sg.tree() {
+        cham_search::subgame::Node::Decision { actions, .. }
+            if actions.first().map(|a| a.as_str()) == Some("terminate") =>
+        {
+            "play"
+        }
+        _ => "",
     }
 }
 
