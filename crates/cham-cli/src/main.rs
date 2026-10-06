@@ -296,6 +296,12 @@ enum Command {
         /// EXP-015: manipulator switch point (default 40 = legacy behavior)
         #[arg(long, default_value = "40")]
         switch_at: u64,
+        /// 2026-10-06: enable the live river search (safe-resolve gadget)
+        /// on the adaptive victim, to A/B search ON vs OFF vs an adaptive
+        /// exploiter.
+        #[arg(long)]
+        search: bool,
+
         /// EXP-015: router temp override (default: bundle default)
         #[arg(long)]
         router_temp: Option<f64>,
@@ -492,6 +498,7 @@ fn main() -> anyhow::Result<()> {
             train_iters,
             out,
             switch_at,
+            search,
             router_temp,
             router_n0,
             router_changepoint_shield,
@@ -514,6 +521,7 @@ fn main() -> anyhow::Result<()> {
                 &out,
                 switch_at,
                 overrides,
+                search,
             )
         }
         Command::Shadow { cmd } => match cmd {
