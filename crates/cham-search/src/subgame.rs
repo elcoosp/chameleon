@@ -28,6 +28,16 @@ pub struct Subgame {
     pub stack_bb: f64,
     /// hero bet sizes as pot fractions (≤ 2 + jam; reduced tree)
     pub bet_fracs: Vec<f64>,
+    /// Burch/Brown-Sandholm safe-resolving gadget (2026-10-06). When
+    /// `Some`, `tree()` puts a ROOT opponent decision [terminate | play]:
+    /// "terminate" pays the opponent their BLUEPRINT counterfactual value
+    /// `v_bp[villain_class]` (so they can never do worse than the
+    /// blueprint), which bounds the re-solved strategy's exploitability
+    /// by the blueprint's. `v_bp` is per villain class, hero-relative
+    /// (negate for the opponent's value). `None` = no gadget (the unsafe
+    /// re-solve that measured +5.57 bb worse — see
+    /// `DEFINITIVE-RESULTS-2026-10-06.md`).
+    pub opponent_optout: Option<Vec<f64>>,
 }
 
 /// How a terminal was reached. C-3 fix (2026-09-27): a fold must be a
@@ -44,6 +54,10 @@ pub enum TerminalKind {
     HeroFolds,
     /// Villain forfeited (hero bet and villain folded).
     VillainFolds,
+    /// Safe-resolve gadget (2026-10-06): the opponent took their opt-out at
+    /// the subgame root. Value is the blueprint CFV for the opponent's
+    /// class — see `Subgame::terminate_value`.
+    OpponentTerminates,
 }
 
 /// A node of the action tree. Infosets are identified by the ACTION SEQUENCE
@@ -96,13 +110,48 @@ impl Subgame {
             pot_bb,
             stack_bb,
             bet_fracs: fracs,
+            opponent_optout: None,
         })
+    }
+
+    /// Enable the safe-resolving gadget with the given per-villain-class
+    /// blueprint CFVs (hero-relative). See `opponent_optout`.
+    pub fn with_opponent_optout(mut self, v_bp: Vec<f64>) -> Subgame {
+        self.opponent_optout = Some(v_bp);
+        self
     }
 
     /// Build the full action tree: hero (check / bets / jam) → villain (fold / call
     /// / raise) → hero (call/fold vs raise) → showdown.
+    ///
+    /// With the gadget on, a ROOT opponent decision [terminate | play] is
+    /// prepended: "terminate" pays the opponent their blueprint CFV.
     pub fn tree(&self) -> Node {
-        self.hero_node(0.0, 0.0)
+        let inner = self.hero_node(0.0, 0.0);
+        match &self.opponent_optout {
+            None => inner,
+            Some(_) => Node::Decision {
+                player: 1,
+                actions: vec!["terminate".to_string(), "play".to_string()],
+                children: vec![
+                    Node::Terminal {
+                        kind: TerminalKind::OpponentTerminates,
+                        hero_invested: 0.0,
+                        villain_invested: 0.0,
+                    },
+                    inner,
+                ],
+            },
+        }
+    }
+
+    /// Hero-relative value of the opponent's opt-out for `villain_c`
+    /// (= -v_bp[villain_c]). Used at `TerminalKind::OpponentTerminates`.
+    pub fn terminate_value(&self, villain_c: usize) -> f64 {
+        match &self.opponent_optout {
+            Some(v) => -v.get(villain_c).copied().unwrap_or(0.0),
+            None => 0.0,
+        }
     }
 
     fn hero_node(&self, hero_invested: f64, villain_invested: f64) -> Node {
@@ -252,6 +301,9 @@ impl Subgame {
             TerminalKind::HeroFolds => -(self.pot_bb / 2.0 + hero_invested),
             TerminalKind::Showdown => {
                 unreachable!("cham-search: fold_value called on a showdown terminal")
+            }
+            TerminalKind::OpponentTerminates => {
+                unreachable!("cham-search: fold_value called on an opt-out terminal")
             }
         }
     }
