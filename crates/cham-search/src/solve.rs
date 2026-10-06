@@ -348,6 +348,26 @@ fn avg_ev(node: &Node, seat: u8, path: &str, strats: &Strats, sg: &Subgame) -> f
     total
 }
 
+/// Per-villain-class counterfactual value FROM THE OPPONENT'S PERSPECTIVE,
+/// against `strats`, with hero's reach = hero class weights (2026-10-06).
+/// This is the gadget's `v_bp` when `strats` is the prior/blueprint
+/// strategy: the opponent can always secure this by opting out. `out[vc]`
+/// is the value to the VILLAIN class `vc` (positive = good for villain).
+pub fn villain_cfv(sg: &Subgame, strats: &Strats) -> Vec<f64> {
+    let class_strats = strats_to_class(strats, sg.hero_classes.len(), sg.villain_classes.len());
+    let tree = sg.tree();
+    let mut out = vec![0.0f64; sg.villain_classes.len()];
+    for vi in 0..sg.villain_classes.len() {
+        let mut acc = 0.0;
+        for hi in 0..sg.hero_classes.len() {
+            // `ev(.., seat=1, ..)` returns the value to seat 1 (villain).
+            acc += sg.hero_classes[hi].weight * ev(&tree, 1, "", &class_strats, sg, hi, vi);
+        }
+        out[vi] = acc;
+    }
+    out
+}
+
 /// Best response value for `seat` against the opponent's fixed strategy.
 #[allow(clippy::only_used_in_recursion)]
 fn br_value(
