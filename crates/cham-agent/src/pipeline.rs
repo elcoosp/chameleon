@@ -358,7 +358,7 @@ impl ChameleonAgent {
                 let robust = &self.robust;
                 let seq = self.seq;
                 if let Some(outcome) =
-                    crate::search_bridge::try_solve(&cfg, tracker, enc, robust, obs, &seq)
+                    crate::search_bridge::try_solve(&cfg, tracker, enc, robust, obs, &seq, None)
                 {
                     if !outcome.distribution.is_empty() {
                         return outcome.distribution;
@@ -608,7 +608,12 @@ impl ChameleonAgent {
         )
     }
 
-    fn act_impl(&mut self, obs: &Observables<'_>, rng: &mut Rng) -> Action {
+    fn act_impl(
+        &mut self,
+        obs: &Observables<'_>,
+        rng: &mut Rng,
+        state: Option<&cham_core::engine::State>,
+    ) -> Action {
         let Self {
             mode,
             encoder,
@@ -1009,7 +1014,9 @@ impl ChameleonAgent {
         let mut search_trace: Option<(String, bool, String, u32, bool, f64)> = None;
         if let Some(cfg) = crate::search_bridge::SearchBridgeCfg::from_mode(mode) {
             if crate::search_bridge::would_trigger(&cfg, obs) {
-                match crate::search_bridge::try_solve(&cfg, tracker, encoder, robust, obs, seq) {
+                match crate::search_bridge::try_solve(
+                    &cfg, tracker, encoder, robust, obs, seq, state,
+                ) {
                     Some(outcome) => {
                         // §3.1: the solver emits an AVERAGE strategy — sample
                         // it, never take its mode. EXCEPT under the
@@ -1150,7 +1157,18 @@ impl Agent for ChameleonAgent {
 
     fn act(&mut self, obs: &Observables<'_>, rng: &mut Rng) -> Action {
         self.start_hand_if_needed();
-        self.act_impl(obs, rng)
+        self.act_impl(obs, rng, None)
+    }
+
+    /// State-aware entry (2026-10-06): the search path needs the live
+    /// `State` to build the blueprint prior for the safe-resolve gadget.
+    fn act_with_state(
+        &mut self,
+        obs: &Observables<'_>,
+        rng: &mut Rng,
+        state: Option<&cham_core::engine::State>,
+    ) -> Action {
+        self.act_impl(obs, rng, state)
     }
 
     /// Public action feed (driver calls for EVERY action with the PRE-action view;
