@@ -222,6 +222,9 @@ fn ev(
                 TerminalKind::VillainFolds | TerminalKind::HeroFolds => {
                     sg.fold_value(*kind, *hero_invested)
                 }
+                // Safe-resolve gadget (2026-10-06): the opponent took their
+                // opt-out at the root. Hero-relative value is -v_bp[villain_c].
+                TerminalKind::OpponentTerminates => sg.terminate_value(vill_c),
             };
             if seat == 0 { hero_v } else { -hero_v }
         }
@@ -378,6 +381,9 @@ fn br_value(
                 TerminalKind::VillainFolds | TerminalKind::HeroFolds => {
                     sg.fold_value(*kind, *hero_invested)
                 }
+                // Safe-resolve gadget (2026-10-06): the opponent took their
+                // opt-out at the root. Hero-relative value is -v_bp[villain_c].
+                TerminalKind::OpponentTerminates => sg.terminate_value(vill_c),
             };
             if seat == 0 { hero_v } else { -hero_v }
         }
