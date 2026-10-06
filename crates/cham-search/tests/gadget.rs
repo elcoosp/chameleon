@@ -10,12 +10,24 @@ use cham_search::subgame::{Class, Subgame, TerminalKind};
 
 fn classes() -> (Vec<Class>, Vec<Class>) {
     let hero = vec![
-        Class { weight: 0.5, strength: 0.8 },
-        Class { weight: 0.5, strength: 0.2 },
+        Class {
+            weight: 0.5,
+            strength: 0.8,
+        },
+        Class {
+            weight: 0.5,
+            strength: 0.2,
+        },
     ];
     let villain = vec![
-        Class { weight: 0.6, strength: 0.7 },
-        Class { weight: 0.4, strength: 0.3 },
+        Class {
+            weight: 0.6,
+            strength: 0.7,
+        },
+        Class {
+            weight: 0.4,
+            strength: 0.3,
+        },
     ];
     (hero, villain)
 }
@@ -40,7 +52,11 @@ fn gadget_root_is_villain_optout() {
         .expect("build")
         .with_opponent_optout(v_bp.clone());
     match sg.tree() {
-        cham_search::subgame::Node::Decision { player, actions, children } => {
+        cham_search::subgame::Node::Decision {
+            player,
+            actions,
+            children,
+        } => {
             assert_eq!(player, 1, "gadget => root is villain (player 1)");
             assert_eq!(actions, vec!["terminate".to_string(), "play".to_string()]);
             match &children[0] {
