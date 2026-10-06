@@ -12,12 +12,24 @@ use cham_search::trigger::SolverChoice;
 
 fn sg() -> Subgame {
     let hero = vec![
-        Class { weight: 0.5, strength: 0.85 },
-        Class { weight: 0.5, strength: 0.25 },
+        Class {
+            weight: 0.5,
+            strength: 0.85,
+        },
+        Class {
+            weight: 0.5,
+            strength: 0.25,
+        },
     ];
     let villain = vec![
-        Class { weight: 0.5, strength: 0.7 },
-        Class { weight: 0.5, strength: 0.4 },
+        Class {
+            weight: 0.5,
+            strength: 0.7,
+        },
+        Class {
+            weight: 0.5,
+            strength: 0.4,
+        },
     ];
     Subgame::build(hero, villain, 20.0, 90.0, &[0.5, 1.0]).expect("build")
 }
@@ -25,15 +37,18 @@ fn sg() -> Subgame {
 /// A fixed "prior" strategy on the tree (uniform), to act as the blueprint.
 fn uniform_prior(s: &Subgame) -> PriorStrats {
     let mut p = PriorStrats::empty();
-    fn walk(
-        n: &cham_search::subgame::Node,
-        path: &str,
-        p: &mut PriorStrats,
-    ) {
-        if let cham_search::subgame::Node::Decision { actions, children, .. } = n {
+    fn walk(n: &cham_search::subgame::Node, path: &str, p: &mut PriorStrats) {
+        if let cham_search::subgame::Node::Decision {
+            actions, children, ..
+        } = n
+        {
             p.set(path, vec![1.0 / actions.len() as f64; actions.len()]);
             for (a, c) in actions.iter().zip(children.iter()) {
-                let cp = if path.is_empty() { a.clone() } else { format!("{path}/{a}") };
+                let cp = if path.is_empty() {
+                    a.clone()
+                } else {
+                    format!("{path}/{a}")
+                };
                 walk(c, &cp, p);
             }
         }
@@ -64,8 +79,14 @@ fn gadget_bounds_opponent_value_by_prior() {
     //
     // Concretely: hero's exploitability = opponent BR value - game value.
     // We assert the gadget does not INCREASE hero's own reported gap.
-    eprintln!("  plain  our_gap={:.5} their_gap={:.5}", r_plain.lbr_gap.0, r_plain.lbr_gap.1);
-    eprintln!("  gadget our_gap={:.5} their_gap={:.5}", r_gadget.lbr_gap.0, r_gadget.lbr_gap.1);
+    eprintln!(
+        "  plain  our_gap={:.5} their_gap={:.5}",
+        r_plain.lbr_gap.0, r_plain.lbr_gap.1
+    );
+    eprintln!(
+        "  gadget our_gap={:.5} their_gap={:.5}",
+        r_gadget.lbr_gap.0, r_gadget.lbr_gap.1
+    );
 
     // The gadget is present: its tree has the opt-out root.
     let has_optout = matches!(
