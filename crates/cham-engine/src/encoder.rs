@@ -456,7 +456,7 @@ impl Encoder {
         // summary (pot/stack via the SPR band carry what earlier betting
         // implies). Gated — see `history_compression_enabled`.
         let cur = obs.street.as_u8() as usize;
-        let compressed = Self::history_compression_enabled();
+        let compressed = self.history_compression_enabled();
         for street in 0..4usize {
             if compressed && street != cur && street < cur {
                 // SUMMARY of a finished street.
@@ -499,7 +499,12 @@ impl Encoder {
     /// keep their keys. Gate empirically with the fine-information BR (§3.3):
     /// keep only if fine-BR does not worsen at equal wall-clock while infosets
     /// drop several-fold.
-    fn history_compression_enabled() -> bool {
+    fn history_compression_enabled(&self) -> bool {
+        // rule-4 (2026-10-07): v>=3 reads the config field (hashed); v2
+        // keeps the legacy env flag.
+        if self.cfg.version >= 3 {
+            return self.cfg.compress_history;
+        }
         use std::sync::OnceLock;
         static FLAG: OnceLock<bool> = OnceLock::new();
         *FLAG.get_or_init(|| {
