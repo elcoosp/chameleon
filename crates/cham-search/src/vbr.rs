@@ -1,19 +1,24 @@
-//! VBR (vector best-response), river (2026-10-07, plan W1 T1.2/T1.3).
+//! VBR (vector best-response), river, combo-level, PATH-THREADED
+//! (2026-10-07, plan W1 T1.2-T1.4).
 //!
-//! Exact card-perfect best response on the river, combo-level, using the O(n)
-//! kernels. The opponent plays a FIXED per-combo policy; hero picks the
-//! per-combo EV-max action at every hero node. This is the honest ruler:
-//! it sees exact hole cards and card removal, unlike the abstraction BR.
+//! Exact card-perfect best response on the river. The opponent plays a
+//! FIXED per-combo policy `policy(path, combo_idx) -> action probs`, keyed
+//! by the public betting PATH (so a sequence-keyed blueprint works) and the
+//! combo index. Hero picks the EV-max action per combo at every hero node.
+//!
+//! Full river tree: hero {check, bet(f), jam}; after check villain
+//! {check-behind, bet(f), jam}; facing a bet the defender {fold, call,
+//! raise-to-jam}; facing the raise the original bettor {fold, call}.
+//! `stack` is the river effective stack; bets are pot fractions clamped.
 
-use crate::kernel::showdown_cfv_two;
 use std::collections::HashMap;
+use crate::kernel::showdown_cfv_two;
 
 fn combo_key(a: u8, b: u8) -> u16 {
     let (lo, hi) = if a < b { (a, b) } else { (b, a) };
     (lo as u16) * 52 + hi as u16
 }
 
-/// Sum of `reach` over villain combos card-disjoint from each hero combo (O(n)).
 fn disjoint_mass(hero: &[[u8; 2]], vill: &[[u8; 2]], reach: &[f64]) -> Vec<f64> {
     let total: f64 = reach.iter().sum();
     let mut card = [0.0f64; 52];
@@ -56,22 +61,15 @@ where
     fn showdown(&self, hi: f64, vi: f64, vreach: &[f64]) -> Vec<f64> {
         let nh = self.hero.len();
         let mut cfv = vec![0.0; nh];
-        showdown_cfv_two(
-            self.hero,
-            self.hero_rank,
-            self.vill,
-            self.vill_rank,
-            vreach,
-            &mut cfv,
-        );
+        showdown_cfv_two(self.hero, self.hero_rank, self.vill, self.vill_rank, vreach, &mut cfv);
         let tot = disjoint_mass(self.hero, self.vill, vreach);
         let half = self.pot / 2.0;
         (0..nh)
             .map(|i| {
-                let w = (cfv[i] + tot[i]) / 2.0;
-                let l = (tot[i] - cfv[i]) / 2.0;
-                let t = tot[i] - w - l;
-                (half + vi) * w - (half + hi) * l + (vi - hi) / 2.0 * t
+                let win = (cfv[i] + tot[i]) / 2.0;
+                let lose = (tot[i] - cfv[i]) / 2.0;
+                let tie = tot[i] - win - lose;
+                (half + vi) * win - (half + hi) * lose + (vi - hi) / 2.0 * tie
             })
             .collect()
     }
@@ -86,76 +84,69 @@ where
         tot.iter().map(|m| v * m).collect()
     }
 
-    fn hero_facing_bet(&self, hi: f64, vi: f64, vreach: &[f64]) -> Vec<f64> {
+    /// Hero faces a bet of `to` (villain invested `to`): max(fold, call).
+    fn hero_vs_bet(&self, hi: f64, to: f64, vreach: &[f64]) -> Vec<f64> {
         let fold = self.hero_folds(hi, vreach);
-        let call = self.showdown(vi, vi, vreach);
+        let call = self.showdown(to, to, vreach);
         (0..self.hero.len()).map(|i| fold[i].max(call[i])).collect()
     }
 
-    fn vill_facing_bet(&mut self, hi: f64, vi: f64, vreach: &[f64]) -> Vec<f64> {
+    /// Villain faces a hero bet of `to`, on betting path `path`.
+    fn vill_vs_bet(&mut self, to: f64, path: &str, vreach: &[f64]) -> Vec<f64> {
         let nv = self.vill.len();
         let nh = self.hero.len();
-        let mut rfa = vec![vec![0.0; nv]; 3];
+        // 3 actions: fold, call, raise(=jam to stack).
+        let mut rf = vec![0.0; nv];
+        let mut rc = vec![0.0; nv];
+        let mut rr = vec![0.0; nv];
         for j in 0..nv {
-            let d = (self.policy)("vb", j);
-            for (a, slot) in rfa.iter_mut().enumerate() {
-                slot[j] = vreach[j] * d.get(a).copied().unwrap_or(0.0);
-            }
+            let d = (self.policy)(path, j);
+            rf[j] = vreach[j] * d.first().copied().unwrap_or(0.0);
+            rc[j] = vreach[j] * d.get(1).copied().unwrap_or(0.0);
+            rr[j] = vreach[j] * d.get(2).copied().unwrap_or(0.0);
         }
-        let fold = self.vill_folds(vi, &rfa[0]);
-        let call = self.showdown(hi, hi, &rfa[1]);
-        let jam = self.hero_facing_bet(hi, self.stack, &rfa[2]);
-        (0..nh).map(|i| fold[i] + call[i] + jam[i]).collect()
+        let fold = self.vill_folds(0.0, &rf);
+        let call = self.showdown(to, to, &rc);
+        let raise = self.hero_vs_bet(to, self.stack, &rr);
+        (0..nh).map(|i| fold[i] + call[i] + raise[i]).collect()
     }
 
-    fn vill_facing_check(&mut self, hi: f64, vi: f64, vreach: &[f64]) -> Vec<f64> {
+    /// Villain checks-behind or bets on betting path `path` (hero checked).
+    fn vill_vs_check(&mut self, path: &str, vreach: &[f64]) -> Vec<f64> {
         let nv = self.vill.len();
         let nh = self.hero.len();
-        let na = self.bet_fracs.len() + 2;
-        let mut rfa = vec![vec![0.0; nv]; na];
+        let na = self.bet_fracs.len() + 2; // check, bets..., jam
+        let mut rf = vec![vec![0.0; nv]; na];
         for j in 0..nv {
-            let d = (self.policy)("vc", j);
-            for (a, slot) in rfa.iter_mut().enumerate() {
-                slot[j] = vreach[j] * d.get(a).copied().unwrap_or(0.0);
+            let d = (self.policy)(path, j);
+            for a in 0..na {
+                rf[a][j] = vreach[j] * d.get(a).copied().unwrap_or(0.0);
             }
         }
-        let mut ev = self.showdown(hi, vi, &rfa[0]);
+        let mut ev = self.showdown(0.0, 0.0, &rf[0]);
         for (a, f) in self.bet_fracs.iter().enumerate() {
             let bet = (f * self.pot).min(self.stack);
-            let child = self.hero_facing_bet(hi, vi + bet, &rfa[a + 1]);
-            for i in 0..nh {
-                ev[i] += child[i];
-            }
+            let child = self.hero_vs_bet(0.0, bet, &rf[a + 1]);
+            for i in 0..nh { ev[i] += child[i]; }
         }
-        let jam = self.hero_facing_bet(hi, self.stack, &rfa[na - 1]);
-        for i in 0..nh {
-            ev[i] += jam[i];
-        }
+        let jam = self.hero_vs_bet(0.0, self.stack, &rf[na - 1]);
+        for i in 0..nh { ev[i] += jam[i]; }
         ev
     }
 
-    /// Hero's exact BR value (weighted by `hero_w`) against the fixed policy.
+    /// Hero's exact BR value (weighted by `hero_w`).
     pub fn best_response(&mut self) -> f64 {
-        let vw = self.vill_w.to_vec();
-        let mut best = self.vill_facing_check(0.0, 0.0, &vw);
-        for f in self.bet_fracs.to_vec() {
+        let vreach = self.vill_w.to_vec();
+        // Hero root: check | bet(f) | jam.
+        let mut best = self.vill_vs_check("c", &vreach);
+        for (a, f) in self.bet_fracs.iter().enumerate() {
             let bet = (f * self.pot).min(self.stack);
-            let ev = self.vill_facing_bet(bet, 0.0, &vw);
-            for i in 0..self.hero.len() {
-                if ev[i] > best[i] {
-                    best[i] = ev[i];
-                }
-            }
+            let p = format!("b{a}");
+            let ev = self.vill_vs_bet(bet, &p, &vreach);
+            for i in 0..self.hero.len() { if ev[i] > best[i] { best[i] = ev[i]; } }
         }
-        let jam = self.vill_facing_bet(self.stack, 0.0, &vw);
-        for i in 0..self.hero.len() {
-            if jam[i] > best[i] {
-                best[i] = jam[i];
-            }
-        }
-        best.iter()
-            .zip(self.hero_w.iter())
-            .map(|(e, w)| e * w)
-            .sum()
+        let jam = self.vill_vs_bet(self.stack, "j", &vreach);
+        for i in 0..self.hero.len() { if jam[i] > best[i] { best[i] = jam[i]; } }
+        best.iter().zip(self.hero_w.iter()).map(|(e, w)| e * w).sum()
     }
 }
