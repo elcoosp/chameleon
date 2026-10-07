@@ -1,26 +1,37 @@
-//! Decision D1 (plan): run the exact river VBR against the SHIPPED
-//! blueprint. Builds a river spot, queries the blueprint's per-combo
-//! strategy, and reports the exploitability the honest ruler sees.
-//!
-//! FIRST READOUT: river-slice only (the blueprint's river play vs a perfect
-//! river best-responder at sampled spots), not the full-game VBR. Printed
-//! with the fraction of combos actually covered by the blueprint.
+//! Decision D1 (plan): the honest river VBR against the SHIPPED blueprint.
+//! Fixes over the preliminary: (1) villain policy queried from the VILLAIN
+//! seat, (2) per-path villain table (checked-to / vs each bet / vs jam),
+//! (3) spread ranges, (4) aggregate over boards with a standard error.
 //!
 //! Run: CHAM_D1_BP=artifacts/agent-honest-19dim/robust \
-//!      cargo nextest run -p cham-agent -E 'test(d1_vbr)' --run-ignored all --no-capture
+//!      cargo nextest run -p cham-agent -E 'test(d1_vbr_full)' \
+//!        --run-ignored all --no-capture
 
 use cham_blueprint::policy::BlueprintPolicy;
 use cham_core::card::{Card, Deck, Hand2};
 use cham_core::engine::config::EngineConfig;
 use cham_core::engine::{Action, State, Street};
-use cham_core::obs::{Observables, Player};
+use cham_core::obs::{Observables, Player, is_legal};
+use cham_core::rng::rng_from_seed;
 use cham_engine::config::AbstractionConfig;
 use cham_engine::encoder::{ActionSeq, Encoder};
 use cham_search::vbr::RiverVbr;
 
 const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const HERO_SEAT: usize = 1; // BB acts first postflop
+const VILL_SEAT: usize = 0;
 
-fn all_combos(board: &[Card; 5], n: u8) -> Vec<[u8; 2]> {
+fn board_from_seed(seed: u64) -> [Card; 5] {
+    let mut rng = rng_from_seed(seed);
+    let mut deck: Vec<u8> = (0..52).collect();
+    for i in (1..52).rev() {
+        let j = (cham_core::rng::next_f64(&mut rng) * (i + 1) as f64) as usize;
+        deck.swap(i, j);
+    }
+    [Card(deck[0]), Card(deck[1]), Card(deck[2]), Card(deck[3]), Card(deck[4])]
+}
+
+fn combos_disjoint(board: &[Card; 5]) -> Vec<[u8; 2]> {
     let mut used = [false; 52];
     for c in board { used[c.idx() as usize] = true; }
     let mut out = Vec::new();
@@ -29,143 +40,149 @@ fn all_combos(board: &[Card; 5], n: u8) -> Vec<[u8; 2]> {
         for b in (a + 1)..52u8 {
             if used[b as usize] { continue; }
             out.push([a, b]);
-            if out.len() >= n as usize { return out; }
         }
     }
     out
 }
 
-/// Build a river State with the given hero combo (player 0) + board; play a
-/// fixed line (call, check, x/x, x/x) to reach the river. Returns None if the
-/// line is illegal.
-fn river_state(hero: [u8; 2], board: &[Card; 5], enc: &mut Encoder) -> Option<(State, ActionSeq)> {
-    // deck order: h0a,h1a,h0b,h1b, then board. Villain gets two arbitrary
-    // cards (they only matter for the VILLAIN node's blueprint query, which
-    // this river-slice harness does not do — it uses a uniform villain).
-    // Pick two dummy villain cards DISJOINT from hero + board (else
-    // Deck::with_prefix overruns on the duplicate).
-    let mut used = [false; 52];
-    used[hero[0] as usize] = true;
-    used[hero[1] as usize] = true;
-    for c in board { used[c.idx() as usize] = true; }
-    let mut dummy = Vec::new();
-    for x in 0..52u8 {
-        if !used[x as usize] {
-            dummy.push(x);
-            if dummy.len() == 2 { break; }
-        }
-    }
-    let (v0, v1) = (dummy[0], dummy[1]);
+/// Build a river state; hero is seat 1 (acts first), villain seat 0.
+/// Returns (state, seq-to-reach-river) with the line recorded.
+fn build_river(hero: [u8; 2], vill: [u8; 2], board: &[Card; 5], enc: &mut Encoder)
+    -> Option<(State, ActionSeq)>
+{
+    // deck order [h0a, h1a, h0b, h1b, board...]: seat0=(h0a,h0b), seat1=(h1a,h1b)
     let prefix = [
-        Card(hero[0]), Card(v0), Card(hero[1]), Card(v1),
+        Card(vill[0]), Card(hero[0]), Card(vill[1]), Card(hero[1]),
         board[0], board[1], board[2], board[3], board[4],
     ];
     let mut st = State::new(CFG, Deck::with_prefix(&prefix)).ok()?;
     let mut seq = ActionSeq::default();
-    // Play call/check to the river, RECORDING each action into the seq
-    // (the blueprint key is (obs, seq); an empty seq matches nothing).
     let mut guard = 0;
-    while st.street() != Street::River && !st.is_terminal() && guard < 20 {
+    while st.street() != Street::River && !st.is_terminal() && guard < 30 {
         guard += 1;
         let p = st.to_act();
         let obs = Observables::view(&st, Player::from_usize(p));
-        let a = if cham_core::obs::is_legal(&obs, Action::Check) { Action::Check } else { Action::Call };
+        let a = if is_legal(&obs, Action::Check) { Action::Check } else { Action::Call };
         enc.record(&obs, Player::from_usize(p), a, &mut seq);
         if st.apply(a).is_err() { return None; }
     }
     if st.street() == Street::River { Some((st, seq)) } else { None }
 }
 
+fn bet_to(obs: &Observables<'_>, frac: f64) -> Action {
+    let to = obs.current_bet + (frac * obs.pot as f64).round() as i64;
+    let to = to.min(obs.max_raise_to).max(obs.min_raise_to);
+    Action::Bet { to }
+}
+
+fn norm4(mut v: Vec<f64>) -> Vec<f64> {
+    let t: f64 = v.iter().sum();
+    if t > 1e-12 { for x in v.iter_mut() { *x /= t; } }
+    while v.len() < 4 { v.push(0.0); }
+    v.truncate(4);
+    v
+}
+
+fn path_idx(p: &str) -> usize {
+    match p { "c" => 0, "b0" => 1, "b1" => 2, "j" => 3, _ => 0 }
+}
+
 #[test]
-#[ignore = "needs shipped bundle; river-slice D1 readout"]
-fn d1_vbr_river_slice() {
+#[ignore = "D1 full river VBR; needs shipped bundle"]
+fn d1_vbr_full() {
     let bp_dir = std::env::var("CHAM_D1_BP")
         .unwrap_or_else(|_| "artifacts/agent-honest-19dim/robust".into());
     let policy = BlueprintPolicy::load(std::path::Path::new(&bp_dir), 0).expect("load bp");
-    // The encoder MUST match the one the blueprint was trained with:
-    // its bucket artifacts, not cfg_only (which uses the fallback and
-    // produces different keys -> every lookup misses).
-    let bundle = std::path::Path::new(&bp_dir).parent().expect("bundle dir");
-    let cfg_path = bundle.join("abstraction.toml");
-    let cfg = std::fs::read_to_string(&cfg_path).ok()
+    let bundle = std::path::Path::new(&bp_dir).parent().expect("bundle");
+    let cfg = std::fs::read_to_string(bundle.join("abstraction.toml")).ok()
         .and_then(|t| cham_engine::config::parse_config(&t).ok())
         .unwrap_or_else(AbstractionConfig::tiny);
-    let buckets = bundle.join("buckets");
-    let base_enc = if buckets.exists() {
-        Encoder::from_artifacts_dir(&buckets, cfg.clone()).expect("enc from artifacts")
-    } else {
-        Encoder::cfg_only(cfg.clone()).expect("enc cfg_only")
-    };
+    let base_enc = Encoder::from_artifacts_dir(&bundle.join("buckets"), cfg.clone())
+        .unwrap_or_else(|_| Encoder::cfg_only(cfg.clone()).expect("enc"));
 
-    // A few fixed boards.
-    let boards: [[u8; 5]; 3] = [
-        [0, 5, 10, 20, 30],
-        [1, 6, 11, 21, 31],
-        [2, 7, 12, 22, 32],
-    ];
-    let mut total_ev = 0.0f64;
-    let mut total_n = 0.0f64;
-    let mut covered = 0usize;
-    let mut total = 0usize;
+    let fracs = [0.5f64, 1.0];
+    let n_boards = 20u64;
+    let n_combos = 60usize;
+    let mut values: Vec<f64> = Vec::new();
 
-    for b in boards {
-        let board = [Card(b[0]), Card(b[1]), Card(b[2]), Card(b[3]), Card(b[4])];
-        let hc = all_combos(&board, 60);
-        let hero: Vec<[u8; 2]> = hc.clone();
-        let vill: Vec<[u8; 2]> = hc.clone();
+    for bseed in 0..n_boards {
+        let board = board_from_seed(0xB0 + bseed);
+        let all = combos_disjoint(&board);
+        if all.len() < n_combos { continue; }
+        let stride = all.len() / n_combos;
+        let hero: Vec<[u8; 2]> = (0..n_combos).map(|k| all[k * stride]).collect();
+        let vill: Vec<[u8; 2]> = (0..n_combos).map(|k| all[(k * stride + stride / 2).min(all.len() - 1)]).collect();
 
-        // rank = exact river equity vs a random hand (proxy ordering).
-        let hr: Vec<u32> = hero.iter().map(|c| {
+        let hr: Vec<u32> = hero.iter().map(|c|
             (cham_engine::tables::river_equity(Hand2::new(Card(c[0]), Card(c[1])), &board) * 1e6) as u32
-        }).collect();
-        let vr = hr.clone();
+        ).collect();
+        let vr: Vec<u32> = vill.iter().map(|c|
+            (cham_engine::tables::river_equity(Hand2::new(Card(c[0]), Card(c[1])), &board) * 1e6) as u32
+        ).collect();
         let hw = vec![1.0f64 / hero.len() as f64; hero.len()];
         let vw = vec![1.0f64 / vill.len() as f64; vill.len()];
 
-        // Blueprint strategy per hero combo at the river root (uniform fallback).
-        let mut enc = base_enc.clone();
-        let mut table: Vec<Vec<f64>> = Vec::with_capacity(hero.len());
-        for c in &hero {
-            let dist = river_state(*c, &board, &mut enc).and_then(|(st, seq)| {
-                let obs = Observables::view(&st, Player::from_usize(st.to_act()));
-                let mut e2 = enc.clone();
-                policy.strategy(&obs, &mut e2, &seq).map(|s| (s, obs.legal.len()))
-            });
-            match dist {
-                Some((s, n)) => {
-                    covered += 1;
-                    let mut d = s;
-                    let tot: f64 = d.iter().sum();
-                    if tot > 0.0 { for x in d.iter_mut() { *x /= tot; } }
-                    while d.len() < 4 { d.push(if d.len() < n { 1.0 / n as f64 } else { 0.0 }); }
-                    table.push(d);
+        // villain policy table[path][villain_combo]
+        let mut vtable = vec![vec![vec![0.25f64; 4]; vill.len()]; 4];
+        let mut hero_dummy = [0u8; 2];
+        for j in 0..vill.len() {
+            // dummy hero disjoint from board + villain
+            let mut used = [false; 52];
+            for c in &board { used[c.idx() as usize] = true; }
+            used[vill[j][0] as usize] = true;
+            used[vill[j][1] as usize] = true;
+            let mut d = Vec::new();
+            for x in 0..52u8 { if !used[x as usize] { d.push(x); if d.len()==2 { break; } } }
+            hero_dummy = [d[0], d[1]];
+
+            if let Some((st0, seq0)) = build_river(hero_dummy, vill[j], &board, &mut base_enc.clone()) {
+                for pi in 0..4usize {
+                    let mut st = st0;
+                    let mut seq = seq0;
+                    let mut enc = base_enc.clone();
+                    if pi > 0 {
+                        // hero (seat 1) acts: bet size pi-1, or jam for pi==3
+                        let p = st.to_act();
+                        let obs = Observables::view(&st, Player::from_usize(p));
+                        let a = if pi == 3 {
+                            Action::Bet { to: obs.max_raise_to }
+                        } else {
+                            bet_to(&obs, fracs[pi - 1])
+                        };
+                        enc.record(&obs, Player::from_usize(p), a, &mut seq);
+                        if st.apply(a).is_err() { continue; }
+                    }
+                    // villain (seat 0) to act now
+                    let p = st.to_act();
+                    if p != VILL_SEAT { continue; }
+                    let obs = Observables::view(&st, Player::from_usize(p));
+                    let mut e = base_enc.clone();
+                    if let Some(s) = policy.strategy(&obs, &mut e, &seq) {
+                        vtable[pi][j] = norm4(s);
+                    }
                 }
-                None => table.push(vec![0.25; 4]),
             }
-            total += 1;
         }
-        // policy closure: (path, combo_idx) -> probs. Path-independent here
-        // (river-root slice); deeper nodes reuse the root table (a coarse
-        // first cut — the honest full-tree VBR re-queries per node).
-        let mut ti = 0usize;
-        let mut pol = |_path: &str, j: usize| -> Vec<f64> {
-            table.get(j.min(table.len().saturating_sub(1))).cloned().unwrap_or_else(|| vec![0.25; 4])
+
+        let table = vtable.clone();
+        let mut pol = |path: &str, j: usize| -> Vec<f64> {
+            table[path_idx(path)].get(j).cloned().unwrap_or_else(|| vec![0.25; 4])
         };
-        let _ = &mut ti;
-        let fracs = [0.5f64, 1.0];
+        let pot_bb = 2.0; // call/check to the river -> 2 bb pot
         let mut vbr = RiverVbr {
             hero: &hero, hero_rank: &hr, hero_w: &hw,
             vill: &vill, vill_rank: &vr, vill_w: &vw,
-            pot: 20.0, stack: 90.0, bet_fracs: &fracs, policy: &mut pol,
+            pot: pot_bb, stack: 98.0, bet_fracs: &fracs, policy: &mut pol,
         };
-        let ev = vbr.best_response();
-        total_ev += ev;
-        total_n += 1.0;
-        eprintln!("  board {b:?}: VBR {ev:.3} bb over {} combos", hero.len());
+        values.push(vbr.best_response());
     }
-    eprintln!("\n=== D1 (river slice) ===");
-    eprintln!("  mean VBR per spot: {:.3} bb", total_ev / total_n.max(1.0));
-    eprintln!("  blueprint coverage: {covered}/{total} combos ({:.1}%)",
-        100.0 * covered as f64 / total.max(1) as f64);
+
+    let n = values.len() as f64;
+    let mean = values.iter().sum::<f64>() / n.max(1.0);
+    let var = (values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n.max(1.0)).max(0.0);
+    let se = (var / n.max(1.0)).sqrt();
+    eprintln!("\n=== D1 river VBR (full harness) ===");
+    eprintln!("  boards: {}", values.len());
+    eprintln!("  mean VBR: {mean:.3} +/- {se:.3} bb/hand");
     eprintln!("  (positive = a perfect river player beats the blueprint by this much)");
 }
