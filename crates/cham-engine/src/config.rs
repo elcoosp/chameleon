@@ -53,6 +53,12 @@ pub struct LadderConfig {
     pub river_bet_fracs: Vec<f64>,
     pub raises_per_street_cap: u32,
     pub all_in_always: bool,
+    /// F6c/rule-4 (2026-10-07): key `size_bucket` from the slot index
+    /// rather than the stack fraction. ENV `CHAM_SLOT_BUCKET` is the
+    /// legacy path; from abstraction `version >= 3` this field is the
+    /// source of truth and is hashed into `abstraction_hash`.
+    #[serde(default)]
+    pub slot_bucket: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -63,6 +69,12 @@ pub struct AbstractionConfig {
     /// log-spaced band EDGES (len = bands+1), default 16 bands over [0.3, 40]
     pub spr_bands: Vec<f64>,
     pub seq_history_len: u32,
+    /// rule-4 (2026-10-07): imperfect-recall history compression in the
+    /// infoset key (full current street, summary of past streets). ENV
+    /// `CHAM_COMPRESS_HISTORY` is the legacy path; from `version >= 3`
+    /// this field is the source of truth and is hashed.
+    #[serde(default)]
+    pub compress_history: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -92,9 +104,11 @@ impl AbstractionConfig {
                 river_bet_fracs: vec![0.33, 0.66, 1.25],
                 raises_per_street_cap: 2,
                 all_in_always: true,
+                slot_bucket: false,
             },
             spr_bands: log_bands(16, 0.3, 40.0),
             seq_history_len: 8,
+            compress_history: false,
         }
     }
 
@@ -118,9 +132,11 @@ impl AbstractionConfig {
                 river_bet_fracs: vec![0.5, 1.25],
                 raises_per_street_cap: 1,
                 all_in_always: true,
+                slot_bucket: false,
             },
             spr_bands: log_bands(16, 0.3, 40.0),
             seq_history_len: 8,
+            compress_history: false,
         }
     }
 
