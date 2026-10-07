@@ -401,7 +401,13 @@ fn cham_min_raise(obs: &Observables<'_>) -> i64 {
 /// shipped bundle was keyed with stack-fraction buckets, so enabling
 /// this without a retrain would break every key. Set
 /// `CHAM_SLOT_BUCKET=1` to enable (Phase 2 of the competitiveness report).
-fn slot_bucket_enabled() -> bool {
+fn slot_bucket_enabled(cfg: &crate::config::AbstractionConfig) -> bool {
+    // rule-4 (2026-10-07): at abstraction version >= 3 the config field is
+    // the SOURCE OF TRUTH (hashed into abstraction_hash); the env flag is
+    // the legacy path kept only for v2 artifacts.
+    if cfg.version >= 3 {
+        return cfg.ladder.slot_bucket;
+    }
     use std::sync::OnceLock;
     static FLAG: OnceLock<bool> = OnceLock::new();
     *FLAG.get_or_init(|| {
@@ -430,7 +436,7 @@ pub fn record_action(
     };
     let bucket = if matches!(a, Action::Fold | Action::Check | Action::Call) {
         0u8
-    } else if slot_bucket_enabled() {
+    } else if slot_bucket_enabled(&ladder.cfg) {
         // F6c (2026-10-02): quantize size_bucket from the SLOT INDEX, not
         // the stack fraction. `nearest_slot` returns the exact position
         // for an on-tree action and the nearest position for an off-tree
