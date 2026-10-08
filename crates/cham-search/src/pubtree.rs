@@ -60,6 +60,25 @@ impl PublicTree {
         tree
     }
 
+    /// Build the public tree from a caller-supplied, already-advanced
+    /// `State` and the `ActionSeq` that reached it. Used by the
+    /// river-reduction test of the full-game VBR: advance a `State`
+    /// through check/call to the target street, build the betting tree
+    /// from there, and walk only that one street. The state must not be
+    /// terminal.
+    pub fn build_from_state(
+        st: State,
+        seq: ActionSeq,
+        ladder: &ActionLadder,
+        cap_nodes: usize,
+    ) -> PublicTree {
+        let mut tree = PublicTree { nodes: Vec::new(), root: 0 };
+        let mut st = st;
+        let mut seq = seq;
+        tree.root = tree.build_node(&mut st, ladder, &mut seq, cap_nodes);
+        tree
+    }
+
     fn build_node(
         &mut self,
         st: &mut State,
