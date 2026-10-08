@@ -109,38 +109,96 @@ The same reasoning explains why the isolated `key_for` bench was
 cheap: it warmed the eq_cache and then measured a hash over ~100 bytes.
 In the walk, the allocation around it is what costs.
 
-### Optimization attempt 1: stack arrays (tested, reverted)
+### Optimization attempts: all reverted, measurement environment unreliable
 
-**Hypothesis** (from the measured 59-61% key-deriv share): the dominant
-cost inside that block was the per-combo `Vec<f64>` allocation for the
-strategy (`strat[i]`) and the `.clone()` in `sigma_agg` / `regret_delta`.
+Three attempts on 2026-10-08 evening, all reverted:
 
-**Change** (commit 9b1d712): `Vec<Vec<f64>>` → `Vec<[f64; 12]>` for
-`strat`, and `HashMap<u64, Vec<f64>>` → `HashMap<u64, [f64; 12]>` for
-`sigma_agg` and `regret_delta`. All three are stack arrays sized to the
-invariant action-count cap (I8).
+1. **Stack arrays** (9b1d712): `Vec<Vec<f64>>` → `Vec<[f64; 12]>`. A/B
+   test showed no difference in the stable profile; reverted.
+2. **FxHashMap + reused strategy buffers** (df6f35d): swapped std
+   `HashMap` for `rustc_hash::FxHashMap` in `pcs/table.rs` and the
+   walk's local aggregation maps, and replaced `current_strategy()`'s
+   per-call `Vec` with a reused buffer via `current_strategy_into`.
+   Reverted without a stable measurement.
+3. **River-reduction and component-breakdown benches**
+   (141f2d8, 3b71b40): retained — they are diagnostics, not
+   optimizations.
 
-**Result** (A/B, same machine, back-to-back, three runs each):
+### Why the measurements are untrustworthy
 
-    profile n=64     PRE 4b052f5          POST 9b1d712
-    run 1            52.7 ms/iter         53.7 ms/iter
-    run 2            52.8 ms/iter         55.5 ms/iter
-    run 3            56.5 ms/iter         51.8 ms/iter
-    key-deriv share  64-65%               64-65%
+The `df6f35d` re-measurement at 19:33-19:35 showed this:
 
-No measurable difference in the stable profile test. The
-walk_throughput test showed POST slower, but the system load average
-rose 3.27 → 5.65 between the two blocks — that is the confounder.
+    walk_throughput n=64:  0.776 s/iter  (run 1)
+                           0.107 s/iter  (run 2)
+                           0.080 s/iter  (run 3)
 
-**Verdict:** the hypothesis was wrong. The key-deriv block's cost is
-inside `key_for` (the bucket computation), not in the Vec allocation
-around it. The change was reverted (commit `revert 9b1d712`).
+10x variance between consecutive runs of the same binary, same
+build. Earlier in the session the noise floor was ~5% across five
+runs; the machine was clearly loaded by something else during this
+window (load average rose from 3.27 to 5.65 across the A/B, then
+higher).
 
-Why the allocation wasn't the cost: at the tiny ladder's typical widths
-(2-4), a `Vec<f64>` is 24 bytes of header plus 16-32 bytes of heap, vs
-96 bytes for a fixed `[f64; 12]`. Copying 96 bytes per hashmap operation
-is not cheaper than an alloc of 16 bytes once the allocator's per-size
-bins are warm. The refactor traded one overhead for another.
+Critically: `key_loop_breakdown` stage 4 code is **unchanged** by
+`df6f35d` (the bench still calls `current_strategy()`, not
+`current_strategy_into()`). Its reported cost jumped from 52 ns to
+296 ns — a 6x "regression" on unchanged code. That single number
+proves the measurement is not reflecting the code change.
+
+### What to do about it
+
+Any future perf work on `pcs/walk.rs` must:
+
+1. **Verify the machine is idle** before starting (`uptime` load < 1.0
+   per core; kill browsers, editors, other cargo builds).
+2. **Run the 5-run noise floor** on the current HEAD before changing
+   anything. If the 5-run spread at n=64 is > 10%, stop — the
+   environment is unusable for this.
+3. **A/B on the same build tree** with `git checkout` between the two
+   SHAs, running the same tests 5 times each.
+
+The scaffolding to do this is all in place:
+- `pcs_walk_bench.rs` has `walk_throughput`, `profile_phase_split`,
+  `key_for_by_street`, `key_loop_breakdown`.
+- The phase-split timers are in `walk.rs` (`profile_enable` /
+  `profile_take`).
+
+### The stable facts (from before the environment went bad)
+
+- Key-deriv block: ~60% of walk time.
+- Terminal CFV: ~24%.
+- Aggregation: ~8%.
+- Other: ~5-9%.
+
+The `key_for` isolated cost: 50-53 ns warm across all streets; 1.97 us
+cold on river nodes. The walk's key-deriv share is dominated by warm
+`key_for` calls, not by the FNV hash and not by the surrounding Vec
+allocations (attempt 1 disproved).
+
+### The next optimization, once a quiet machine is available
+
+Candidate list, in order of expected payoff. Each must be A/B tested
+per the protocol above:
+
+1. **FxHashMap** alone (without the buffer change). `row_mut` is 45 ns
+   with std `HashMap`; FxHashMap is known to help integer-keyed maps.
+   Expected 5-15% on the key block.
+2. **Terminal CFV memo by (node, board).** ~24% of total is recomputed
+   every iteration. A memo table keyed by `(node_idx, board_hash)` for
+   showdown terminals amortizes across repeated board draws. Expected
+   ~15-20% of total.
+3. **Bucket memo at the encoder level.** The 1.97 us cold river
+   `key_for` is largely `river_equity` on a cache miss. The encoder has
+   `eq_cache` (cap 400k) but PCS's access pattern (every combo × every
+   distinct board) may exceed the effective cache. Measure the hit
+   rate; if low, size the cache to the working set or use a
+   board-shared memo.
+
+None of these is the 100x speedup D2 would need. Realistically the
+walk lands at 0.5-0.8 s/iter at full range after these, which is 4h /
+5000-8000 iterations. **D2 remains out of reach without a structural
+change** — e.g. multiple threads (hogwild over the same table), or
+sampling fewer boards (the current PCS scheme already samples one
+board per iteration; more per iteration would amortize setup).
 
 ### What to do next (revised, measured)
 
