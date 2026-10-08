@@ -43,28 +43,6 @@ impl Row {
             .map(|&r| if r > 0.0 { r / sum } else { 0.0 })
             .collect()
     }
-
-    /// Same as `current_strategy` but writes in place, no allocation.
-    /// `out.len()` must equal `self.regret.len()`.
-    pub fn current_strategy_into(&self, out: &mut [f64]) {
-        let w = self.regret.len();
-        debug_assert_eq!(out.len(), w, "width mismatch: out={w}, got={}", out.len());
-        let sum: f64 = self.regret.iter().copied().filter(|&r| r > 0.0).sum();
-        if sum <= 0.0 {
-            let u = 1.0 / w as f64;
-            for v in out.iter_mut() {
-                *v = u;
-            }
-        } else {
-            for (i, v) in out.iter_mut().enumerate() {
-                *v = if self.regret[i] > 0.0 {
-                    self.regret[i] / sum
-                } else {
-                    0.0
-                };
-            }
-        }
-    }
 }
 
 /// Storage for all infosets across a training run.
