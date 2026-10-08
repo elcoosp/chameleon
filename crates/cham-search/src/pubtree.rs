@@ -53,7 +53,10 @@ impl PublicTree {
         cap_nodes: usize,
         deck: Deck,
     ) -> PublicTree {
-        let mut tree = PublicTree { nodes: Vec::new(), root: 0 };
+        let mut tree = PublicTree {
+            nodes: Vec::new(),
+            root: 0,
+        };
         let mut st = State::new(cfg, deck).expect("fresh state");
         let mut seq = ActionSeq::default();
         tree.root = tree.build_node(&mut st, ladder, &mut seq, cap_nodes);
@@ -72,7 +75,10 @@ impl PublicTree {
         ladder: &ActionLadder,
         cap_nodes: usize,
     ) -> PublicTree {
-        let mut tree = PublicTree { nodes: Vec::new(), root: 0 };
+        let mut tree = PublicTree {
+            nodes: Vec::new(),
+            root: 0,
+        };
         let mut st = st;
         let mut seq = seq;
         tree.root = tree.build_node(&mut st, ladder, &mut seq, cap_nodes);
@@ -119,7 +125,13 @@ impl PublicTree {
             let mut st2 = *st;
             let mut seq2 = *seq;
             let obs_p = Observables::view(&st2, Player::from_usize(p));
-            cham_engine::ladder::record_action(ladder, &obs_p, Player::from_usize(p), *a, &mut seq2);
+            cham_engine::ladder::record_action(
+                ladder,
+                &obs_p,
+                Player::from_usize(p),
+                *a,
+                &mut seq2,
+            );
             if st2.apply(*a).is_err() {
                 continue;
             }

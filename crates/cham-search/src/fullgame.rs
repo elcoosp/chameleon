@@ -38,9 +38,13 @@ where
     pub fn best_response(&mut self, board: &[Card; 5]) -> Option<f64> {
         let nh = self.hero_range.len();
         let nv = self.villain_range.len();
-        if nh == 0 || nv == 0 { return None; }
+        if nh == 0 || nv == 0 {
+            return None;
+        }
         let mut used = [false; 52];
-        for c in board { used[c.idx() as usize] = true; }
+        for c in board {
+            used[c.idx() as usize] = true;
+        }
         for v in self.villain_range {
             used[v[0] as usize] = true;
             used[v[1] as usize] = true;
@@ -51,25 +55,46 @@ where
             if !used[c as usize] {
                 dummy[k] = c;
                 k += 1;
-                if k == 2 { break; }
+                if k == 2 {
+                    break;
+                }
             }
         }
-        if k < 2 { return None; }
+        if k < 2 {
+            return None;
+        }
         let prefix = [
-            Card(self.villain_range[0][0]), Card(dummy[0]),
-            Card(self.villain_range[0][1]), Card(dummy[1]),
-            board[0], board[1], board[2], board[3], board[4],
+            Card(self.villain_range[0][0]),
+            Card(dummy[0]),
+            Card(self.villain_range[0][1]),
+            Card(dummy[1]),
+            board[0],
+            board[1],
+            board[2],
+            board[3],
+            board[4],
         ];
         let st = State::new(self.cfg, Deck::with_prefix(&prefix)).ok()?;
         let vr = self.villain_w.to_vec();
         let seq = ActionSeq::default();
         let hist: Vec<Action> = Vec::new();
         let ev = walk(
-            self.tree, self.ladder,
-            self.hero_range, self.hero_rank,
-            self.villain_range, self.villain_rank,
-            self.cfg, self.hero_seat, &mut self.policy,
-            self.tree.root, st, seq, &hist, &vr, None, None,
+            self.tree,
+            self.ladder,
+            self.hero_range,
+            self.hero_rank,
+            self.villain_range,
+            self.villain_rank,
+            self.cfg,
+            self.hero_seat,
+            &mut self.policy,
+            self.tree.root,
+            st,
+            seq,
+            &hist,
+            &vr,
+            None,
+            None,
         );
         let bb = self.cfg.bb as f64;
         let sum: f64 = ev.iter().zip(self.hero_w.iter()).map(|(e, w)| e * w).sum();
@@ -102,8 +127,16 @@ where
     let n = &tree.nodes[node as usize];
     if n.terminal {
         return terminal_ev(
-            hero_range, hero_rank, villain_range, villain_rank,
-            cfg, hero_seat, &st, villain_reach, last_action, last_actor,
+            hero_range,
+            hero_rank,
+            villain_range,
+            villain_rank,
+            cfg,
+            hero_seat,
+            &st,
+            villain_reach,
+            last_action,
+            last_actor,
         );
     }
     let p = n.player as usize;
@@ -117,26 +150,40 @@ where
             let mut st2 = st;
             let obs = Observables::view(&st2, Player::from_usize(p));
             let mut seq2 = seq;
-            cham_engine::ladder::record_action(
-                ladder, &obs, Player::from_usize(p), a, &mut seq2,
-            );
-            if st2.apply(a).is_err() { continue; }
+            cham_engine::ladder::record_action(ladder, &obs, Player::from_usize(p), a, &mut seq2);
+            if st2.apply(a).is_err() {
+                continue;
+            }
             let mut hist2 = history.to_vec();
             hist2.push(a);
             let ev = walk(
-                tree, ladder, hero_range, hero_rank, villain_range, villain_rank,
-                cfg, hero_seat, policy, n.children[i], st2, seq2, &hist2, villain_reach,
-                Some(a), Some(p),
+                tree,
+                ladder,
+                hero_range,
+                hero_rank,
+                villain_range,
+                villain_rank,
+                cfg,
+                hero_seat,
+                policy,
+                n.children[i],
+                st2,
+                seq2,
+                &hist2,
+                villain_reach,
+                Some(a),
+                Some(p),
             );
             for k in 0..nh {
-                if ev[k] > best[k] { best[k] = ev[k]; }
+                if ev[k] > best[k] {
+                    best[k] = ev[k];
+                }
             }
         }
         best
     } else {
         let na = n.actions.len();
-        let mut probs_per_action: Vec<Vec<f64>> =
-            (0..na).map(|_| vec![0.0; nv]).collect();
+        let mut probs_per_action: Vec<Vec<f64>> = (0..na).map(|_| vec![0.0; nv]).collect();
         for j in 0..nv {
             let probs = policy(&st, history, &seq, na, j);
             for i in 0..na {
@@ -148,10 +195,10 @@ where
             let mut st2 = st;
             let obs = Observables::view(&st2, Player::from_usize(p));
             let mut seq2 = seq;
-            cham_engine::ladder::record_action(
-                ladder, &obs, Player::from_usize(p), a, &mut seq2,
-            );
-            if st2.apply(a).is_err() { continue; }
+            cham_engine::ladder::record_action(ladder, &obs, Player::from_usize(p), a, &mut seq2);
+            if st2.apply(a).is_err() {
+                continue;
+            }
             let mut new_reach = vec![0.0; nv];
             for j in 0..nv {
                 new_reach[j] = villain_reach[j] * probs_per_action[i][j];
@@ -159,11 +206,26 @@ where
             let mut hist2 = history.to_vec();
             hist2.push(a);
             let ev = walk(
-                tree, ladder, hero_range, hero_rank, villain_range, villain_rank,
-                cfg, hero_seat, policy, n.children[i], st2, seq2, &hist2, &new_reach,
-                Some(a), Some(p),
+                tree,
+                ladder,
+                hero_range,
+                hero_rank,
+                villain_range,
+                villain_rank,
+                cfg,
+                hero_seat,
+                policy,
+                n.children[i],
+                st2,
+                seq2,
+                &hist2,
+                &new_reach,
+                Some(a),
+                Some(p),
             );
-            for k in 0..nh { total[k] += ev[k]; }
+            for k in 0..nh {
+                total[k] += ev[k];
+            }
         }
         total
     }
@@ -207,21 +269,26 @@ fn terminal_ev(
     if st.reached_showdown() {
         let mut cfv = vec![0.0f64; nh];
         showdown_cfv_two(
-            hero_range, hero_rank, villain_range, villain_rank,
-            villain_reach, &mut cfv,
+            hero_range,
+            hero_rank,
+            villain_range,
+            villain_rank,
+            villain_reach,
+            &mut cfv,
         );
         (0..nh)
-            .map(|i| {
-                mass_i[i] * (vill_inv - hero_inv) / 2.0
-                    + cfv[i] * (vill_inv + hero_inv) / 2.0
-            })
+            .map(|i| mass_i[i] * (vill_inv - hero_inv) / 2.0 + cfv[i] * (vill_inv + hero_inv) / 2.0)
             .collect()
     } else {
         let folder = match (last_action, last_actor) {
             (Some(Action::Fold), Some(a)) => a,
             _ => {
                 let to_act = st.to_act();
-                if to_act == hero_seat { vill_seat } else { hero_seat }
+                if to_act == hero_seat {
+                    vill_seat
+                } else {
+                    hero_seat
+                }
             }
         };
         if folder == hero_seat {

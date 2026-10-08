@@ -12,7 +12,9 @@ use std::path::Path;
 fn append_d1_entry() {
     let repo = std::env::var("CHAM_REPO").unwrap_or_else(|_| ".".into());
     let ledger_dir = Path::new(&repo).join("artifacts/ledger");
-    let artifact_hash = std::env::var("CHAM_ARTIFACT_HASH").ok().filter(|s| !s.is_empty());
+    let artifact_hash = std::env::var("CHAM_ARTIFACT_HASH")
+        .ok()
+        .filter(|s| !s.is_empty());
 
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

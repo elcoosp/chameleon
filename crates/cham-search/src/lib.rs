@@ -17,15 +17,15 @@
 pub mod budget;
 pub mod cache;
 pub mod cache_persist;
+pub mod fullgame;
 pub mod kernel;
 pub mod oracle;
 pub mod prior;
+pub mod pubtree;
 pub mod solve;
 pub mod subgame;
 pub mod trigger;
 pub mod vbr;
-pub mod pubtree;
-pub mod fullgame;
 
 pub use budget::{SearchBudget, WallClockGuard};
 pub use prior::PriorStrats;

@@ -18,7 +18,11 @@ use cham_engine::config::AbstractionConfig;
 use cham_engine::ladder::ActionLadder;
 use cham_search::pubtree::{PublicTree, TERMINAL};
 
-const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const CFG: EngineConfig = EngineConfig {
+    start_stack: 10_000,
+    sb: 50,
+    bb: 100,
+};
 
 #[test]
 #[ignore = "diagnostic; run manually with --ignored --nocapture"]
@@ -46,8 +50,5 @@ fn pubtree_size() {
         root.player != TERMINAL,
         "PublicTree root player is TERMINAL"
     );
-    assert!(
-        !root.actions.is_empty(),
-        "PublicTree root has no actions"
-    );
+    assert!(!root.actions.is_empty(), "PublicTree root has no actions");
 }

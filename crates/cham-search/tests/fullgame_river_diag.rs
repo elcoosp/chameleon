@@ -20,15 +20,24 @@ use cham_engine::encoder::ActionSeq;
 use cham_engine::ladder::ActionLadder;
 use cham_search::pubtree::PublicTree;
 
-const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const CFG: EngineConfig = EngineConfig {
+    start_stack: 10_000,
+    sb: 50,
+    bb: 100,
+};
 
 /// Advance a fresh state to the river via a fixed check/call line.
-fn river_state(hero: [u8; 2], vill: [u8; 2], board: &[Card; 5])
-    -> Option<(State, ActionSeq)>
-{
+fn river_state(hero: [u8; 2], vill: [u8; 2], board: &[Card; 5]) -> Option<(State, ActionSeq)> {
     let prefix = [
-        Card(vill[0]), Card(hero[0]), Card(vill[1]), Card(hero[1]),
-        board[0], board[1], board[2], board[3], board[4],
+        Card(vill[0]),
+        Card(hero[0]),
+        Card(vill[1]),
+        Card(hero[1]),
+        board[0],
+        board[1],
+        board[2],
+        board[3],
+        board[4],
     ];
     let mut st = State::new(CFG, Deck::with_prefix(&prefix)).ok()?;
     let mut seq = ActionSeq::default();
@@ -38,17 +47,21 @@ fn river_state(hero: [u8; 2], vill: [u8; 2], board: &[Card; 5])
         guard += 1;
         let p = st.to_act();
         let obs = Observables::view(&st, Player::from_usize(p));
-        let a = if is_legal(&obs, Action::Check) { Action::Check } else { Action::Call };
-        cham_engine::ladder::record_action(
-            &ladder,
-            &obs,
-            Player::from_usize(p),
-            a,
-            &mut seq,
-        );
-        if st.apply(a).is_err() { return None; }
+        let a = if is_legal(&obs, Action::Check) {
+            Action::Check
+        } else {
+            Action::Call
+        };
+        cham_engine::ladder::record_action(&ladder, &obs, Player::from_usize(p), a, &mut seq);
+        if st.apply(a).is_err() {
+            return None;
+        }
     }
-    if st.street() == Street::River { Some((st, seq)) } else { None }
+    if st.street() == Street::River {
+        Some((st, seq))
+    } else {
+        None
+    }
 }
 
 #[test]
@@ -72,8 +85,12 @@ fn river_node_actions() {
     eprintln!("river tree nodes: {}", tree.len());
 
     let root = &tree.nodes[tree.root as usize];
-    eprintln!("root: player={} terminal={} n_actions={}",
-        root.player, root.terminal, root.actions.len());
+    eprintln!(
+        "root: player={} terminal={} n_actions={}",
+        root.player,
+        root.terminal,
+        root.actions.len()
+    );
 
     let p = root.player as usize;
     let obs = Observables::view(&st, Player::from_usize(p));
@@ -98,15 +115,26 @@ fn river_node_actions() {
         let child_id = root.children[i];
         let child = &tree.nodes[child_id as usize];
         if child.terminal {
-            eprintln!("child[{}] {:?} -> TERM (pot={} stacks={:?})",
-                i, a, st2.pot(), st2.stacks());
+            eprintln!(
+                "child[{}] {:?} -> TERM (pot={} stacks={:?})",
+                i,
+                a,
+                st2.pot(),
+                st2.stacks()
+            );
             continue;
         }
         let p2 = child.player as usize;
         let obs2 = Observables::view(&st2, Player::from_usize(p2));
         let slots2 = ladder.slots(&obs2, &seq);
-        eprintln!("child[{}] {:?} -> player={} st={:?} n_actions={} slots:",
-            i, a, child.player, st2.street(), child.actions.len());
+        eprintln!(
+            "child[{}] {:?} -> player={} st={:?} n_actions={} slots:",
+            i,
+            a,
+            child.player,
+            st2.street(),
+            child.actions.len()
+        );
         for (j, s) in slots2.iter().enumerate() {
             let real = ladder.to_real(&obs2, &seq, j);
             eprintln!("      slot[{}]: {:?} -> to_real = {:?}", j, s, real);

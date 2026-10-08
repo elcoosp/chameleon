@@ -11,8 +11,8 @@
 //! raise-to-jam}; facing the raise the original bettor {fold, call}.
 //! `stack` is the river effective stack; bets are pot fractions clamped.
 
-use std::collections::HashMap;
 use crate::kernel::showdown_cfv_two;
+use std::collections::HashMap;
 
 fn combo_key(a: u8, b: u8) -> u16 {
     let (lo, hi) = if a < b { (a, b) } else { (b, a) };
@@ -61,7 +61,14 @@ where
     fn showdown(&self, hi: f64, vi: f64, vreach: &[f64]) -> Vec<f64> {
         let nh = self.hero.len();
         let mut cfv = vec![0.0; nh];
-        showdown_cfv_two(self.hero, self.hero_rank, self.vill, self.vill_rank, vreach, &mut cfv);
+        showdown_cfv_two(
+            self.hero,
+            self.hero_rank,
+            self.vill,
+            self.vill_rank,
+            vreach,
+            &mut cfv,
+        );
         let tot = disjoint_mass(self.hero, self.vill, vreach);
         let half = self.pot / 2.0;
         (0..nh)
@@ -127,10 +134,14 @@ where
         for (a, f) in self.bet_fracs.iter().enumerate() {
             let bet = (f * self.pot).min(self.stack);
             let child = self.hero_vs_bet(0.0, bet, &rf[a + 1]);
-            for i in 0..nh { ev[i] += child[i]; }
+            for i in 0..nh {
+                ev[i] += child[i];
+            }
         }
         let jam = self.hero_vs_bet(0.0, self.stack, &rf[na - 1]);
-        for i in 0..nh { ev[i] += jam[i]; }
+        for i in 0..nh {
+            ev[i] += jam[i];
+        }
         ev
     }
 
@@ -143,10 +154,21 @@ where
             let bet = (f * self.pot).min(self.stack);
             let p = format!("b{a}");
             let ev = self.vill_vs_bet(bet, &p, &vreach);
-            for i in 0..self.hero.len() { if ev[i] > best[i] { best[i] = ev[i]; } }
+            for i in 0..self.hero.len() {
+                if ev[i] > best[i] {
+                    best[i] = ev[i];
+                }
+            }
         }
         let jam = self.vill_vs_bet(self.stack, "j", &vreach);
-        for i in 0..self.hero.len() { if jam[i] > best[i] { best[i] = jam[i]; } }
-        best.iter().zip(self.hero_w.iter()).map(|(e, w)| e * w).sum()
+        for i in 0..self.hero.len() {
+            if jam[i] > best[i] {
+                best[i] = jam[i];
+            }
+        }
+        best.iter()
+            .zip(self.hero_w.iter())
+            .map(|(e, w)| e * w)
+            .sum()
     }
 }

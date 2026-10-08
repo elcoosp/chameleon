@@ -10,7 +10,11 @@ use cham_engine::ladder::ActionLadder;
 use cham_search::fullgame::FullGameVbr;
 use cham_search::pubtree::PublicTree;
 
-const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const CFG: EngineConfig = EngineConfig {
+    start_stack: 10_000,
+    sb: 50,
+    bb: 100,
+};
 
 fn board_from_seed(seed: u64) -> [Card; 5] {
     let mut rng = rng_from_seed(seed);
@@ -19,13 +23,21 @@ fn board_from_seed(seed: u64) -> [Card; 5] {
         let j = (cham_core::rng::next_f64(&mut rng) * (i + 1) as f64) as usize;
         deck.swap(i, j);
     }
-    [Card(deck[0]), Card(deck[1]), Card(deck[2]), Card(deck[3]), Card(deck[4])]
+    [
+        Card(deck[0]),
+        Card(deck[1]),
+        Card(deck[2]),
+        Card(deck[3]),
+        Card(deck[4]),
+    ]
 }
 
 fn split_ranges(board: &[Card; 5], n: usize) -> (Vec<[u8; 2]>, Vec<[u8; 2]>) {
     let mut avail: Vec<u8> = Vec::new();
     for c in 0..52u8 {
-        if !board.iter().any(|b| b.idx() as usize == c as usize) { avail.push(c); }
+        if !board.iter().any(|b| b.idx() as usize == c as usize) {
+            avail.push(c);
+        }
     }
     let half = avail.len() / 2;
     fn take(pool: &[u8], n: usize) -> Vec<[u8; 2]> {
@@ -33,7 +45,9 @@ fn split_ranges(board: &[Card; 5], n: usize) -> (Vec<[u8; 2]>, Vec<[u8; 2]>) {
         'outer: for i in 0..pool.len() {
             for j in (i + 1)..pool.len() {
                 out.push([pool[i], pool[j]]);
-                if out.len() == n { break 'outer; }
+                if out.len() == n {
+                    break 'outer;
+                }
             }
         }
         out
@@ -66,15 +80,27 @@ fn fullgame_smoke() {
     let hw = vec![1.0 / hero.len() as f64; hero.len()];
     let vw = vec![1.0 / vill.len() as f64; vill.len()];
 
-    let mut policy = |_st: &State, _path: &[Action], _seq: &ActionSeq, na: usize, _j: usize| -> Vec<f64> {
-        if na == 0 { Vec::new() } else { vec![1.0 / na as f64; na] }
-    };
+    let mut policy =
+        |_st: &State, _path: &[Action], _seq: &ActionSeq, na: usize, _j: usize| -> Vec<f64> {
+            if na == 0 {
+                Vec::new()
+            } else {
+                vec![1.0 / na as f64; na]
+            }
+        };
 
     let mut vbr = FullGameVbr {
-        tree: &tree, ladder: &ladder,
-        hero_range: &hero, hero_rank: &hero_rank, hero_w: &hw,
-        villain_range: &vill, villain_rank: &vill_rank, villain_w: &vw,
-        cfg: CFG, hero_seat: 1, policy: &mut policy,
+        tree: &tree,
+        ladder: &ladder,
+        hero_range: &hero,
+        hero_rank: &hero_rank,
+        hero_w: &hw,
+        villain_range: &vill,
+        villain_rank: &vill_rank,
+        villain_w: &vw,
+        cfg: CFG,
+        hero_seat: 1,
+        policy: &mut policy,
     };
     let v = vbr.best_response(&board).expect("None");
     eprintln!("smoke: {:.6} bb", v);

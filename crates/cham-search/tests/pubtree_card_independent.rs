@@ -12,7 +12,11 @@ use cham_engine::config::AbstractionConfig;
 use cham_engine::ladder::ActionLadder;
 use cham_search::pubtree::PublicTree;
 
-const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
+const CFG: EngineConfig = EngineConfig {
+    start_stack: 10_000,
+    sb: 50,
+    bb: 100,
+};
 const CAP: usize = 100_000;
 
 fn skeleton(t: &PublicTree) -> Vec<(u8, String)> {
