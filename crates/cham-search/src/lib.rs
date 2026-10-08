@@ -24,6 +24,7 @@ pub mod solve;
 pub mod subgame;
 pub mod trigger;
 pub mod vbr;
+pub mod pubtree;
 
 pub use budget::{SearchBudget, WallClockGuard};
 pub use prior::PriorStrats;
