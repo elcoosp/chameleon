@@ -26,7 +26,7 @@ use cham_engine::encoder::{ActionSeq, Encoder};
 use cham_engine::ladder::ActionLadder;
 use cham_search::kernel::showdown_cfv_two;
 use cham_search::pubtree::PublicTree;
-use rustc_hash::FxHashMap;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
@@ -270,18 +270,14 @@ impl<'a> PcsIteration<'a> {
             None
         };
         let mut keys: Vec<u64> = Vec::with_capacity(n_actor);
-        let mut strat: Vec<Vec<f64>> = (0..n_actor).map(|_| Vec::with_capacity(12)).collect();
+        let mut strat: Vec<Vec<f64>> = Vec::with_capacity(n_actor);
         for i in 0..n_actor {
             let hole = Hand2::new(Card(actor_range[i][0]), Card(actor_range[i][1]));
             let obs_i = obs_base.with_hole(hole);
             let k = ctx.encoder.key_for(&obs_i, &seq, &slots).0;
             keys.push(k);
-            // Reused buffer: `strat` is pre-sized to n_actor, and each
-            // inner Vec is sized to 12 once. No allocation per combo.
-            let s = &mut strat[i];
-            s.resize(12, 0.0);
-            let written = ctx.table.row_mut(k, na).current_strategy_into(s);
-            s.truncate(written);
+            let s = ctx.table.row_mut(k, na).current_strategy();
+            strat.push(s);
         }
         if let Some(t) = __t_key {
             PROFILE_KEY_NS.with(|c| c.set(c.get() + t.elapsed().as_nanos() as u64));
@@ -351,9 +347,9 @@ impl<'a> PcsIteration<'a> {
             }
         }
 
-        let mut regret_delta: FxHashMap<u64, Vec<f64>> = FxHashMap::default();
-        let mut reach_sum: FxHashMap<u64, f64> = FxHashMap::default();
-        let mut sigma_agg: FxHashMap<u64, Vec<f64>> = FxHashMap::default();
+        let mut regret_delta: HashMap<u64, Vec<f64>> = HashMap::new();
+        let mut reach_sum: HashMap<u64, f64> = HashMap::new();
+        let mut sigma_agg: HashMap<u64, Vec<f64>> = HashMap::new();
         for i in 0..n_actor {
             let k = keys[i];
             let entry = regret_delta.entry(k).or_insert_with(|| vec![0.0; na]);
