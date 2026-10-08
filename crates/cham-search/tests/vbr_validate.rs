@@ -46,7 +46,6 @@ impl<'a> Brute<'a> {
                 }
                 acc
             })
-            .map(|x| x)
             .collect::<Vec<_>>()
             .into_iter()
             .enumerate()
