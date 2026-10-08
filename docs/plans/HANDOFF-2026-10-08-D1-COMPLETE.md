@@ -38,6 +38,18 @@ Ledger entry: `artifacts/ledger/ledger.jsonl`, `type:"d1-vbr"`, ts
 1791463156. Note `artifact_hash` is sha256, not blake3 — b3sum was not
 installed; the notes field says so.
 
+## 1a. Tighter D1 SE (appended 2026-10-08 evening)
+
+180-board run of the same harness on the same bundle:
+
+    full-game VBR = 5.7748 +/- 0.5469 bb/hand
+
+Compared to the 20-board number (6.41 +/- 1.50), this is the D2 baseline
+to beat with a proper confidence interval. Ledger entry for the tighter
+number is NOT yet recorded (the earlier 20-board entry remains).
+
+Log: `artifacts/d1-se-2026-10-08.log`.
+
 ## 2. What landed this session (commits oldest first)
 
 - `fc414b3` feat(search): PublicTree::build_with_deck + card-independence
