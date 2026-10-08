@@ -7,25 +7,28 @@
 //! action triggers a street transition, `State::apply` deals the next
 //! board card from the deck prefix. Hero picks the EV-max action per
 //! combo; villain reaches are split by the policy's action
-//! probabilities. Terminal nodes use the O(n) kernels, so card removal
-//! (shared cards between hero and villain ranges, or with the board) is
-//! handled exactly.
+//! probabilities. Showdown terminals use the O(n) kernels (card
+//! removal handled exactly); fold terminals use the recorded last
+//! action, because `State::stacks()` at a fold do not reflect pot
+//! resolution (the pot is tracked separately and not yet credited).
+//!
+//! Policy contract: the callback receives `(history, na, combo)` and
+//! must return exactly `na` action probabilities summing to 1.
+//!
+//! Scaling convention (matches `RiverVbr`): terminal EV per hero combo
+//! is `sum_j reach[j] * disjoint(i, j) * ev(i, j)` with no division by
+//! the disjoint mass. This is the CFR counterfactual-value convention;
+//! whether the D1 metric should normalise is a separate audit.
 
 use crate::kernel::showdown_cfv_two;
 use crate::pubtree::PublicTree;
 use cham_core::card::{Card, Deck};
 use cham_core::engine::config::EngineConfig;
 use cham_core::engine::{Action, State};
-use cham_engine::encoder::ActionSeq;
 
-/// Full-game best-response driver. The villain policy is queried at
-/// each villain node with the action history so far, the current
-/// `State` (which exposes the board and the player to act), and the
-/// villain combo index. It returns the villain's action probabilities
-/// at that node.
 pub struct FullGameVbr<'a, F>
 where
-    F: FnMut(&[Action], &ActionSeq, usize) -> Vec<f64>,
+    F: FnMut(&[Action], usize, usize) -> Vec<f64>,
 {
     pub tree: &'a PublicTree,
     pub hero_range: &'a [[u8; 2]],
@@ -41,20 +44,14 @@ where
 
 impl<'a, F> FullGameVbr<'a, F>
 where
-    F: FnMut(&[Action], &ActionSeq, usize) -> Vec<f64>,
+    F: FnMut(&[Action], usize, usize) -> Vec<f64>,
 {
-    /// Exact BR value (hero-weighted net chips), in big blinds. `board`
-    /// is the fully-sampled 5-card runout; `None` when the ranges are
-    /// empty or the dummy-hole allocation fails.
     pub fn best_response(&mut self, board: &[Card; 5]) -> Option<f64> {
         let nh = self.hero_range.len();
         let nv = self.villain_range.len();
         if nh == 0 || nv == 0 {
             return None;
         }
-        // Dummy hero hole cards, disjoint from board and every villain
-        // combo. The walk never reads hero's State hole cards — it uses
-        // `hero_range` for EV — but the State still needs a valid deal.
         let mut used = [false; 52];
         for c in board {
             used[c.idx() as usize] = true;
@@ -77,8 +74,6 @@ where
         if k < 2 {
             return None;
         }
-        // Deck order: [villain_h1, hero_h1, villain_h2, hero_h2, board...].
-        // Seat 0 holds the first card of each pair; seat 1 the second.
         let prefix = [
             Card(self.villain_range[0][0]),
             Card(dummy[0]),
@@ -91,7 +86,6 @@ where
             board[4],
         ];
         let st = State::new(self.cfg, Deck::with_prefix(&prefix)).ok()?;
-        let seq = ActionSeq::default();
         let vr = self.villain_w.to_vec();
         let hist: Vec<Action> = Vec::new();
         let ev = walk(
@@ -105,9 +99,10 @@ where
             &mut self.policy,
             self.tree.root,
             st,
-            seq,
             &hist,
             &vr,
+            None,
+            None,
         );
         let bb = self.cfg.bb as f64;
         let sum: f64 = ev.iter().zip(self.hero_w.iter()).map(|(e, w)| e * w).sum();
@@ -127,12 +122,13 @@ fn walk<F>(
     policy: &mut F,
     node: u32,
     st: State,
-    seq: ActionSeq,
     history: &[Action],
     villain_reach: &[f64],
+    last_action: Option<Action>,
+    last_actor: Option<usize>,
 ) -> Vec<f64>
 where
-    F: FnMut(&[Action], &ActionSeq, usize) -> Vec<f64>,
+    F: FnMut(&[Action], usize, usize) -> Vec<f64>,
 {
     let n = &tree.nodes[node as usize];
     if n.terminal {
@@ -145,6 +141,8 @@ where
             hero_seat,
             &st,
             villain_reach,
+            last_action,
+            last_actor,
         );
     }
     let p = n.player as usize;
@@ -173,9 +171,10 @@ where
                 policy,
                 child,
                 st2,
-                seq,
                 &hist2,
                 villain_reach,
+                Some(a),
+                Some(p),
             );
             for k in 0..nh {
                 if ev[k] > best[k] {
@@ -185,12 +184,11 @@ where
         }
         best
     } else {
-        // Query the policy once per combo, then split the reach.
         let na = n.actions.len();
         let mut probs_per_action: Vec<Vec<f64>> =
             (0..na).map(|_| vec![0.0; nv]).collect();
         for j in 0..nv {
-            let probs = policy(history, &seq, j);
+            let probs = policy(history, na, j);
             for i in 0..na {
                 probs_per_action[i][j] = probs.get(i).copied().unwrap_or(0.0);
             }
@@ -219,9 +217,10 @@ where
                 policy,
                 child,
                 st2,
-                seq,
                 &hist2,
                 &new_reach,
+                Some(a),
+                Some(p),
             );
             for k in 0..nh {
                 total[k] += ev[k];
@@ -241,6 +240,8 @@ fn terminal_ev(
     hero_seat: usize,
     st: &State,
     villain_reach: &[f64],
+    last_action: Option<Action>,
+    last_actor: Option<usize>,
 ) -> Vec<f64> {
     let nh = hero_range.len();
     let nv = villain_range.len();
@@ -249,9 +250,6 @@ fn terminal_ev(
     let hero_inv = (cfg.start_stack - stacks[hero_seat]) as f64;
     let vill_inv = (cfg.start_stack - stacks[vill_seat]) as f64;
 
-    // Card-removal-correct mass of villain combos disjoint from hero
-    // combo i. In this harness hero and villain ranges are disjoint, so
-    // the both-cards correction vanishes.
     let mut card = [0.0f64; 52];
     let mut tot_mass = 0.0f64;
     for j in 0..nv {
@@ -269,11 +267,6 @@ fn terminal_ev(
     }
 
     if st.reached_showdown() {
-        // Symmetric-or-not showdown EV, net of hero's and villain's
-        // investments. Derivation: `EV_i = mass_i*(vill-hero)/2 +
-        // cfv_i*(vill+hero)/2` where `cfv_i = win_mass - lose_mass` is
-        // the O(n) kernel output. Reduces to the river VBR formula when
-        // hero and villain invested equally.
         let mut cfv = vec![0.0f64; nh];
         showdown_cfv_two(
             hero_range,
@@ -290,13 +283,17 @@ fn terminal_ev(
             })
             .collect()
     } else {
-        // Fold terminal. The chips have already moved, so hero's stack
-        // delta identifies the winner without re-reading the last action.
-        let hero_net = stacks[hero_seat] - cfg.start_stack;
-        if hero_net > 0 {
-            mass_i.iter().map(|m| vill_inv * m).collect()
-        } else {
+        let folder = match (last_action, last_actor) {
+            (Some(Action::Fold), Some(a)) => a,
+            _ => {
+                let to_act = st.to_act();
+                if to_act == hero_seat { vill_seat } else { hero_seat }
+            }
+        };
+        if folder == hero_seat {
             mass_i.iter().map(|m| -hero_inv * m).collect()
+        } else {
+            mass_i.iter().map(|m| vill_inv * m).collect()
         }
     }
 }

@@ -1,31 +1,14 @@
 //! Brute-force validation of `FullGameVbr`.
 //!
 //! Walks the SAME `PublicTree` as the walker but computes EV(i, j) per
-//! (hero combo, villain combo) pair with scalar loops and an explicit
-//! shared-card check, instead of the O(n) kernels. Agreement to 1e-9
-//! validates that the walker's vectorised reach-splitting and
-//! kernel-based terminal EVs match a naive O(n * m) implementation.
-//!
-//! Uses the SAME reach convention as the walker and `RiverVbr`: the
-//! terminal EV is `sum_j reach[j] * disjoint(i, j) * ev(i, j)` with no
-//! per-hero-combo normalisation by the disjoint mass. This is a
-//! CONSISTENCY check between two implementations of one convention,
-//! not a validation of the convention itself. Whether `best_response`
-//! should normalise by `Z_i = sum_j reach[j] * disjoint(i, j)` is a
-//! separate audit (raised in the module comment of `fullgame.rs`).
-//!
-//! Action-set note: the tiny ladder's river slots include a non-jam
-//! raise, which `RiverVbr` does not model, so the design doc's
-//! river-reduction variant cannot be written directly. This test
-//! replaces it as the correctness gate: it does not need any
-//! correspondence between `RiverVbr`'s action set and the ladder's.
+//! (hero combo, villain combo) pair with scalar loops, and determines
+//! fold payoffs from the last action (not from stacks).
 
 use cham_core::card::{Card, Deck, Hand2};
 use cham_core::engine::config::EngineConfig;
 use cham_core::engine::{Action, State};
 use cham_core::rng::rng_from_seed;
 use cham_engine::config::AbstractionConfig;
-use cham_engine::encoder::ActionSeq;
 use cham_engine::ladder::ActionLadder;
 use cham_search::fullgame::FullGameVbr;
 use cham_search::pubtree::PublicTree;
@@ -45,9 +28,7 @@ fn board_from_seed(seed: u64) -> [Card; 5] {
 
 fn state_for_board(villain_range: &[[u8; 2]], board: &[Card; 5]) -> Option<State> {
     let mut used = [false; 52];
-    for c in board {
-        used[c.idx() as usize] = true;
-    }
+    for c in board { used[c.idx() as usize] = true; }
     for v in villain_range {
         used[v[0] as usize] = true;
         used[v[1] as usize] = true;
@@ -58,24 +39,14 @@ fn state_for_board(villain_range: &[[u8; 2]], board: &[Card; 5]) -> Option<State
         if !used[c as usize] {
             dummy[k] = c;
             k += 1;
-            if k == 2 {
-                break;
-            }
+            if k == 2 { break; }
         }
     }
-    if k < 2 {
-        return None;
-    }
+    if k < 2 { return None; }
     let prefix = [
-        Card(villain_range[0][0]),
-        Card(dummy[0]),
-        Card(villain_range[0][1]),
-        Card(dummy[1]),
-        board[0],
-        board[1],
-        board[2],
-        board[3],
-        board[4],
+        Card(villain_range[0][0]), Card(dummy[0]),
+        Card(villain_range[0][1]), Card(dummy[1]),
+        board[0], board[1], board[2], board[3], board[4],
     ];
     State::new(CFG, Deck::with_prefix(&prefix)).ok()
 }
@@ -84,9 +55,6 @@ fn disjoint(a: &[u8; 2], b: &[u8; 2]) -> bool {
     a[0] != b[0] && a[0] != b[1] && a[1] != b[0] && a[1] != b[1]
 }
 
-/// Scalar brute-force EV per hero combo, in chips. Mirrors `fullgame::walk`
-/// structurally, but each terminal node evaluates `sum_j reach[j] *
-/// disjoint(i, j) * ev(i, j)` with explicit loops.
 #[allow(clippy::too_many_arguments)]
 fn brute_ev(
     tree: &PublicTree,
@@ -99,6 +67,8 @@ fn brute_ev(
     st: State,
     history: &mut Vec<Action>,
     reach: &[f64],
+    last_action: Option<Action>,
+    last_actor: Option<usize>,
 ) -> Vec<f64> {
     let n = &tree.nodes[node as usize];
     let nh = hero.len();
@@ -112,9 +82,7 @@ fn brute_ev(
         if st.reached_showdown() {
             for i in 0..nh {
                 for j in 0..nv {
-                    if !disjoint(&hero[i], &villain[j]) {
-                        continue;
-                    }
+                    if !disjoint(&hero[i], &villain[j]) { continue; }
                     let ev = if hero_rank[i] > villain_rank[j] {
                         vill_inv
                     } else if hero_rank[i] < villain_rank[j] {
@@ -126,8 +94,14 @@ fn brute_ev(
                 }
             }
         } else {
-            let hero_net = stacks[HERO_SEAT] - CFG.start_stack;
-            let sign = if hero_net > 0 { vill_inv } else { -hero_inv };
+            let folder = match (last_action, last_actor) {
+                (Some(Action::Fold), Some(a)) => a,
+                _ => {
+                    let to_act = st.to_act();
+                    if to_act == HERO_SEAT { 1 - HERO_SEAT } else { HERO_SEAT }
+                }
+            };
+            let sign = if folder == HERO_SEAT { -hero_inv } else { vill_inv };
             for i in 0..nh {
                 for j in 0..nv {
                     if disjoint(&hero[i], &villain[j]) {
@@ -146,19 +120,16 @@ fn brute_ev(
         let mut best = vec![f64::NEG_INFINITY; nh];
         for (i, &a) in n.actions.iter().enumerate() {
             let mut st2 = st;
-            if st2.apply(a).is_err() {
-                continue;
-            }
+            if st2.apply(a).is_err() { continue; }
             history.push(a);
             let ev = brute_ev(
                 tree, hero, hero_rank, villain, villain_rank, policy,
                 n.children[i], st2, history, reach,
+                Some(a), Some(n.player as usize),
             );
             history.pop();
             for h in 0..nh {
-                if ev[h] > best[h] {
-                    best[h] = ev[h];
-                }
+                if ev[h] > best[h] { best[h] = ev[h]; }
             }
         }
         best
@@ -166,26 +137,21 @@ fn brute_ev(
         let mut probs = vec![vec![0.0f64; na]; nv];
         for v in 0..nv {
             let p = policy(history, v);
-            for k in 0..na {
-                probs[v][k] = p.get(k).copied().unwrap_or(0.0);
-            }
+            for k in 0..na { probs[v][k] = p.get(k).copied().unwrap_or(0.0); }
         }
         let mut total = vec![0.0f64; nh];
         for (i, &a) in n.actions.iter().enumerate() {
             let mut st2 = st;
-            if st2.apply(a).is_err() {
-                continue;
-            }
+            if st2.apply(a).is_err() { continue; }
             let new_reach: Vec<f64> = (0..nv).map(|v| reach[v] * probs[v][i]).collect();
             history.push(a);
             let ev = brute_ev(
                 tree, hero, hero_rank, villain, villain_rank, policy,
                 n.children[i], st2, history, &new_reach,
+                Some(a), Some(n.player as usize),
             );
             history.pop();
-            for h in 0..nh {
-                total[h] += ev[h];
-            }
+            for h in 0..nh { total[h] += ev[h]; }
         }
         total
     }
@@ -195,18 +161,13 @@ fn brute_ev(
 #[ignore = "brute-force validation; run with --ignored --nocapture"]
 fn fullgame_matches_brute_force() {
     let board = board_from_seed(0xB0);
-
-    // Card-disjoint hero/villain pools.
     let mut avail: Vec<u8> = Vec::new();
     for c in 0..52u8 {
-        if !board.iter().any(|b| b.idx() as usize == c as usize) {
-            avail.push(c);
-        }
+        if !board.iter().any(|b| b.idx() as usize == c as usize) { avail.push(c); }
     }
     let half = avail.len() / 2;
     let hero_pool = &avail[..half];
     let vill_pool = &avail[half..];
-
     let hero: Vec<[u8; 2]> = (0..5).map(|k| [hero_pool[2 * k], hero_pool[2 * k + 1]]).collect();
     let vill: Vec<[u8; 2]> = (0..5).map(|k| [vill_pool[2 * k], vill_pool[2 * k + 1]]).collect();
 
@@ -224,26 +185,14 @@ fn fullgame_matches_brute_force() {
     let hw = vec![1.0 / hero.len() as f64; hero.len()];
     let vw = vec![1.0 / vill.len() as f64; vill.len()];
 
-    // Deterministic policy: villain always takes action 0 (check when
-    // checked to, fold when facing a bet). Same behaviour in both
-    // walkers. Length-4 vector is safe: the walker truncates via
-    // `probs.get(i).unwrap_or(0.0)`, and any trailing zeros are
-    // ignored at 2- and 3-action nodes.
-    let mut policy_walker = |_hist: &[Action], _seq: &ActionSeq, _j: usize| -> Vec<f64> {
-        vec![1.0, 0.0, 0.0, 0.0]
+    let mut policy_walker = |_hist: &[Action], na: usize, _j: usize| -> Vec<f64> {
+        if na == 0 { Vec::new() } else { let mut v = vec![0.0; na]; v[0] = 1.0; v }
     };
 
     let mut vbr = FullGameVbr {
-        tree: &tree,
-        hero_range: &hero,
-        hero_rank: &hero_rank,
-        hero_w: &hw,
-        villain_range: &vill,
-        villain_rank: &vill_rank,
-        villain_w: &vw,
-        cfg: CFG,
-        hero_seat: HERO_SEAT,
-        policy: &mut policy_walker,
+        tree: &tree, hero_range: &hero, hero_rank: &hero_rank, hero_w: &hw,
+        villain_range: &vill, villain_rank: &vill_rank, villain_w: &vw,
+        cfg: CFG, hero_seat: HERO_SEAT, policy: &mut policy_walker,
     };
     let walker_bb = vbr.best_response(&board).expect("walker returned None");
 
@@ -254,7 +203,7 @@ fn fullgame_matches_brute_force() {
     let mut history: Vec<Action> = Vec::new();
     let ev_chips = brute_ev(
         &tree, &hero, &hero_rank, &vill, &vill_rank, &mut policy_brute,
-        tree.root, st0, &mut history, &vw,
+        tree.root, st0, &mut history, &vw, None, None,
     );
     let brute_chips: f64 = ev_chips.iter().zip(hw.iter()).map(|(e, w)| e * w).sum();
     let brute_bb = brute_chips / CFG.bb as f64;
