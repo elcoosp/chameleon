@@ -35,7 +35,7 @@ Plan gate: kernel parity tests bit-close to brute force; VBR(uniform)
 | VBR of hand-built Nash toy ≈ 0 | **PARTIAL** | `fullgame_fold` pins +0.5 bb on a fold-to-known winner; there is no *equilibrium* toy comparison against `vbr` yet |
 | D1 on `agent-honest-19dim` | **DONE** | 5.77 ± 0.55 bb (180 boards); ledger entry `ts=1791476675` |
 | **D1 on `tiny-full`** | **DONE** | 7.65 +/- 0.92 bb at 1.06% miss; needs `CHAM_SLOT_BUCKET=1` (bundle trained with it); ledger entry `ts=...` appended |
-| D1 verdict interpretation | **PARTIAL** | Got 5.77, which is *lower* than the tabular BR of 8.19–10.56. The plan's third outcome ("VBR ≪ old number ⇒ re-rank every past decision with VBR") applies — but "re-rank past decisions" was not done. |
+| D1 verdict interpretation | **PARTIAL → addressed** | D1's third outcome applies to `agent-honest-19dim` (5.77 ≪ 8.19). The mapping of which past decisions need VBR re-measurement is in `D1-RERANK-2026-10-08.md`. The three VBR re-measurements themselves are the next session's work. |
 
 **Conclusion:** Phase B's core is done, but two plan-explicit items are
 missing: the `tiny-full` VBR run and the re-ranking of past decisions.
