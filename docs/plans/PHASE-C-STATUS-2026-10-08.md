@@ -109,33 +109,78 @@ The same reasoning explains why the isolated `key_for` bench was
 cheap: it warmed the eq_cache and then measured a hash over ~100 bytes.
 In the walk, the allocation around it is what costs.
 
-### What to do next (concrete, ordered by measured payoff)
+### Optimization attempt 1: stack arrays (tested, reverted)
 
-1. **Eliminate `current_strategy()`'s Vec allocation.** Replace the
-   walk's `strat: Vec<Vec<f64>>` with `strat: Vec<[f64; 12]>` (na ≤ 12
-   is invariant I8), and add `Row::current_strategy_into(&self, out:
-   &mut [f64])`. The walk writes into a stack array; no heap. Same for
-   `sigma_agg: HashMap<u64, Vec<f64>>` → `HashMap<u64, [f64; 12]>`
-   (arrays are `Copy`, so `sigma_agg[k]` no longer clones).
+**Hypothesis** (from the measured 59-61% key-deriv share): the dominant
+cost inside that block was the per-combo `Vec<f64>` allocation for the
+strategy (`strat[i]`) and the `.clone()` in `sigma_agg` / `regret_delta`.
 
-   Expected: recover ~40-50% of total (the allocation-dominated portion
-   of the 59-61%). One refactor; mechanical; testable by re-running
-   `profile_phase_split` and confirming the key-deriv share drops.
+**Change** (commit 9b1d712): `Vec<Vec<f64>>` → `Vec<[f64; 12]>` for
+`strat`, and `HashMap<u64, Vec<f64>>` → `HashMap<u64, [f64; 12]>` for
+`sigma_agg` and `regret_delta`. All three are stack arrays sized to the
+invariant action-count cap (I8).
 
-2. **Terminal CFV memo by (node, board).** Terminal showdown CFVs
-   depend only on ranks and reach; ranks for a fixed board don't change
-   across iterations. Currently recomputed every iteration. With 4124
-   nodes and a per-iteration board, a memo table keyed by (node, board)
-   amortizes across repeat draws. Lower priority than (1) because
-   terminal is 20-25% and the memo adds bookkeeping.
+**Result** (A/B, same machine, back-to-back, three runs each):
 
-3. **Do NOT do the v3 key split.** Still true: FNV is cheap; the
-   profile shows the cost is elsewhere.
+    profile n=64     PRE 4b052f5          POST 9b1d712
+    run 1            52.7 ms/iter         53.7 ms/iter
+    run 2            52.8 ms/iter         55.5 ms/iter
+    run 3            56.5 ms/iter         51.8 ms/iter
+    key-deriv share  64-65%               64-65%
 
-After (1) and a re-measure, the walk should land at ~700-900 ns/combo
-visit instead of the current ~900-1600. Full range would be ~0.6-0.8
-s/iter. Still ~50x off the D2 budget but the next round of optimization
-has a clear target (whatever dominates after (1)).
+No measurable difference in the stable profile test. The
+walk_throughput test showed POST slower, but the system load average
+rose 3.27 → 5.65 between the two blocks — that is the confounder.
+
+**Verdict:** the hypothesis was wrong. The key-deriv block's cost is
+inside `key_for` (the bucket computation), not in the Vec allocation
+around it. The change was reverted (commit `revert 9b1d712`).
+
+Why the allocation wasn't the cost: at the tiny ladder's typical widths
+(2-4), a `Vec<f64>` is 24 bytes of header plus 16-32 bytes of heap, vs
+96 bytes for a fixed `[f64; 12]`. Copying 96 bytes per hashmap operation
+is not cheaper than an alloc of 16 bytes once the allocator's per-size
+bins are warm. The refactor traded one overhead for another.
+
+### What to do next (revised, measured)
+
+The stable measurements say:
+
+- **key deriv block: 59-65%** — inside this, `Encoder::key_for` is ~78
+  ns (isolated, preflop); the walk measures ~128 ns per call at n=64.
+  The gap is `Observables::with_hole` + `RegretTable::row_mut` +
+  `current_strategy`. All are small individually. The rest of the 59-65%
+  is **the bucket computation for river nodes**, where `river_equity`
+  dominates. The isolated `key_for` bench uses a preflop state, which
+  underestimates river cost by an unknown factor.
+- **terminal: 22-24%** — showdown CFVs, recomputed per iteration.
+- **aggregation: 8%** — small.
+- **other: 3-5%** — small.
+
+**Concrete next steps (in order):**
+
+1. **Measure `key_for` on a river state** (not preflop). If river
+   `key_for` is 5-10x preflop, then the "key deriv" share is entirely
+   river node bucket work, and the fix is a memo table on
+   `(board, hole) → bucket` with a proper LRU (the existing eq_cache
+   is per-encoder and evicts on cap; the size vs PCS's working set is
+   unknown). Add a bench for it.
+
+2. **Terminal CFV memo by (node, board).** Terminal CFVs depend only
+   on ranks and reach; ranks for a fixed board don't change across
+   iterations. A memo keyed by (node_idx, board_hash) amortizes across
+   repeated board draws (birthday-paradox likely over 10^6 iterations
+   over 2.6M boards). Worth ~20% of total.
+
+3. **Do NOT touch strat/sigma_agg/regret_delta data structures again**
+   — they were tried and the change is neutral.
+
+### Correction history of this section
+
+Rev 1 blamed the FNV hash. Wrong.
+Rev 2 said "the FNV is not the bottleneck" without measuring. Right conclusion, wrong reason.
+Rev 3 (this) confirmed the alloc hypothesis and tested it. Disproved.
+The stable, measured facts are: key-deriv share ~60%, terminal ~24%, both recomputed per iteration.
 
 ## Decision needed before D2
 
