@@ -43,6 +43,7 @@ fn trained_policy(dir: &Path, iters: u64, seed: u64) -> BlueprintPolicy {
         regret_discount: 1.0,
         dcfr_alpha: 1.0,
         dcfr_beta: 1.0,
+        dcfr_gamma: 2.0,
         avg_gamma: 0.9,
         checkpoint_every: 0,
         checkpoint_dir: None,

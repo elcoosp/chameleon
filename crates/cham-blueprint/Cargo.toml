@@ -19,6 +19,7 @@ thiserror = { workspace = true }
 arrayvec = { workspace = true }
 cham-core = { path = "../cham-core" }
 cham-engine = { path = "../cham-engine" }
+cham-search = { path = "../cham-search" }
 cham-opponents = { path = "../cham-opponents" }
 cham-rec = { path = "../cham-rec" }
 

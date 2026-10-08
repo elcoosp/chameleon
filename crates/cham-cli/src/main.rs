@@ -97,6 +97,9 @@ enum Command {
         /// CFR+ classic is beta=1.0; Brown & Sandholm 2019 DCFR uses beta=0.0.
         #[arg(long, default_value = "1.0")]
         dcfr_beta: f64,
+        /// Phase C: DCFR strategy-sum exponent gamma.
+        #[arg(long, default_value = "2.0")]
+        dcfr_gamma: f64,
         /// Reuse a cached blueprint with identical inputs (V2 A/B speedup)
         #[arg(long)]
         reuse: bool,
@@ -398,6 +401,7 @@ fn main() -> anyhow::Result<()> {
             avg_gamma,
             dcfr_alpha,
             dcfr_beta,
+            dcfr_gamma,
             reuse,
             resume,
             cache_dir,
@@ -419,6 +423,7 @@ fn main() -> anyhow::Result<()> {
             avg_gamma,
             dcfr_alpha,
             dcfr_beta,
+            dcfr_gamma,
             reuse,
             resume.as_deref(),
             cache_dir.as_deref(),

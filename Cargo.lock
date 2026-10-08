@@ -293,6 +293,7 @@ dependencies = [
  "cham-engine",
  "cham-opponents",
  "cham-rec",
+ "cham-search",
  "criterion",
  "postcard",
  "rand 0.8.8",

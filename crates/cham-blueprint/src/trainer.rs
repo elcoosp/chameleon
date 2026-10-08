@@ -56,6 +56,11 @@ pub struct TrainerConfig {
     /// F5: DCFR negative-regret decay exponent β. `1.0` = CFR+ identity.
     #[serde(default = "default_dcfr_beta")]
     pub dcfr_beta: f64,
+    /// Phase C: DCFR strategy-sum weight exponent gamma (Brown & Sandholm
+    /// 2019, `(t/(t+1))^gamma`). Distinct from `avg_gamma` (exponential
+    /// decay for robust mode). Default 2.0.
+    #[serde(default = "default_dcfr_gamma")]
+    pub dcfr_gamma: f64,
     /// DCFR strategy-sum weight discount γ (v3 §3.1: the α/γ split).
     /// Robust mode multiplies the delayed-linear averaging weight by
     /// `γ^(T−t)`; previously hard-coded to 0.9 inside `averaging_weight`,
@@ -95,6 +100,11 @@ pub fn default_dcfr_alpha() -> f64 {
 /// F5 default β. 1.0 keeps CFR+ identity.
 pub fn default_dcfr_beta() -> f64 {
     1.0
+}
+
+/// Phase C default gamma. 2.0 per Brown & Sandholm 2019 DCFR.
+pub fn default_dcfr_gamma() -> f64 {
+    2.0
 }
 
 /// Default strategy-averaging γ for robust mode.
@@ -190,6 +200,11 @@ pub struct RunProvenance {
     /// identity.
     #[serde(default = "default_dcfr_beta")]
     pub dcfr_beta: f64,
+    /// Phase C: DCFR strategy-sum weight exponent gamma (Brown & Sandholm
+    /// 2019, `(t/(t+1))^gamma`). Distinct from `avg_gamma` (exponential
+    /// decay for robust mode). Default 2.0.
+    #[serde(default = "default_dcfr_gamma")]
+    pub dcfr_gamma: f64,
     /// v3 3.1: strategy-sum discount gamma for the average. 1.0 = pure
     /// delayed-linear averaging.
     #[serde(default = "default_avg_gamma")]
@@ -813,6 +828,7 @@ pub fn train_with_threads(
         train_explore_eps: crate::table::train_explore_eps(),
         dcfr_alpha: cfg.dcfr_alpha,
         dcfr_beta: cfg.dcfr_beta,
+        dcfr_gamma: 2.0,
         avg_gamma: cfg.avg_gamma,
         avg_delay_override: std::env::var("CHAM_AVG_DELAY")
             .ok()
