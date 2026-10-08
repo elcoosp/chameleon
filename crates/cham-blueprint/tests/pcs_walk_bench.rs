@@ -443,3 +443,168 @@ fn key_for_by_street() {
         );
     }
 }
+
+/// Decompose the walk's key-derivation block into its sub-costs, using
+/// the walk's exact access pattern (many combos at one node, wide range).
+/// Runs five "stages" that cumulatively add one operation; the deltas
+/// between consecutive stages are the component costs.
+///
+/// No instrumentation of the walk itself, so no timer-in-timer overhead.
+#[test]
+#[ignore = "diagnostic; run with --ignored --nocapture"]
+fn key_loop_breakdown() {
+    let (cfg, ladder, _tree) = build_tree();
+    let mut encoder = Encoder::cfg_only(cfg.clone()).expect("enc");
+
+    let board = [Card(40), Card(41), Card(42), Card(43), Card(44)];
+    let prefix = [
+        Card(2),
+        Card(3),
+        Card(4),
+        Card(5),
+        board[0],
+        board[1],
+        board[2],
+        board[3],
+        board[4],
+    ];
+    let st = State::new(CFG, Deck::with_prefix(&prefix)).expect("state");
+    let obs_base = Observables::view(&st, Player::from_usize(0));
+    let seq = ActionSeq::default();
+    let slots = ladder.slots(&obs_base, &seq);
+
+    // Match the walk: 64 combos, wide enough that any size effect shows.
+    let n = 64usize;
+    let mut combos: Vec<[u8; 2]> = Vec::with_capacity(n);
+    'outer: for a in 0..26u8 {
+        for b in (a + 1)..26u8 {
+            combos.push([a, b]);
+            if combos.len() == n {
+                break 'outer;
+            }
+        }
+    }
+    assert_eq!(combos.len(), n, "not enough combos in half-deck");
+    let iters = 20_000usize;
+
+    // Pre-build the table with rows for every combo's key so `row_mut`
+    // and `current_strategy` operate on populated rows. This mirrors
+    // the walk's steady state (all keys inserted by iteration 1).
+    let mut table = RegretTable::new();
+    for c in &combos {
+        let hole = Hand2::new(Card(c[0]), Card(c[1]));
+        let obs_i = obs_base.with_hole(hole);
+        let k = encoder.key_for(&obs_i, &seq, &slots).0;
+        table.row_mut(k, 4);
+    }
+
+    let mut scratch_keys = vec![0u64; n];
+    let mut scratch_strat: Vec<Vec<f64>> = (0..n).map(|_| vec![0.0; 4]).collect();
+
+    // Stage 0: build holes only (baseline allocation pattern).
+    let t0 = Instant::now();
+    let mut sink0 = 0u64;
+    for _ in 0..iters {
+        for i in 0..n {
+            let hole = Hand2::new(Card(combos[i][0]), Card(combos[i][1]));
+            sink0 = sink0.wrapping_add(hole.0 as u64);
+        }
+    }
+    let s0 = t0.elapsed().as_nanos() as u64;
+
+    // Stage 1: holes + with_hole
+    let t1 = Instant::now();
+    let mut sink1 = 0u64;
+    for _ in 0..iters {
+        for i in 0..n {
+            let hole = Hand2::new(Card(combos[i][0]), Card(combos[i][1]));
+            let oi = obs_base.with_hole(hole);
+            sink1 = sink1.wrapping_add(oi.hole.0 as u64);
+        }
+    }
+    let s1 = t1.elapsed().as_nanos() as u64;
+
+    // Stage 2: + key_for
+    let t2 = Instant::now();
+    let mut sink2 = 0u64;
+    for _ in 0..iters {
+        for i in 0..n {
+            let hole = Hand2::new(Card(combos[i][0]), Card(combos[i][1]));
+            let oi = obs_base.with_hole(hole);
+            sink2 ^= encoder.key_for(&oi, &seq, &slots).0;
+        }
+    }
+    let s2 = t2.elapsed().as_nanos() as u64;
+
+    // Stage 3: + row_mut (with keys written to scratch)
+    let t3 = Instant::now();
+    let mut sink3 = 0u64;
+    for _ in 0..iters {
+        for i in 0..n {
+            let hole = Hand2::new(Card(combos[i][0]), Card(combos[i][1]));
+            let oi = obs_base.with_hole(hole);
+            let k = encoder.key_for(&oi, &seq, &slots).0;
+            scratch_keys[i] = k;
+            let row = table.row_mut(k, 4);
+            sink3 = sink3.wrapping_add(row.visits);
+        }
+    }
+    let s3 = t3.elapsed().as_nanos() as u64;
+
+    // Stage 4: + current_strategy (full block, but into scratch Vecs)
+    let t4 = Instant::now();
+    let mut sink4 = 0u64;
+    for _ in 0..iters {
+        for i in 0..n {
+            let hole = Hand2::new(Card(combos[i][0]), Card(combos[i][1]));
+            let oi = obs_base.with_hole(hole);
+            let k = encoder.key_for(&oi, &seq, &slots).0;
+            scratch_keys[i] = k;
+            let s = table.row_mut(k, 4).current_strategy();
+            scratch_strat[i].clear();
+            scratch_strat[i].extend_from_slice(&s);
+            sink4 = sink4.wrapping_add(s.len() as u64);
+        }
+    }
+    let s4 = t4.elapsed().as_nanos() as u64;
+
+    let _ = (sink0, sink1, sink2, sink3, sink4);
+
+    let per = |total: u64| -> f64 { total as f64 / (iters * n) as f64 };
+    let n_ns =
+        |prev: u64, cur: u64| -> f64 { (cur.saturating_sub(prev)) as f64 / (iters * n) as f64 };
+
+    eprintln!();
+    eprintln!(
+        "=== key-loop component breakdown ({} combos, {} iters) ===",
+        n, iters
+    );
+    eprintln!(
+        "  stage 0 (hole only)            : {:>7.1} ns/combo",
+        per(s0)
+    );
+    eprintln!(
+        "  stage 1 (+ with_hole)          : {:>7.1} ns/combo  (+{:.1})",
+        per(s1),
+        n_ns(s0, s1)
+    );
+    eprintln!(
+        "  stage 2 (+ key_for)            : {:>7.1} ns/combo  (+{:.1})",
+        per(s2),
+        n_ns(s1, s2)
+    );
+    eprintln!(
+        "  stage 3 (+ row_mut)            : {:>7.1} ns/combo  (+{:.1})",
+        per(s3),
+        n_ns(s2, s3)
+    );
+    eprintln!(
+        "  stage 4 (+ current_strategy)   : {:>7.1} ns/combo  (+{:.1})",
+        per(s4),
+        n_ns(s3, s4)
+    );
+    eprintln!("  delta s1-s0 = with_hole cost   : {:.1} ns", n_ns(s0, s1));
+    eprintln!("  delta s2-s1 = key_for cost     : {:.1} ns", n_ns(s1, s2));
+    eprintln!("  delta s3-s2 = row_mut cost     : {:.1} ns", n_ns(s2, s3));
+    eprintln!("  delta s4-s3 = cur_strat cost   : {:.1} ns", n_ns(s3, s4));
+}
