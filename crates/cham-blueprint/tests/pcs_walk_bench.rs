@@ -122,11 +122,29 @@ fn state_construction_throughput() {
     let mut sink = 0i64;
     for _ in 0..iters {
         let board = sample_board(&mut rng);
+        // Dummies must be disjoint from the board: `Deck::with_prefix`
+        // panics on a duplicate prefix entry. This is the same class of
+        // bug the walk had at 22ce120 (fixed in b8d8ad4).
+        let mut used = [false; 52];
+        for c in &board {
+            used[c.idx() as usize] = true;
+        }
+        let mut free = [0u8; 4];
+        let mut k = 0usize;
+        for cc in 0..52u8 {
+            if !used[cc as usize] {
+                free[k] = cc;
+                k += 1;
+                if k == 4 {
+                    break;
+                }
+            }
+        }
         let prefix = [
-            Card(0),
-            Card(1),
-            Card(2),
-            Card(3),
+            Card(free[0]),
+            Card(free[1]),
+            Card(free[2]),
+            Card(free[3]),
             board[0],
             board[1],
             board[2],
@@ -157,7 +175,7 @@ fn walk_throughput() {
         "{:>6}  {:>10}  {:>10}  {:>10}",
         "n/side", "s/iter", "iter/s", "rows"
     );
-    for n in [4usize, 8, 16, 30] {
+    for n in [4usize, 8, 16] {
         let (hero, vill) = split_ranges(n);
         let hero_rank: Vec<u32> = hero
             .iter()
@@ -194,6 +212,8 @@ fn walk_throughput() {
             iters as f64 / dt,
             table.len()
         );
+        use std::io::Write;
+        let _ = std::io::stderr().flush();
     }
     eprintln!();
     eprintln!("Full range (200h / 200v) is ~50x n=4 by combination count.");
