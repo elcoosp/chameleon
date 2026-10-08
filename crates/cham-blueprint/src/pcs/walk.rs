@@ -257,11 +257,17 @@ impl<'a> PcsIteration<'a> {
             }
             row.visits += 1;
         }
+        // DCFR strategy-sum retention form (Brown & Sandholm 2019):
+        // S_t = weight_t * S_{t-1} + reach * sigma. The weight is a
+        // decay on the OLD sum, not an add weight. Each key is visited
+        // at most once per iteration (key encodes the public state, and
+        // each public state appears once per tree walk for a fixed
+        // board), so this is applied correctly.
         for (k, &rsum) in &reach_sum {
             let sig = sigma_agg[k].clone();
             let row = ctx.table.row_mut(*k, na);
             for ai in 0..na {
-                row.strategy_sum[ai] += ctx.strat_w * rsum * sig[ai];
+                row.strategy_sum[ai] = ctx.strat_w * row.strategy_sum[ai] + rsum * sig[ai];
             }
         }
 
@@ -299,34 +305,39 @@ impl<'a> PcsIteration<'a> {
         let hero_inv = (self.cfg.start_stack - stacks[self.hero_seat]) as f64;
         let vill_inv = (self.cfg.start_stack - stacks[vill_seat]) as f64;
 
-        let mut card_h = [0.0f64; 52];
-        let mut tot_hero = 0.0f64;
-        for i in 0..nh {
-            let w = hero_reach[i];
-            card_h[self.hero_range[i][0] as usize] += w;
-            card_h[self.hero_range[i][1] as usize] += w;
-            tot_hero += w;
+        // Hero's CFV is weighted by VILLAIN's reach: the mass of
+        // villain combos disjoint from each hero combo. (Building this
+        // from hero_reach is a bug — it computes the self-disjoint mass
+        // of hero's own range, which is meaningless here.)
+        let mut card_v = [0.0f64; 52];
+        let mut tot_vill_reach = 0.0f64;
+        for j in 0..nv {
+            let w = villain_reach[j];
+            card_v[self.villain_range[j][0] as usize] += w;
+            card_v[self.villain_range[j][1] as usize] += w;
+            tot_vill_reach += w;
         }
         let mut mass_hero = vec![0.0f64; nh];
         for i in 0..nh {
             let a = self.hero_range[i][0] as usize;
             let b = self.hero_range[i][1] as usize;
-            mass_hero[i] = tot_hero - card_h[a] - card_h[b];
+            mass_hero[i] = tot_vill_reach - card_v[a] - card_v[b];
         }
 
-        let mut card_v = [0.0f64; 52];
-        let mut tot_vill = 0.0f64;
-        for j in 0..nv {
-            let w = villain_reach[j];
-            card_v[self.villain_range[j][0] as usize] += w;
-            card_v[self.villain_range[j][1] as usize] += w;
-            tot_vill += w;
+        // Villain's CFV is weighted by HERO's reach: symmetric.
+        let mut card_h = [0.0f64; 52];
+        let mut tot_hero_reach = 0.0f64;
+        for i in 0..nh {
+            let w = hero_reach[i];
+            card_h[self.hero_range[i][0] as usize] += w;
+            card_h[self.hero_range[i][1] as usize] += w;
+            tot_hero_reach += w;
         }
         let mut mass_vill = vec![0.0f64; nv];
         for j in 0..nv {
             let a = self.villain_range[j][0] as usize;
             let b = self.villain_range[j][1] as usize;
-            mass_vill[j] = tot_vill - card_v[a] - card_v[b];
+            mass_vill[j] = tot_hero_reach - card_h[a] - card_h[b];
         }
 
         if st.reached_showdown() {
@@ -385,5 +396,115 @@ impl<'a> PcsIteration<'a> {
                 (hero_cfv, villain_cfv)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Regression test for the terminal CFV: with fully disjoint ranges,
+    //! every hero combo's CFV at a villain-fold terminal equals
+    //! `vill_inv * tot_villain_reach` (vill_inv * 1 with uniform reach).
+    //! The buggy version (mass built from hero's own reach) gives
+    //! `vill_inv * (1 - 2/n)` — off by a factor the assert catches.
+
+    use super::*;
+    use cham_engine::config::AbstractionConfig;
+
+    const CFG: EngineConfig = EngineConfig {
+        start_stack: 10_000,
+        sb: 50,
+        bb: 100,
+    };
+
+    #[test]
+    fn fold_terminal_hero_wins_full_villain_reach() {
+        let cfg = AbstractionConfig::tiny();
+        let ladder = ActionLadder::new(&cfg);
+        let tree = PublicTree::build(CFG, &ladder, 100_000);
+
+        // Three hero combos, three villain combos, all six pairwise disjoint.
+        let hero: Vec<[u8; 2]> = vec![[0, 1], [2, 3], [4, 5]];
+        let villain: Vec<[u8; 2]> = vec![[6, 7], [8, 9], [10, 11]];
+        let hero_rank: Vec<u32> = vec![1, 2, 3];
+        let villain_rank: Vec<u32> = vec![1, 2, 3];
+
+        let hero_reach: Vec<f64> = vec![1.0 / 3.0; 3];
+        let villain_reach: Vec<f64> = vec![1.0 / 3.0; 3];
+
+        let iter = PcsIteration {
+            tree: &tree,
+            ladder: &ladder,
+            hero_range: &hero,
+            hero_rank: &hero_rank,
+            villain_range: &villain,
+            villain_rank: &villain_rank,
+            cfg: CFG,
+            hero_seat: 1,
+        };
+
+        // Build a state at which the SB (seat 0 = villain) folds preflop.
+        // Prefix layout: [seat0_a, seat1_a, seat0_b, seat1_b, board...].
+        let prefix = [
+            Card(6),
+            Card(0),
+            Card(7),
+            Card(1),
+            Card(20),
+            Card(21),
+            Card(22),
+            Card(23),
+            Card(24),
+        ];
+        let mut st = State::new(CFG, Deck::with_prefix(&prefix)).expect("fresh state");
+        // Preflop, the SB (seat 0) acts first. Fold.
+        assert_eq!(st.to_act(), 0, "expected SB to act first preflop");
+        st.apply(Action::Fold).expect("fold");
+
+        let vill_seat = 1 - iter.hero_seat;
+        let vill_inv = (CFG.start_stack - st.stacks()[vill_seat]) as f64;
+        assert!(
+            vill_inv > 0.0,
+            "test setup: villain should have invested something"
+        );
+
+        let (hero_cfv, villain_cfv) = iter.terminal(
+            &st,
+            &hero_reach,
+            &villain_reach,
+            Some(Action::Fold),
+            Some(0),
+        );
+
+        // Every hero combo is disjoint from every villain combo, so each
+        // hero combo wins vill_inv from the full villain reach.
+        for (i, &v) in hero_cfv.iter().enumerate() {
+            assert!(
+                (v - vill_inv).abs() < 1e-9,
+                "hero_cfv[{i}] = {v}, expected {vill_inv} (vill_inv * 1.0 reach)",
+            );
+        }
+        // Symmetric: every villain combo loses vill_inv.
+        for (j, &v) in villain_cfv.iter().enumerate() {
+            assert!(
+                (v + vill_inv).abs() < 1e-9,
+                "villain_cfv[{j}] = {v}, expected -{vill_inv}",
+            );
+        }
+
+        // Zero-sum weighted by reach (should be exactly 0).
+        let hero_sum: f64 = hero_cfv
+            .iter()
+            .zip(hero_reach.iter())
+            .map(|(a, b)| a * b)
+            .sum();
+        let vill_sum: f64 = villain_cfv
+            .iter()
+            .zip(villain_reach.iter())
+            .map(|(a, b)| a * b)
+            .sum();
+        assert!(
+            (hero_sum + vill_sum).abs() < 1e-9,
+            "zero-sum violated: hero_sum={hero_sum}, vill_sum={vill_sum}",
+        );
     }
 }

@@ -77,11 +77,15 @@ mod tests {
     }
 
     #[test]
-    fn strategy_weight_decreases_with_t() {
+    fn strategy_weight_increases_toward_one() {
+        // (t/(t+1))^gamma is the RETENTION factor from DCFR: it
+        // multiplies the accumulated strategy sum, decaying old mass
+        // LESS as t grows. Monotone increasing toward 1.
         let a = strategy_weight(10, 2.0);
         let b = strategy_weight(1000, 2.0);
-        assert!(b < a);
-        assert!(b > 0.0);
+        assert!(b > a, "expected weight to increase: a={a} b={b}");
+        assert!(b < 1.0, "weight must stay below 1: b={b}");
+        assert!(a > 0.0);
     }
 
     #[test]
