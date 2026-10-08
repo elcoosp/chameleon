@@ -1,36 +1,25 @@
-//! Full-game VBR (2026-10-08, plan §8 step 2). Design:
-//! docs/plans/FULLGAME-VBR-DESIGN-2026-10-08.md.
+//! Full-game VBR. Design: docs/plans/FULLGAME-VBR-DESIGN-2026-10-08.md.
 //!
-//! Exact card-perfect best response over the card-independent
-//! [`crate::pubtree::PublicTree`]. The sampled board is baked into the
-//! initial [`State`] deck, so chance nodes are implicit: when a tree
-//! action triggers a street transition, `State::apply` deals the next
-//! board card from the deck prefix. Hero picks the EV-max action per
-//! combo; villain reaches are split by the policy's action
-//! probabilities. Showdown terminals use the O(n) kernels (card
-//! removal handled exactly); fold terminals use the recorded last
-//! action, because `State::stacks()` at a fold do not reflect pot
-//! resolution (the pot is tracked separately and not yet credited).
-//!
-//! Policy contract: the callback receives `(history, na, combo)` and
-//! must return exactly `na` action probabilities summing to 1.
-//!
-//! Scaling convention (matches `RiverVbr`): terminal EV per hero combo
-//! is `sum_j reach[j] * disjoint(i, j) * ev(i, j)` with no division by
-//! the disjoint mass. This is the CFR counterfactual-value convention;
-//! whether the D1 metric should normalise is a separate audit.
+//! Policy contract: `FnMut(&State, &ActionSeq, usize /*na*/, usize /*combo*/)
+//! -> Vec<f64>`. The state and seq at the villain node are exactly what
+//! `BlueprintPolicy::strategy` needs (`Observables::view(&state, ...)` plus
+//! the encoded sequence). Return exactly `na` probs.
 
 use crate::kernel::showdown_cfv_two;
 use crate::pubtree::PublicTree;
 use cham_core::card::{Card, Deck};
 use cham_core::engine::config::EngineConfig;
 use cham_core::engine::{Action, State};
+use cham_core::obs::{Observables, Player};
+use cham_engine::encoder::ActionSeq;
+use cham_engine::ladder::ActionLadder;
 
 pub struct FullGameVbr<'a, F>
 where
-    F: FnMut(&[Action], usize, usize) -> Vec<f64>,
+    F: FnMut(&State, &ActionSeq, usize, usize) -> Vec<f64>,
 {
     pub tree: &'a PublicTree,
+    pub ladder: &'a ActionLadder,
     pub hero_range: &'a [[u8; 2]],
     pub hero_rank: &'a [u32],
     pub hero_w: &'a [f64],
@@ -44,18 +33,14 @@ where
 
 impl<'a, F> FullGameVbr<'a, F>
 where
-    F: FnMut(&[Action], usize, usize) -> Vec<f64>,
+    F: FnMut(&State, &ActionSeq, usize, usize) -> Vec<f64>,
 {
     pub fn best_response(&mut self, board: &[Card; 5]) -> Option<f64> {
         let nh = self.hero_range.len();
         let nv = self.villain_range.len();
-        if nh == 0 || nv == 0 {
-            return None;
-        }
+        if nh == 0 || nv == 0 { return None; }
         let mut used = [false; 52];
-        for c in board {
-            used[c.idx() as usize] = true;
-        }
+        for c in board { used[c.idx() as usize] = true; }
         for v in self.villain_range {
             used[v[0] as usize] = true;
             used[v[1] as usize] = true;
@@ -66,43 +51,24 @@ where
             if !used[c as usize] {
                 dummy[k] = c;
                 k += 1;
-                if k == 2 {
-                    break;
-                }
+                if k == 2 { break; }
             }
         }
-        if k < 2 {
-            return None;
-        }
+        if k < 2 { return None; }
         let prefix = [
-            Card(self.villain_range[0][0]),
-            Card(dummy[0]),
-            Card(self.villain_range[0][1]),
-            Card(dummy[1]),
-            board[0],
-            board[1],
-            board[2],
-            board[3],
-            board[4],
+            Card(self.villain_range[0][0]), Card(dummy[0]),
+            Card(self.villain_range[0][1]), Card(dummy[1]),
+            board[0], board[1], board[2], board[3], board[4],
         ];
         let st = State::new(self.cfg, Deck::with_prefix(&prefix)).ok()?;
         let vr = self.villain_w.to_vec();
-        let hist: Vec<Action> = Vec::new();
+        let seq = ActionSeq::default();
         let ev = walk(
-            self.tree,
-            self.hero_range,
-            self.hero_rank,
-            self.villain_range,
-            self.villain_rank,
-            self.cfg,
-            self.hero_seat,
-            &mut self.policy,
-            self.tree.root,
-            st,
-            &hist,
-            &vr,
-            None,
-            None,
+            self.tree, self.ladder,
+            self.hero_range, self.hero_rank,
+            self.villain_range, self.villain_rank,
+            self.cfg, self.hero_seat, &mut self.policy,
+            self.tree.root, st, seq, &vr, None, None,
         );
         let bb = self.cfg.bb as f64;
         let sum: f64 = ev.iter().zip(self.hero_w.iter()).map(|(e, w)| e * w).sum();
@@ -113,6 +79,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn walk<F>(
     tree: &PublicTree,
+    ladder: &ActionLadder,
     hero_range: &[[u8; 2]],
     hero_rank: &[u32],
     villain_range: &[[u8; 2]],
@@ -122,27 +89,19 @@ fn walk<F>(
     policy: &mut F,
     node: u32,
     st: State,
-    history: &[Action],
+    seq: ActionSeq,
     villain_reach: &[f64],
     last_action: Option<Action>,
     last_actor: Option<usize>,
 ) -> Vec<f64>
 where
-    F: FnMut(&[Action], usize, usize) -> Vec<f64>,
+    F: FnMut(&State, &ActionSeq, usize, usize) -> Vec<f64>,
 {
     let n = &tree.nodes[node as usize];
     if n.terminal {
         return terminal_ev(
-            hero_range,
-            hero_rank,
-            villain_range,
-            villain_rank,
-            cfg,
-            hero_seat,
-            &st,
-            villain_reach,
-            last_action,
-            last_actor,
+            hero_range, hero_rank, villain_range, villain_rank,
+            cfg, hero_seat, &st, villain_reach, last_action, last_actor,
         );
     }
     let p = n.player as usize;
@@ -153,33 +112,20 @@ where
     if is_hero {
         let mut best = vec![f64::NEG_INFINITY; nh];
         for (i, &a) in n.actions.iter().enumerate() {
-            let child = n.children[i];
             let mut st2 = st;
-            if st2.apply(a).is_err() {
-                continue;
-            }
-            let mut hist2 = history.to_vec();
-            hist2.push(a);
+            let obs = Observables::view(&st2, Player::from_usize(p));
+            let mut seq2 = seq;
+            cham_engine::ladder::record_action(
+                ladder, &obs, Player::from_usize(p), a, &mut seq2,
+            );
+            if st2.apply(a).is_err() { continue; }
             let ev = walk(
-                tree,
-                hero_range,
-                hero_rank,
-                villain_range,
-                villain_rank,
-                cfg,
-                hero_seat,
-                policy,
-                child,
-                st2,
-                &hist2,
-                villain_reach,
-                Some(a),
-                Some(p),
+                tree, ladder, hero_range, hero_rank, villain_range, villain_rank,
+                cfg, hero_seat, policy, n.children[i], st2, seq2, villain_reach,
+                Some(a), Some(p),
             );
             for k in 0..nh {
-                if ev[k] > best[k] {
-                    best[k] = ev[k];
-                }
+                if ev[k] > best[k] { best[k] = ev[k]; }
             }
         }
         best
@@ -188,43 +134,30 @@ where
         let mut probs_per_action: Vec<Vec<f64>> =
             (0..na).map(|_| vec![0.0; nv]).collect();
         for j in 0..nv {
-            let probs = policy(history, na, j);
+            let probs = policy(&st, &seq, na, j);
             for i in 0..na {
                 probs_per_action[i][j] = probs.get(i).copied().unwrap_or(0.0);
             }
         }
         let mut total = vec![0.0; nh];
         for (i, &a) in n.actions.iter().enumerate() {
-            let child = n.children[i];
             let mut st2 = st;
-            if st2.apply(a).is_err() {
-                continue;
-            }
+            let obs = Observables::view(&st2, Player::from_usize(p));
+            let mut seq2 = seq;
+            cham_engine::ladder::record_action(
+                ladder, &obs, Player::from_usize(p), a, &mut seq2,
+            );
+            if st2.apply(a).is_err() { continue; }
             let mut new_reach = vec![0.0; nv];
             for j in 0..nv {
                 new_reach[j] = villain_reach[j] * probs_per_action[i][j];
             }
-            let mut hist2 = history.to_vec();
-            hist2.push(a);
             let ev = walk(
-                tree,
-                hero_range,
-                hero_rank,
-                villain_range,
-                villain_rank,
-                cfg,
-                hero_seat,
-                policy,
-                child,
-                st2,
-                &hist2,
-                &new_reach,
-                Some(a),
-                Some(p),
+                tree, ladder, hero_range, hero_rank, villain_range, villain_rank,
+                cfg, hero_seat, policy, n.children[i], st2, seq2, &new_reach,
+                Some(a), Some(p),
             );
-            for k in 0..nh {
-                total[k] += ev[k];
-            }
+            for k in 0..nh { total[k] += ev[k]; }
         }
         total
     }
@@ -262,19 +195,14 @@ fn terminal_ev(
     for i in 0..nh {
         let a = hero_range[i][0] as usize;
         let b = hero_range[i][1] as usize;
-        let overlap = card[a] + card[b];
-        mass_i[i] = tot_mass - overlap;
+        mass_i[i] = tot_mass - card[a] - card[b];
     }
 
     if st.reached_showdown() {
         let mut cfv = vec![0.0f64; nh];
         showdown_cfv_two(
-            hero_range,
-            hero_rank,
-            villain_range,
-            villain_rank,
-            villain_reach,
-            &mut cfv,
+            hero_range, hero_rank, villain_range, villain_rank,
+            villain_reach, &mut cfv,
         );
         (0..nh)
             .map(|i| {
