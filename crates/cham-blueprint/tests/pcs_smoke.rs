@@ -35,7 +35,11 @@ fn sampler_and_table_compose() {
         seen.insert(sorted);
     }
     assert_eq!(table.len(), 50);
-    assert!(seen.len() > 45, "sampler degenerate: {} distinct", seen.len());
+    assert!(
+        seen.len() > 45,
+        "sampler degenerate: {} distinct",
+        seen.len()
+    );
 }
 
 #[test]
