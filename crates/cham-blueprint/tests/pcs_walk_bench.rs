@@ -312,3 +312,134 @@ fn profile_phase_split() {
         );
     }
 }
+
+/// Compare `Encoder::key_for` cost across streets. The isolated bench
+/// in `key_for_throughput` uses a preflop state, which measures only
+/// the preflop bucket (`preflop_bucket(hole)`, no board). River nodes
+/// call `river_equity(hole, board)` on a cache miss. If river key_for
+/// is 5-10x preflop, the walk's "key deriv 60%" share is entirely
+/// river-node cost, and the fix is a proper memo — not another
+/// data-structure refactor.
+#[test]
+#[ignore = "diagnostic; run with --ignored --nocapture"]
+fn key_for_by_street() {
+    use cham_core::engine::{Action, Street};
+
+    let (cfg, ladder, _tree) = build_tree();
+    let mut encoder = Encoder::cfg_only(cfg.clone()).expect("enc");
+
+    // Board with 5 fixed cards. Preflop uses none of them; river uses all 5.
+    let board = [Card(40), Card(41), Card(42), Card(43), Card(44)];
+    // Prefix: seat0_h1, seat1_h1, seat0_h2, seat1_h2, board...
+    let prefix = [
+        Card(2),
+        Card(3),
+        Card(4),
+        Card(5),
+        board[0],
+        board[1],
+        board[2],
+        board[3],
+        board[4],
+    ];
+
+    // Fresh state — check/call to each street. We do NOT need the walk,
+    // only a State at each street.
+    let st_pre = State::new(CFG, Deck::with_prefix(&prefix)).expect("pre");
+    assert_eq!(st_pre.street(), Street::Preflop);
+
+    // Advance to flop: SB Call, BB Check.
+    let mut st_flop = st_pre;
+    st_flop.apply(Action::Call).expect("sb call");
+    st_flop.apply(Action::Check).expect("bb check");
+    assert_eq!(st_flop.street(), Street::Flop);
+
+    // Advance to turn.
+    let mut st_turn = st_flop;
+    st_turn.apply(Action::Check).expect("sb check");
+    st_turn.apply(Action::Check).expect("bb check");
+    assert_eq!(st_turn.street(), Street::Turn);
+
+    // Advance to river.
+    let mut st_riv = st_turn;
+    st_riv.apply(Action::Check).expect("sb check");
+    st_riv.apply(Action::Check).expect("bb check");
+    assert_eq!(st_riv.street(), Street::River);
+
+    let n_holes = 40usize;
+    let iters = 200_000usize;
+
+    for (label, st) in [
+        ("preflop", &st_pre),
+        ("flop", &st_flop),
+        ("turn", &st_turn),
+        ("river", &st_riv),
+    ] {
+        let obs = Observables::view(st, Player::from_usize(0));
+        let seq = ActionSeq::default();
+        let slots = ladder.slots(&obs, &seq);
+
+        // WARM the caches by hashing every combo once, then measure.
+        // This isolates the "steady-state" (repeated lookups) from the
+        // "cold" (first-time) cost, since the walk re-derives keys for
+        // the same combos across iterations and should benefit from the
+        // per-encoder eq_cache / fallback_cache.
+        let mut warm = 0u64;
+        for i in 0..n_holes {
+            let a = (i % 40) as u8;
+            let b = ((i + 1) % 40) as u8;
+            let hole = Hand2::new(Card(a), Card(b));
+            let obs_i = obs.with_hole(hole);
+            warm ^= encoder.key_for(&obs_i, &seq, &slots).0;
+        }
+        let _ = warm;
+
+        let t0 = Instant::now();
+        let mut sink = 0u64;
+        for i in 0..iters {
+            let a = (i % n_holes) as u8;
+            let b = ((i + 1) % n_holes) as u8;
+            let hole = Hand2::new(Card(a), Card(b));
+            let obs_i = obs.with_hole(hole);
+            sink ^= encoder.key_for(&obs_i, &seq, &slots).0;
+        }
+        let dt = t0.elapsed().as_secs_f64();
+        eprintln!(
+            "key_for[{:>7}]: {:>10.0} keys/s  ({:>8.3} ns/key, sink={:#x})",
+            label,
+            iters as f64 / dt,
+            dt * 1e9 / iters as f64,
+            sink
+        );
+    }
+
+    // Same sweep but WITHOUT the warm pass, to show cold cost.
+    eprintln!();
+    eprintln!("(cold, fresh encoder per street)");
+    for (label, st) in [("preflop", &st_pre), ("river", &st_riv)] {
+        let mut cold = Encoder::cfg_only(cfg.clone()).expect("enc");
+        let obs = Observables::view(st, Player::from_usize(0));
+        let seq = ActionSeq::default();
+        let slots = ladder.slots(&obs, &seq);
+        let t0 = Instant::now();
+        let mut sink = 0u64;
+        // 2000 distinct hole pairs (no repeat → cache never helps)
+        for i in 0..2000usize {
+            let a = ((i * 7) % 52) as u8;
+            let b = (((i * 7) + 13) % 52) as u8;
+            if a == b {
+                continue;
+            }
+            let hole = Hand2::new(Card(a), Card(b));
+            let obs_i = obs.with_hole(hole);
+            sink ^= cold.key_for(&obs_i, &seq, &slots).0;
+        }
+        let dt = t0.elapsed().as_secs_f64();
+        eprintln!(
+            "cold key_for[{:>7}]: {:.3} us/key  (sink={:#x})",
+            label,
+            dt * 1e6 / 2000.0,
+            sink
+        );
+    }
+}
