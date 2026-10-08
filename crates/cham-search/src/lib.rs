@@ -25,6 +25,7 @@ pub mod subgame;
 pub mod trigger;
 pub mod vbr;
 pub mod pubtree;
+pub mod fullgame;
 
 pub use budget::{SearchBudget, WallClockGuard};
 pub use prior::PriorStrats;
