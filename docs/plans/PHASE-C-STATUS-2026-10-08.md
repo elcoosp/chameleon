@@ -42,52 +42,82 @@ budget. Profiling is the next task.
   baseline. D1's full-game VBR (6.41 ± 1.50 bb) is still the number to
   beat, and a tighter D1 measurement is in progress (180 boards).
 
-## The performance blocker
+## The performance blocker (MEASURED 2026-10-08, bench at 4ce2b41)
 
-Measured: `pcs_artifact_bridge` runs 20 iterations on 4-combo ranges in
-5.08 s (≈0.25 s/iteration at 8 combos total). The walk calls
-`Encoder::key_for` once per combo per non-terminal node, and each call
-rebuilds the public hash from scratch — including the per-street
-history bytes. The tree has 4124 nodes; a full walk is ~4124 × 8 key
-derivations. At 1326 combos per side that becomes ~4124 × 2652 calls
-per iteration.
+Bench: `crates/cham-blueprint/tests/pcs_walk_bench.rs`. Run with:
 
-Rough scaling to full range: 100-200x slower per iteration than the
-8-combo measurement, i.e. **25-50 s/iteration**. The D2 gate allows 4h
-of wall clock; 10^6 iterations at 25 s each is 290 days. The trainer
-cannot reach the gate without an order-of-magnitude speedup.
+    target/debug/deps/pcs_walk_bench-<hash> --ignored --nocapture
 
-The likely fix path (next session):
+### Measured unit costs
 
-1. **Batch the key derivation.** At a fixed node the public-part hash is
-   identical for all combos (street, player, spr_band, legal_mask, seq
-   bytes) — only the bucket differs. At abstraction v3 the key is
-   `hash(public) XOR bucket_mix(bucket)`, so all combos' keys can be
-   produced from one hash and a table of bucket mixes. At v2 the key is
-   an inline FNV over `hole`-dependent bytes, so this optimization is
-   v3-only. **Consider switching the PCS trainer to abstraction v3 by
-   default**; the D1 harness accepts any config.
+- `Encoder::key_for` (per combo, one bucket + FNV hash): **78 ns**
+- `Encoder::bucket` alone (per combo): **17 ns**
+- `State::new` + deal (per iteration): **719 ns**
 
-2. **Hoist per-node work out of the combo loop.** The walk rebuilds
-   `Observables::view(&st, ...)` once per node (good), then
-   `with_hole` per combo (cheap clone). The expensive part is
-   `key_for`: 128-byte FNV hash per combo. Reduce to one FNV per node +
-   a table lookup per combo if v3.
+### Measured walk throughput (linear scaling)
 
-3. **Cache terminal CFVs by (node, board) across iterations.**
-   Terminal showdown CFVs depend only on ranks and reach; the ranks for
-   a given board don't change. Currently they are recomputed every
-   iteration. If the same board is drawn twice (birthday-paradox
-   likely over 10^6 iterations over 2.6M boards), the computation
-   repeats. A memo table keyed by board would amortize.
+    n/side   s/iter    iter/s   ns/combo-visit
+         4   0.0019     516.3   ~475
+        16   0.0066     151.1   ~413
+        64   0.0585      17.1   ~914
+       256   0.2265       4.4   ~885
 
-4. **Persistent state reuse.** Per iteration the walk rebuilds ranges
-   from the board. This is unavoidable. But the `State` construction is
-   per iteration — bench it, it may be cheaper than the key derivation,
-   or it may dominate.
+Extrapolating linearly, **full range (1326/side, 2652 combos total) ≈
+1.2 s/iter**. At 4h wall clock that allows ~12 000 iterations. PCS
+convergence on poker typically needs 10^6-10^7. **The gap is ~100x**, not
+the 20-40x the earlier (unmeasured) estimate in rev 1 of this document
+claimed.
 
-Do (1) first — it is the largest win and it is structural, not
-micro-optimization. Then re-measure.
+### What is NOT the bottleneck
+
+The earlier draft blamed `key_for` (the bucket + FNV hash per combo).
+**That was wrong.** `key_for` is 78 ns; total per-combo-visit cost is
+~500-900 ns. The missing ~400-800 ns is elsewhere.
+
+### Where the missing time lives (hypothesis, unprofiled)
+
+The walk allocates per node, per combo:
+
+- three `HashMap`s per node (`regret_delta`, `reach_sum`, `sigma_agg`);
+- `strat[i].clone()` on every `sigma_agg` insert;
+- `child_h`/`child_v` `Vec<f64>` per recursive call;
+- `current_strategy()` allocation per combo at key time.
+
+At ~4124 nodes × n combos × n iterations these allocator interactions
+dominate.
+
+### What to do next
+
+**Profile first, do not guess.** Recommended:
+
+    cargo install samply
+    samply record target/debug/deps/pcs_walk_bench-<hash> --ignored walk_throughput
+
+or on macOS: `instruments -t "Time Profiler" -file out.trace ...`.
+
+Then optimize the actual hot path. Candidate fixes if the hypothesis
+holds (in order of expected payoff):
+
+1. **Replace the per-node HashMaps** with a pre-sorted key list + binary
+   search + parallel `Vec<Vec<f64>>`. All keys at a node are known
+   before the child recursion, so the map churn is avoidable.
+2. **Pre-size and reuse scratch buffers.** Introduce a `Scratch` struct
+   carried through the recursion: `Vec<f64>` for child EV accumulators,
+   pre-allocated to n and reused per node instead of allocating fresh.
+3. **Bypass `current_strategy()`** by computing regret-matching in place
+   against the row.
+4. **Terminal-CFV memo by (node, board).** Ranks for a fixed board don't
+   change across iterations.
+
+Do (1) and (2) together — they share the "no per-node allocation"
+refactor. That should recover most of the 100x.
+
+### What is NOT worth doing
+
+The v3 key split (`hash(public) XOR bucket_mix(bucket)`) is not the fix:
+`key_for` is already cheap, and the walk is linear in n, which rules out
+key-hashing or bucket-derivation as the dominant cost. Keep it in mind
+for later but do not prioritize it.
 
 ## Decision needed before D2
 
