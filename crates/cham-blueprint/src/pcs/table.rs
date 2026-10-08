@@ -6,7 +6,7 @@
 //! the tabular trainer uses a specialized table; the PCS one can be
 //! swapped in once profiling shows it matters.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Per-infoset regret vector and strategy sum.
 #[derive(Clone, Debug)]
@@ -43,18 +43,42 @@ impl Row {
             .map(|&r| if r > 0.0 { r / sum } else { 0.0 })
             .collect()
     }
+
+    /// Write the current strategy into `out` without allocating. The
+    /// caller supplies a reused buffer; `out` is truncated to `w` if
+    /// it is longer, and its length must be >= `w`.
+    pub fn current_strategy_into(&self, out: &mut [f64]) -> usize {
+        let w = self.regret.len();
+        debug_assert!(out.len() >= w, "buffer too short: {} < {w}", out.len());
+        let sum: f64 = self.regret.iter().copied().filter(|&r| r > 0.0).sum();
+        if sum <= 0.0 {
+            let u = 1.0 / w as f64;
+            for v in out[..w].iter_mut() {
+                *v = u;
+            }
+        } else {
+            for i in 0..w {
+                out[i] = if self.regret[i] > 0.0 {
+                    self.regret[i] / sum
+                } else {
+                    0.0
+                };
+            }
+        }
+        w
+    }
 }
 
 /// Storage for all infosets across a training run.
 #[derive(Debug, Default)]
 pub struct RegretTable {
-    rows: HashMap<u64, Row>,
+    rows: FxHashMap<u64, Row>,
 }
 
 impl RegretTable {
     pub fn new() -> Self {
         RegretTable {
-            rows: HashMap::new(),
+            rows: FxHashMap::default(),
         }
     }
 
