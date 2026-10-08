@@ -27,6 +27,54 @@ use cham_engine::ladder::ActionLadder;
 use cham_search::kernel::showdown_cfv_two;
 use cham_search::pubtree::PublicTree;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
+
+/// Profile toggle. Off by default; when on, the walk accumulates
+/// thread-local counters. Overhead when off is a single relaxed atomic
+/// load per instrumented section.
+static PROFILE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    static PROFILE_KEY_NS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static PROFILE_AGG_NS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static PROFILE_TERM_NS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Exclusive-time counters from one or more profiled iterations.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ProfileCounters {
+    pub total_ns: u64,
+    pub key_ns: u64,
+    pub agg_ns: u64,
+    pub terminal_ns: u64,
+    pub iterations: u64,
+    pub nodes: u64,
+}
+
+pub fn profile_enable() {
+    PROFILE_KEY_NS.with(|c| c.set(0));
+    PROFILE_AGG_NS.with(|c| c.set(0));
+    PROFILE_TERM_NS.with(|c| c.set(0));
+    PROFILE_ACTIVE.store(true, Ordering::Relaxed);
+}
+
+pub fn profile_take() -> ProfileCounters {
+    PROFILE_ACTIVE.store(false, Ordering::Relaxed);
+    ProfileCounters {
+        total_ns: 0,
+        key_ns: PROFILE_KEY_NS.with(|c| c.replace(0)),
+        agg_ns: PROFILE_AGG_NS.with(|c| c.replace(0)),
+        terminal_ns: PROFILE_TERM_NS.with(|c| c.replace(0)),
+        iterations: 0,
+        nodes: 0,
+    }
+}
+
+#[inline]
+fn profiling() -> bool {
+    PROFILE_ACTIVE.load(Ordering::Relaxed)
+}
 
 pub struct PcsIteration<'a> {
     pub tree: &'a PublicTree,
@@ -216,6 +264,11 @@ impl<'a> PcsIteration<'a> {
         let obs_base = Observables::view(&st, Player::from_usize(p));
         let slots = self.ladder.slots(&obs_base, &seq);
 
+        let __t_key = if profiling() {
+            Some(Instant::now())
+        } else {
+            None
+        };
         let mut keys: Vec<u64> = Vec::with_capacity(n_actor);
         let mut strat: Vec<Vec<f64>> = Vec::with_capacity(n_actor);
         for i in 0..n_actor {
@@ -225,6 +278,9 @@ impl<'a> PcsIteration<'a> {
             keys.push(k);
             let s = ctx.table.row_mut(k, na).current_strategy();
             strat.push(s);
+        }
+        if let Some(t) = __t_key {
+            PROFILE_KEY_NS.with(|c| c.set(c.get() + t.elapsed().as_nanos() as u64));
         }
 
         let mut child_h: Vec<Vec<f64>> = Vec::with_capacity(na);
@@ -274,6 +330,11 @@ impl<'a> PcsIteration<'a> {
             child_v.push(v);
         }
 
+        let __t_agg = if profiling() {
+            Some(Instant::now())
+        } else {
+            None
+        };
         let mut node_actor_cfv: Vec<f64> = vec![0.0; n_actor];
         for i in 0..n_actor {
             for ai in 0..na {
@@ -326,6 +387,9 @@ impl<'a> PcsIteration<'a> {
                 row.strategy_sum[ai] = ctx.strat_w * row.strategy_sum[ai] + rsum * sig[ai];
             }
         }
+        if let Some(t) = __t_agg {
+            PROFILE_AGG_NS.with(|c| c.set(c.get() + t.elapsed().as_nanos() as u64));
+        }
 
         if is_hero {
             let mut villain_cfv = vec![0.0; self.villain_range.len()];
@@ -347,6 +411,26 @@ impl<'a> PcsIteration<'a> {
     }
 
     fn terminal(
+        &self,
+        st: &State,
+        hero_reach: &[f64],
+        villain_reach: &[f64],
+        last_action: Option<Action>,
+        last_actor: Option<usize>,
+    ) -> (Vec<f64>, Vec<f64>) {
+        let __t_term = if profiling() {
+            Some(Instant::now())
+        } else {
+            None
+        };
+        let __out = self.terminal_inner(st, hero_reach, villain_reach, last_action, last_actor);
+        if let Some(t) = __t_term {
+            PROFILE_TERM_NS.with(|c| c.set(c.get() + t.elapsed().as_nanos() as u64));
+        }
+        __out
+    }
+
+    fn terminal_inner(
         &self,
         st: &State,
         hero_reach: &[f64],

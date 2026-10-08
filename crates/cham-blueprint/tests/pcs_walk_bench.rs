@@ -236,3 +236,79 @@ fn walk_throughput() {
     eprintln!("Full range (200h / 200v) is ~50x n=4 by combination count.");
     eprintln!("Estimate s/iter at 200/side by extrapolation from the last row.");
 }
+
+#[test]
+#[ignore = "diagnostic; run with --ignored --nocapture"]
+fn profile_phase_split() {
+    use cham_blueprint::pcs::walk::{profile_enable, profile_take};
+
+    let (cfg, ladder, tree) = build_tree();
+    for n in [16usize, 64] {
+        let (hero, vill) = split_ranges(n);
+        let hero_rank: Vec<u32> = hero
+            .iter()
+            .map(|c| (c[0] as u32) << 8 | c[1] as u32)
+            .collect();
+        let vill_rank: Vec<u32> = vill
+            .iter()
+            .map(|c| (c[0] as u32) << 8 | c[1] as u32)
+            .collect();
+        let iter = PcsIteration {
+            tree: &tree,
+            ladder: &ladder,
+            hero_range: &hero,
+            hero_rank: &hero_rank,
+            villain_range: &vill,
+            villain_rank: &vill_rank,
+            cfg: CFG,
+            hero_seat: 1,
+        };
+        let mut encoder = Encoder::cfg_only(cfg.clone()).expect("enc");
+        let mut table = RegretTable::new();
+        let mut rng = rng_from_seed(0x42);
+        let iters = 20u64;
+
+        profile_enable();
+        let t0 = Instant::now();
+        for t in 1..=iters {
+            let board = sample_board(&mut rng);
+            iter.run(&mut encoder, &mut table, board, t, 1.5, 0.0, 2.0);
+        }
+        let total_ns = t0.elapsed().as_nanos() as u64;
+        let pc = profile_take();
+
+        let other = total_ns
+            .saturating_sub(pc.key_ns)
+            .saturating_sub(pc.agg_ns)
+            .saturating_sub(pc.terminal_ns);
+        let pct = |x: u64| 100.0 * x as f64 / total_ns.max(1) as f64;
+
+        eprintln!();
+        eprintln!("=== phase split at n={n}/side, {iters} iters ===");
+        eprintln!("  total       : {:>8.3} ms", total_ns as f64 / 1e6);
+        eprintln!(
+            "  key deriv   : {:>8.3} ms  ({:>5.1}%)",
+            pc.key_ns as f64 / 1e6,
+            pct(pc.key_ns)
+        );
+        eprintln!(
+            "  aggregation : {:>8.3} ms  ({:>5.1}%)",
+            pc.agg_ns as f64 / 1e6,
+            pct(pc.agg_ns)
+        );
+        eprintln!(
+            "  terminal    : {:>8.3} ms  ({:>5.1}%)",
+            pc.terminal_ns as f64 / 1e6,
+            pct(pc.terminal_ns)
+        );
+        eprintln!(
+            "  other       : {:>8.3} ms  ({:>5.1}%)",
+            other as f64 / 1e6,
+            pct(other)
+        );
+        eprintln!(
+            "  ms/iter     : {:>8.3}",
+            total_ns as f64 / 1e6 / iters as f64
+        );
+    }
+}
