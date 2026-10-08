@@ -74,50 +74,68 @@ The earlier draft blamed `key_for` (the bucket + FNV hash per combo).
 **That was wrong.** `key_for` is 78 ns; total per-combo-visit cost is
 ~500-900 ns. The missing ~400-800 ns is elsewhere.
 
-### Where the missing time lives (hypothesis, unprofiled)
+### Where the time actually lives (MEASURED 2026-10-08, commit 2e75b32)
 
-The walk allocates per node, per combo:
+Phase split from `profile_phase_split` (in-walk thread-local timers,
+enabled via `pcs::walk::profile_enable`):
 
-- three `HashMap`s per node (`regret_delta`, `reach_sum`, `sigma_agg`);
-- `strat[i].clone()` on every `sigma_agg` insert;
-- `child_h`/`child_v` `Vec<f64>` per recursive call;
-- `current_strategy()` allocation per combo at key time.
+    n=16/side, 20 iters:  total 1288 ms
+      key deriv   :  758.829 ms  (58.9%)
+      aggregation :  163.251 ms  (12.7%)
+      terminal    :  241.292 ms  (19.7%)
+      other       :  124.978 ms  ( 9.7%)
 
-At ~4124 nodes × n combos × n iterations these allocator interactions
-dominate.
+    n=64/side, 20 iters:  total 1791 ms
+      key deriv   : 1092.441 ms  (61.0%)
+      aggregation :  167.545 ms  ( 9.4%)
+      terminal    :  436.411 ms  (24.4%)
+      other       :   94.545 ms  ( 5.3%)
 
-### What to do next
+**The "key deriv" region is 59-61%.** This corrected TWO earlier claims
+in this document:
 
-**Profile first, do not guess.** Recommended:
+1. Rev 1 blamed the FNV hash. Wrong.
+2. Rev 2's correction said "key_for is not the bottleneck." Also wrong.
 
-    cargo install samply
-    samply record target/debug/deps/pcs_walk_bench-<hash> --ignored walk_throughput
+Both were wrong because the isolated `key_for` bench measured 78 ns on
+a **preflop** node (hole-only bucket, no board work), while the walk's
+timer wraps a block: `Observables::with_hole` + `Encoder::key_for` +
+`RegretTable::row_mut` lookup + `Row::current_strategy()`. The last of
+those allocates a `Vec<f64>` per combo per node. At 4124 nodes × n
+combos × iterations, that is tens of thousands of heap allocations per
+iteration and is the dominant cost inside the block.
 
-or on macOS: `instruments -t "Time Profiler" -file out.trace ...`.
+The same reasoning explains why the isolated `key_for` bench was
+cheap: it warmed the eq_cache and then measured a hash over ~100 bytes.
+In the walk, the allocation around it is what costs.
 
-Then optimize the actual hot path. Candidate fixes if the hypothesis
-holds (in order of expected payoff):
+### What to do next (concrete, ordered by measured payoff)
 
-1. **Replace the per-node HashMaps** with a pre-sorted key list + binary
-   search + parallel `Vec<Vec<f64>>`. All keys at a node are known
-   before the child recursion, so the map churn is avoidable.
-2. **Pre-size and reuse scratch buffers.** Introduce a `Scratch` struct
-   carried through the recursion: `Vec<f64>` for child EV accumulators,
-   pre-allocated to n and reused per node instead of allocating fresh.
-3. **Bypass `current_strategy()`** by computing regret-matching in place
-   against the row.
-4. **Terminal-CFV memo by (node, board).** Ranks for a fixed board don't
-   change across iterations.
+1. **Eliminate `current_strategy()`'s Vec allocation.** Replace the
+   walk's `strat: Vec<Vec<f64>>` with `strat: Vec<[f64; 12]>` (na ≤ 12
+   is invariant I8), and add `Row::current_strategy_into(&self, out:
+   &mut [f64])`. The walk writes into a stack array; no heap. Same for
+   `sigma_agg: HashMap<u64, Vec<f64>>` → `HashMap<u64, [f64; 12]>`
+   (arrays are `Copy`, so `sigma_agg[k]` no longer clones).
 
-Do (1) and (2) together — they share the "no per-node allocation"
-refactor. That should recover most of the 100x.
+   Expected: recover ~40-50% of total (the allocation-dominated portion
+   of the 59-61%). One refactor; mechanical; testable by re-running
+   `profile_phase_split` and confirming the key-deriv share drops.
 
-### What is NOT worth doing
+2. **Terminal CFV memo by (node, board).** Terminal showdown CFVs
+   depend only on ranks and reach; ranks for a fixed board don't change
+   across iterations. Currently recomputed every iteration. With 4124
+   nodes and a per-iteration board, a memo table keyed by (node, board)
+   amortizes across repeat draws. Lower priority than (1) because
+   terminal is 20-25% and the memo adds bookkeeping.
 
-The v3 key split (`hash(public) XOR bucket_mix(bucket)`) is not the fix:
-`key_for` is already cheap, and the walk is linear in n, which rules out
-key-hashing or bucket-derivation as the dominant cost. Keep it in mind
-for later but do not prioritize it.
+3. **Do NOT do the v3 key split.** Still true: FNV is cheap; the
+   profile shows the cost is elsewhere.
+
+After (1) and a re-measure, the walk should land at ~700-900 ns/combo
+visit instead of the current ~900-1600. Full range would be ~0.6-0.8
+s/iter. Still ~50x off the D2 budget but the next round of optimization
+has a clear target (whatever dominates after (1)).
 
 ## Decision needed before D2
 
