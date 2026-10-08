@@ -10,6 +10,7 @@
 pub mod dcfr;
 pub mod sampling;
 pub mod table;
+pub mod trainer;
 pub mod walk;
 
 use thiserror::Error;
