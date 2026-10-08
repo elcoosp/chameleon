@@ -47,10 +47,66 @@ struct Ctx<'b> {
     strat_w: f64,
 }
 
+/// Filter a range (and its parallel rank vector) to combos disjoint
+/// from the board. Preserves order.
+fn filter_disjoint(range: &[[u8; 2]], rank: &[u32], board: &[Card; 5]) -> (Vec<[u8; 2]>, Vec<u32>) {
+    debug_assert_eq!(range.len(), rank.len());
+    let mut b = [0u8; 5];
+    for (i, c) in board.iter().enumerate() {
+        b[i] = c.idx();
+    }
+    let mut new_range = Vec::with_capacity(range.len());
+    let mut new_rank = Vec::with_capacity(range.len());
+    for (i, combo) in range.iter().enumerate() {
+        if b.contains(&combo[0]) || b.contains(&combo[1]) {
+            continue;
+        }
+        new_range.push(*combo);
+        new_rank.push(rank[i]);
+    }
+    (new_range, new_rank)
+}
+
 impl<'a> PcsIteration<'a> {
     /// One PCS update. `t` is the 1-based iteration counter.
+    ///
+    /// The hero and villain ranges are FILTERED to combos disjoint from
+    /// the sampled board: a range combo that shares a card with the
+    /// board is physically impossible and would corrupt the terminal
+    /// CFVs. The filtered vectors are built once per iteration and the
+    /// walk runs on those.
     #[allow(clippy::too_many_arguments)]
     pub fn run(
+        &self,
+        encoder: &mut Encoder,
+        table: &mut RegretTable,
+        board: [Card; 5],
+        t: u64,
+        alpha: f64,
+        beta: f64,
+        gamma: f64,
+    ) {
+        let (hero_range, hero_rank) = filter_disjoint(self.hero_range, self.hero_rank, &board);
+        let (villain_range, villain_rank) =
+            filter_disjoint(self.villain_range, self.villain_rank, &board);
+        if hero_range.is_empty() || villain_range.is_empty() {
+            return;
+        }
+        let filtered = PcsIteration {
+            tree: self.tree,
+            ladder: self.ladder,
+            hero_range: &hero_range,
+            hero_rank: &hero_rank,
+            villain_range: &villain_range,
+            villain_rank: &villain_rank,
+            cfg: self.cfg,
+            hero_seat: self.hero_seat,
+        };
+        filtered.run_filtered(encoder, table, board, t, alpha, beta, gamma);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_filtered(
         &self,
         encoder: &mut Encoder,
         table: &mut RegretTable,
