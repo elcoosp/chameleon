@@ -5,10 +5,12 @@
 //! `CHAM_D1_BUCKETS` (default <bundle>/buckets), and runs the
 //! full-game VBR over `CHAM_D1_BOARDS` (default 20) sampled boards.
 //!
-//! Run:
-//!   CHAM_SLOT_BUCKET=1 \
+//! Run (note: NO CHAM_SLOT_BUCKET — the shipped bundle was trained
+//! with stack-fraction keys, so setting that flag corrupts every
+//! non-root seq entry and produces a 99% policy miss; verified by
+//! d1_key_probe at 69af8b9):
 //!   CHAM_D1_BP=$PWD/artifacts/agent-honest-19dim/robust \
-//!   CHAM_D1_CONFIG=$PWD/config/abstraction-tiny.toml \
+//!   CHAM_D1_CONFIG=$PWD/artifacts/agent-honest-19dim/abstraction.toml \
 //!   CHAM_D1_BUCKETS=$PWD/artifacts/agent-honest-19dim/buckets \
 //!     target/debug/deps/d1_fullgame_vbr-<hash> --ignored --nocapture
 
