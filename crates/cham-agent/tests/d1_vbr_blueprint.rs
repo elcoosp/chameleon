@@ -93,11 +93,18 @@ fn d1_vbr_full() {
     let bp_dir = std::env::var("CHAM_D1_BP")
         .unwrap_or_else(|_| "artifacts/agent-honest-19dim/robust".into());
     let policy = BlueprintPolicy::load(std::path::Path::new(&bp_dir), 0).expect("load bp");
+    // Buckets/config: explicit env, else the bundle layout (bp_dir/..).
     let bundle = std::path::Path::new(&bp_dir).parent().expect("bundle");
-    let cfg = std::fs::read_to_string(bundle.join("abstraction.toml")).ok()
+    let cfg_path = std::env::var("CHAM_D1_CONFIG").ok()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| bundle.join("abstraction.toml"));
+    let cfg = std::fs::read_to_string(&cfg_path).ok()
         .and_then(|t| cham_engine::config::parse_config(&t).ok())
         .unwrap_or_else(AbstractionConfig::tiny);
-    let base_enc = Encoder::from_artifacts_dir(&bundle.join("buckets"), cfg.clone())
+    let bk = std::env::var("CHAM_D1_BUCKETS").ok()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| bundle.join("buckets"));
+    let base_enc = Encoder::from_artifacts_dir(&bk, cfg.clone())
         .unwrap_or_else(|_| Encoder::cfg_only(cfg.clone()).expect("enc"));
 
     let fracs = [0.5f64, 1.0];
