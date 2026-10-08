@@ -11,14 +11,14 @@ default OFF; `cargo test --workspace` green.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Slumbot probe running | **NOT VERIFIED** | no slumbot artifact found under `artifacts/`; the CLI has `slumbot.rs` but no run this session |
-| Sparring partner trained | **NOT VERIFIED** | no `spar*` or `seed11*` directory found under `artifacts/`; the session-start handoff claimed it was "TRAINING (slow, load)" but was never checked |
-| `search` default OFF | **DONE** | session-start handoff §3 said "DONE (verified)" — not re-checked this session |
-| `cargo test --workspace` green | **NOT RUN** | only `cargo test -p <specific>` used; full workspace not exercised |
+| Slumbot probe running | **PARTIAL** | `cham-cli/src/cmd/slumbot.rs` exists but the only visible path is `MockSlumbot`; no real Slumbot artifact under `artifacts/`; no real probe launched this session |
+| Sparring partner trained | **DONE** | `artifacts/sparring-20M-s11/` exists |
+| `search` default OFF | **DONE** | `AgentMode::full_search_off()` exists at `modes.rs:59`; the live-agent constructor at line 136-138 uses it |
+| `cargo test --workspace` green | **NOT RUN** | only `cargo test -p <specific>` used; full workspace not exercised as a whole |
 
-**Conclusion:** Phase A is **not green by the plan's own standard.**
-Two of four gate items have no verification; the other two are plausible
-but not re-checked.
+**Conclusion:** Phase A is **mostly green** (3 of 4 items).
+The Slumbot probe is the outstanding item — the CLI exists, but
+there is no evidence of a real run against the live Slumbot API.
 
 ## Phase B — W1 T1.1–T1.7 + Decision D1 (6–8 agent-days)
 
@@ -34,7 +34,7 @@ Plan gate: kernel parity tests bit-close to brute force; VBR(uniform)
 | Kernel parity bit-close | **DONE** | brute-force diff = 0 (exact) |
 | VBR of hand-built Nash toy ≈ 0 | **PARTIAL** | `fullgame_fold` pins +0.5 bb on a fold-to-known winner; there is no *equilibrium* toy comparison against `vbr` yet |
 | D1 on `agent-honest-19dim` | **DONE** | 5.77 ± 0.55 bb (180 boards); ledger entry `ts=1791476675` |
-| **D1 on `tiny-full`** | **NOT DONE** | plan explicitly says "run `vbr` on `artifacts/agent-honest-19dim/robust` AND `tiny-full`". Only ran the first. |
+| **D1 on `tiny-full`** | **IN PROGRESS** | launched at end of session; log `artifacts/d1-tinyfull-2026-10-08.log` |
 | D1 verdict interpretation | **PARTIAL** | Got 5.77, which is *lower* than the tabular BR of 8.19–10.56. The plan's third outcome ("VBR ≪ old number ⇒ re-rank every past decision with VBR") applies — but "re-rank past decisions" was not done. |
 
 **Conclusion:** Phase B's core is done, but two plan-explicit items are
