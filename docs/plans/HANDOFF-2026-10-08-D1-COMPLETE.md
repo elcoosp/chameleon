@@ -3,14 +3,18 @@
 **Written:** 2026-10-08 (after landing the full-game VBR).
 **Repository:** /Users/adm/Documents/Repos/chameleon, branch `main`.
 **HEAD:** ~85 commits ahead of `origin/main` (unpushed).
-**Authoritative plan:** `CHAMELEON-SOTA-PLAN.md`. Plan wins on conflict.
 
 ## 0. Read this first
 
-1. `CHAMELEON-SOTA-PLAN.md` — T-IDs, gates.
-2. `docs/plans/D1-RESULT-2026-10-08.md` — **Decision D1 is ANSWERED**.
-3. `docs/plans/FULLGAME-VBR-DESIGN-2026-10-08.md` — how the walker works.
+1. `docs/plans/D1-RESULT-2026-10-08.md` — **Decision D1 is ANSWERED**.
+2. `docs/plans/FULLGAME-VBR-DESIGN-2026-10-08.md` — how the walker works.
+3. `docs/plans/PHASE-C-PCS-DESIGN-2026-10-08.md` — Phase C design (next task).
 4. This file — where we are, gotchas, next task.
+
+**No single authoritative plan file exists.** The session-start handoff
+cited `CHAMELEON-SOTA-PLAN.md`, but that file is not in the working tree
+and has no git history (`git log --all -- '*CHAMELEON-SOTA-PLAN*'` is
+empty). Decisions are made in the per-phase design docs listed above.
 
 ## 1. HEADLINE: Decision D1 is answered
 
