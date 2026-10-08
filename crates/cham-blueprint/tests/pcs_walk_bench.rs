@@ -26,12 +26,29 @@ const CFG: EngineConfig = EngineConfig {
     bb: 100,
 };
 
+/// Build n disjoint combos for hero from cards [0,26) and n for villain
+/// from [26,52). Max n is C(26,2) = 325 per side. The naïve
+/// `[2k, 2k+1]` construction overflows 52 at n > 13 (the bench crash at
+/// n = 16); enumerating pairs within a half-deck stays valid.
 fn split_ranges(n: usize) -> (Vec<[u8; 2]>, Vec<[u8; 2]>) {
+    assert!(n <= 325, "max 325 combos per side (C(26,2))");
     let mut hero = Vec::with_capacity(n);
     let mut vill = Vec::with_capacity(n);
-    for k in 0..n {
-        hero.push([(2 * k) as u8, (2 * k + 1) as u8]);
-        vill.push([(26 + 2 * k) as u8, (26 + 2 * k + 1) as u8]);
+    'hero: for a in 0..26u8 {
+        for b in (a + 1)..26u8 {
+            hero.push([a, b]);
+            if hero.len() == n {
+                break 'hero;
+            }
+        }
+    }
+    'vill: for a in 26..52u8 {
+        for b in (a + 1)..52u8 {
+            vill.push([a, b]);
+            if vill.len() == n {
+                break 'vill;
+            }
+        }
     }
     (hero, vill)
 }
@@ -175,7 +192,7 @@ fn walk_throughput() {
         "{:>6}  {:>10}  {:>10}  {:>10}",
         "n/side", "s/iter", "iter/s", "rows"
     );
-    for n in [4usize, 8, 16] {
+    for n in [4usize, 16, 64, 256] {
         let (hero, vill) = split_ranges(n);
         let hero_rank: Vec<u32> = hero
             .iter()
