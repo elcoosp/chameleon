@@ -487,7 +487,29 @@ impl Encoder {
                 n += 3;
             }
         }
-        InfoSetKey(fnv1a(&bytes[..n]) | (1 << 63))
+        // C-3 (2026-10-07, plan): at abstraction version >= 3 the bucket is
+        // MIXED into a bucket-free hash (cheap XOR), not hashed inline. This
+        // is the primitive the vector solver / PCS trainer needs: hash the
+        // public part once, enumerate all buckets with XORs. v2 keeps the
+        // inline-hash form (bit-identical keys for existing artifacts).
+        let h = if self.cfg.version >= 3 {
+            let mut z = bytes;
+            z[3] = 0;
+            z[4] = 0;
+            fnv1a(&z[..n]) ^ Self::bucket_mix(bucket)
+        } else {
+            fnv1a(&bytes[..n])
+        };
+        InfoSetKey(h | (1 << 63))
+    }
+
+    /// C-3 key primitive: mix a bucket into a public-part hash. Injective in
+    /// `bucket` (golden-ratio multiply), so distinct buckets => distinct keys.
+    /// v3 keys are `hash(bucket-free public bytes) ^ bucket_mix(bucket)`, so a
+    /// caller that hashes the public part once enumerates buckets cheaply.
+    #[inline]
+    pub fn bucket_mix(bucket: u16) -> u64 {
+        (bucket as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
     }
 
     /// §3.5 Patch 2 — history compression gate. When `CHAM_COMPRESS_HISTORY=1`,
