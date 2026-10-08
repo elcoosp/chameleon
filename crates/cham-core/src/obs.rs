@@ -78,6 +78,33 @@ pub struct Observables<'a> {
 
 impl<'a> Observables<'a> {
     /// The only constructor: project a state down to one seat's view.
+    /// Clone these observables with a different hole-card pair. Board,
+    /// street, player, pot, stacks, and legal actions are preserved. Used
+    /// by the PCS trainer to derive a per-combo encoder key at a single
+    /// node without rebuilding the engine `State` per combo: the bucket
+    /// depends only on `(hole, board, street)` and every other key field
+    /// is public, so swapping the hole is sufficient.
+    pub fn with_hole(&self, hole: Hand2) -> Observables<'a> {
+        Observables {
+            player: self.player,
+            street: self.street,
+            hole,
+            board: self.board,
+            board_len: self.board_len,
+            pot: self.pot,
+            to_call: self.to_call,
+            current_bet: self.current_bet,
+            min_raise_to: self.min_raise_to,
+            max_raise_to: self.max_raise_to,
+            last_full_raise: self.last_full_raise,
+            stack: self.stack,
+            effective_stack: self.effective_stack,
+            stacks: self.stacks,
+            legal: self.legal.clone(),
+            _anchor: std::marker::PhantomData,
+        }
+    }
+
     pub fn view(state: &'a State, p: Player) -> Observables<'a> {
         let i = p.as_usize();
         let mut legal: ArrayVec<LegalAction, 12> = ArrayVec::new();
