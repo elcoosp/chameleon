@@ -18,7 +18,6 @@ use cham_engine::encoder::{ActionSeq, Encoder};
 use cham_search::vbr::RiverVbr;
 
 const CFG: EngineConfig = EngineConfig { start_stack: 10_000, sb: 50, bb: 100 };
-const HERO_SEAT: usize = 1; // BB acts first postflop
 const VILL_SEAT: usize = 0;
 
 fn board_from_seed(seed: u64) -> [Card; 5] {
@@ -131,7 +130,7 @@ fn d1_vbr_full() {
 
         // villain policy table[path][villain_combo]
         let mut vtable = vec![vec![vec![0.25f64; 4]; vill.len()]; 4];
-        let mut hero_dummy = [0u8; 2];
+        let mut hero_dummy;
         for j in 0..vill.len() {
             // dummy hero disjoint from board + villain
             let mut used = [false; 52];
@@ -146,7 +145,7 @@ fn d1_vbr_full() {
                 for pi in 0..4usize {
                     let mut st = st0;
                     let mut seq = seq0;
-                    let mut enc = base_enc.clone();
+                    let enc = base_enc.clone();
                     if pi > 0 {
                         // hero (seat 1) acts: bet size pi-1, or jam for pi==3
                         let p = st.to_act();
