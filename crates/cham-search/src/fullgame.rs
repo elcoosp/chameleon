@@ -126,7 +126,7 @@ fn walk<F>(
     hero_seat: usize,
     policy: &mut F,
     node: u32,
-    mut st: State,
+    st: State,
     seq: ActionSeq,
     history: &[Action],
     villain_reach: &[f64],
