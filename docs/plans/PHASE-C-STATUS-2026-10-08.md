@@ -42,6 +42,63 @@ budget. Profiling is the next task.
   baseline. D1's full-game VBR (6.41 ± 1.50 bb) is still the number to
   beat, and a tighter D1 measurement is in progress (180 boards).
 
+## Pipeline verified end-to-end (2026-10-08, CLI at 4f45779)
+
+`train-pcs` writes an artifact that the D1 harness loads and queries
+with 0.03% miss rate. The full chain runs without manual intervention:
+
+    train-pcs (2 iterations, 30 combos/side)
+      -> run_pcs (PCS walk, per-board ranks)
+      -> to_tabular (PCS table -> tabular table)
+      -> BlueprintPolicy::build_artifact (policy.bin)
+      -> BlueprintPolicy::load
+      -> d1_fullgame_vbr (queries per combo)
+
+Reproduce:
+
+    chameleon train-pcs --iters 20 --combos 30 --force \
+        --wall-budget-s 300 --out /tmp/pcs-30smoke
+
+    CHAM_D1_BP=/tmp/pcs-30smoke/robust \
+    CHAM_D1_CONFIG=config/abstraction-tiny.toml \
+    CHAM_D1_BUCKETS=artifacts/buckets-tiny \
+      target/debug/deps/d1_fullgame_vbr-<hash> --ignored --nocapture
+
+Result (3 boards):
+
+    policy miss: 0.03%  (24 / 68850)
+
+That the shipped bundle's abstraction (`artifacts/agent-honest-19dim/
+abstraction.toml`) is byte-identical to `config/abstraction-tiny.toml`
+means the shipped blueprint and any PCS-trained tiny artifact key the
+same, so a D2 comparison is apples-to-apples.
+
+The **VBR number itself is not meaningful at 20 iterations** — the
+policy is cold-started. What this verifies is the integration: a PCS
+artifact is a real, loadable, queryable `BlueprintPolicy`, not a
+partially-written file that happens to parse.
+
+### The `train-pcs` CLI
+
+    chameleon train-pcs \
+        --iters N --combos M \
+        --config config/abstraction-tiny.toml \
+        --buckets artifacts/buckets-tiny \
+        --out artifacts/pcs-<name> \
+        --dcfr-alpha 1.5 --dcfr-beta 0.0 --dcfr-gamma 2.0 \
+        --wall-budget-s 14400 \
+        [--force]  # bypass the wall guard, for tiny diagnostic runs only
+
+The command estimates the wall clock from the measured per-combo-per-node
+cost and **refuses to launch** a run that exceeds `--wall-budget-s`. For
+example, `--iters 10000 --combos 30 --wall-budget-s 60` prints
+`REFUSING — estimate 0.7 h exceeds --wall-budget-s 60` and exits 1.
+
+This is deliberate: at the current ~1 s/iter full-range walk, a real
+training run cannot finish inside 4h. The guard makes the CLI honest
+about that instead of letting a user launch a run that will be killed
+by the next session boundary.
+
 ## The performance blocker (MEASURED 2026-10-08, bench at 4ce2b41)
 
 Bench: `crates/cham-blueprint/tests/pcs_walk_bench.rs`. Run with:
