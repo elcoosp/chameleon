@@ -16,7 +16,7 @@ use cham_engine::ladder::ActionLadder;
 
 pub struct FullGameVbr<'a, F>
 where
-    F: FnMut(&State, &ActionSeq, usize, usize) -> Vec<f64>,
+    F: FnMut(&State, &[Action], &ActionSeq, usize, usize) -> Vec<f64>,
 {
     pub tree: &'a PublicTree,
     pub ladder: &'a ActionLadder,
@@ -33,7 +33,7 @@ where
 
 impl<'a, F> FullGameVbr<'a, F>
 where
-    F: FnMut(&State, &ActionSeq, usize, usize) -> Vec<f64>,
+    F: FnMut(&State, &[Action], &ActionSeq, usize, usize) -> Vec<f64>,
 {
     pub fn best_response(&mut self, board: &[Card; 5]) -> Option<f64> {
         let nh = self.hero_range.len();
@@ -63,12 +63,13 @@ where
         let st = State::new(self.cfg, Deck::with_prefix(&prefix)).ok()?;
         let vr = self.villain_w.to_vec();
         let seq = ActionSeq::default();
+        let hist: Vec<Action> = Vec::new();
         let ev = walk(
             self.tree, self.ladder,
             self.hero_range, self.hero_rank,
             self.villain_range, self.villain_rank,
             self.cfg, self.hero_seat, &mut self.policy,
-            self.tree.root, st, seq, &vr, None, None,
+            self.tree.root, st, seq, &hist, &vr, None, None,
         );
         let bb = self.cfg.bb as f64;
         let sum: f64 = ev.iter().zip(self.hero_w.iter()).map(|(e, w)| e * w).sum();
@@ -90,12 +91,13 @@ fn walk<F>(
     node: u32,
     st: State,
     seq: ActionSeq,
+    history: &[Action],
     villain_reach: &[f64],
     last_action: Option<Action>,
     last_actor: Option<usize>,
 ) -> Vec<f64>
 where
-    F: FnMut(&State, &ActionSeq, usize, usize) -> Vec<f64>,
+    F: FnMut(&State, &[Action], &ActionSeq, usize, usize) -> Vec<f64>,
 {
     let n = &tree.nodes[node as usize];
     if n.terminal {
@@ -119,9 +121,11 @@ where
                 ladder, &obs, Player::from_usize(p), a, &mut seq2,
             );
             if st2.apply(a).is_err() { continue; }
+            let mut hist2 = history.to_vec();
+            hist2.push(a);
             let ev = walk(
                 tree, ladder, hero_range, hero_rank, villain_range, villain_rank,
-                cfg, hero_seat, policy, n.children[i], st2, seq2, villain_reach,
+                cfg, hero_seat, policy, n.children[i], st2, seq2, &hist2, villain_reach,
                 Some(a), Some(p),
             );
             for k in 0..nh {
@@ -134,7 +138,7 @@ where
         let mut probs_per_action: Vec<Vec<f64>> =
             (0..na).map(|_| vec![0.0; nv]).collect();
         for j in 0..nv {
-            let probs = policy(&st, &seq, na, j);
+            let probs = policy(&st, history, &seq, na, j);
             for i in 0..na {
                 probs_per_action[i][j] = probs.get(i).copied().unwrap_or(0.0);
             }
@@ -152,9 +156,11 @@ where
             for j in 0..nv {
                 new_reach[j] = villain_reach[j] * probs_per_action[i][j];
             }
+            let mut hist2 = history.to_vec();
+            hist2.push(a);
             let ev = walk(
                 tree, ladder, hero_range, hero_rank, villain_range, villain_rank,
-                cfg, hero_seat, policy, n.children[i], st2, seq2, &new_reach,
+                cfg, hero_seat, policy, n.children[i], st2, seq2, &hist2, &new_reach,
                 Some(a), Some(p),
             );
             for k in 0..nh { total[k] += ev[k]; }

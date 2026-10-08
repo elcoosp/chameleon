@@ -158,7 +158,7 @@ fn fullgame_matches_brute_force() {
     let hw = vec![1.0 / hero.len() as f64; hero.len()];
     let vw = vec![1.0 / vill.len() as f64; vill.len()];
 
-    let mut policy_walker = |_st: &State, _seq: &ActionSeq, na: usize, _j: usize| -> Vec<f64> {
+    let mut policy_walker = |_st: &State, _path: &[Action], _seq: &ActionSeq, na: usize, _j: usize| -> Vec<f64> {
         if na == 0 { Vec::new() } else { let mut v = vec![0.0; na]; v[0] = 1.0; v }
     };
     let mut vbr = FullGameVbr {

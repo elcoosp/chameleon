@@ -2,7 +2,7 @@
 
 use cham_core::card::{Card, Hand2};
 use cham_core::engine::config::EngineConfig;
-use cham_core::engine::State;
+use cham_core::engine::{Action, State};
 use cham_core::rng::rng_from_seed;
 use cham_engine::config::AbstractionConfig;
 use cham_engine::encoder::ActionSeq;
@@ -66,7 +66,7 @@ fn fullgame_smoke() {
     let hw = vec![1.0 / hero.len() as f64; hero.len()];
     let vw = vec![1.0 / vill.len() as f64; vill.len()];
 
-    let mut policy = |_st: &State, _seq: &ActionSeq, na: usize, _j: usize| -> Vec<f64> {
+    let mut policy = |_st: &State, _path: &[Action], _seq: &ActionSeq, na: usize, _j: usize| -> Vec<f64> {
         if na == 0 { Vec::new() } else { vec![1.0 / na as f64; na] }
     };
 

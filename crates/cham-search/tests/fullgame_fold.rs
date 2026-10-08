@@ -2,7 +2,7 @@
 
 use cham_core::card::Card;
 use cham_core::engine::config::EngineConfig;
-use cham_core::engine::State;
+use cham_core::engine::{Action, State};
 use cham_core::rng::rng_from_seed;
 use cham_engine::config::AbstractionConfig;
 use cham_engine::encoder::ActionSeq;
@@ -42,7 +42,7 @@ fn villain_folds_preflop_hero_wins_half_bb() {
     let ladder = ActionLadder::new(&AbstractionConfig::tiny());
     let tree = PublicTree::build(CFG, &ladder, 100_000);
 
-    let mut policy = |_st: &State, _seq: &ActionSeq, na: usize, _j: usize| -> Vec<f64> {
+    let mut policy = |_st: &State, _path: &[Action], _seq: &ActionSeq, na: usize, _j: usize| -> Vec<f64> {
         if na == 0 { Vec::new() } else { let mut v = vec![0.0; na]; v[0] = 1.0; v }
     };
 
