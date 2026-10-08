@@ -19,6 +19,7 @@ pub mod slumbot;
 pub mod trace;
 pub mod train_bp;
 pub mod train_buckets;
+pub mod train_pcs;
 pub mod train_router;
 pub mod verify;
 pub mod warm_cache;

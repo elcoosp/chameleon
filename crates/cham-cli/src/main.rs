@@ -119,6 +119,38 @@ enum Command {
         #[arg(long)]
         checkpoint_dir: Option<String>,
     },
+    /// Train a PCS DCFR policy (Phase C)
+    TrainPcs {
+        #[arg(long, default_value = "10000")]
+        iters: u64,
+        #[arg(long, default_value = "7")]
+        seed: u64,
+        /// Abstraction config TOML (default: config/abstraction-tiny.toml)
+        #[arg(long, default_value = "config/abstraction-tiny.toml")]
+        config: String,
+        /// Bucket directory (default: artifacts/buckets-tiny)
+        #[arg(long, default_value = "artifacts/buckets-tiny")]
+        buckets: String,
+        #[arg(long, default_value = "artifacts/pcs")]
+        out: String,
+        /// Combos per side (disjoint half-decks, cap 325)
+        #[arg(long, default_value = "30")]
+        combos: usize,
+        #[arg(long, default_value = "1.5")]
+        dcfr_alpha: f64,
+        #[arg(long, default_value = "0.0")]
+        dcfr_beta: f64,
+        #[arg(long, default_value = "2.0")]
+        dcfr_gamma: f64,
+        /// Estimated-wall guard. Refuse if estimate exceeds this.
+        #[arg(long, default_value = "14400")]
+        wall_budget_s: u64,
+        #[arg(long, default_value = "1000")]
+        log_every: u64,
+        /// Skip the wall-budget guard (dangerous)
+        #[arg(long)]
+        force: bool,
+    },
     /// Train the router on a .rbin dataset (SPECS/05)
     TrainRouter {
         #[arg(long, default_value = "artifacts/router_rows.rbin")]
@@ -429,6 +461,33 @@ fn main() -> anyhow::Result<()> {
             cache_dir.as_deref(),
             checkpoint_every,
             checkpoint_dir.as_deref(),
+        ),
+        Command::TrainPcs {
+            iters,
+            seed,
+            config,
+            buckets,
+            out,
+            combos,
+            dcfr_alpha,
+            dcfr_beta,
+            dcfr_gamma,
+            wall_budget_s,
+            log_every,
+            force,
+        } => cmd::train_pcs::run(
+            iters,
+            seed,
+            &config,
+            &buckets,
+            &out,
+            combos,
+            dcfr_alpha,
+            dcfr_beta,
+            dcfr_gamma,
+            wall_budget_s,
+            log_every,
+            force,
         ),
         Command::TrainRouter {
             rows,

@@ -40,26 +40,57 @@ impl Default for PcsConfig {
 }
 
 /// Run `cfg.iters` PCS updates. Returns the trained table.
-pub fn run_pcs(iter: &PcsIteration<'_>, encoder: &mut Encoder, cfg: &PcsConfig) -> RegretTable {
+/// Run `pcs_cfg.iters` PCS updates. The `rank_fn` callback computes
+/// per-combo showdown ranks against the sampled board — ranks are
+/// recomputed each iteration because they depend on the board. The
+/// caller supplies `rank_fn` (usually `river_equity`-based) so this
+/// module stays free of the engine's equity tables.
+#[allow(clippy::too_many_arguments)]
+pub fn run_pcs<F>(
+    tree: &cham_search::pubtree::PublicTree,
+    ladder: &cham_engine::ladder::ActionLadder,
+    hero_range: &[[u8; 2]],
+    villain_range: &[[u8; 2]],
+    cfg: cham_core::engine::config::EngineConfig,
+    hero_seat: usize,
+    rank_fn: F,
+    encoder: &mut Encoder,
+    pcs_cfg: &PcsConfig,
+) -> RegretTable
+where
+    F: Fn(&[cham_core::card::Card; 5], &[[u8; 2]]) -> Vec<u32>,
+{
     let mut table = RegretTable::new();
-    let mut rng = rng_from_seed(cfg.seed);
+    let mut rng = rng_from_seed(pcs_cfg.seed);
     let t0 = std::time::Instant::now();
-    for t in 1..=cfg.iters {
+    for t in 1..=pcs_cfg.iters {
         let board = sample_board(&mut rng);
+        let hero_rank = rank_fn(&board, hero_range);
+        let villain_rank = rank_fn(&board, villain_range);
+        let iter = PcsIteration {
+            tree,
+            ladder,
+            hero_range,
+            hero_rank: &hero_rank,
+            villain_range,
+            villain_rank: &villain_rank,
+            cfg,
+            hero_seat,
+        };
         iter.run(
             encoder,
             &mut table,
             board,
             t,
-            cfg.dcfr_alpha,
-            cfg.dcfr_beta,
-            cfg.dcfr_gamma,
+            pcs_cfg.dcfr_alpha,
+            pcs_cfg.dcfr_beta,
+            pcs_cfg.dcfr_gamma,
         );
-        if cfg.log_every > 0 && t % cfg.log_every == 0 {
+        if pcs_cfg.log_every > 0 && t % pcs_cfg.log_every == 0 {
             let dt = t0.elapsed().as_secs_f64();
             eprintln!(
-                "pcs: iter {t}/{} ({:.1}s, {:.0} iter/s, {} rows)",
-                cfg.iters,
+                "pcs: iter {t}/{} ({:.1}s, {:.1} iter/s, {} rows)",
+                pcs_cfg.iters,
                 dt,
                 t as f64 / dt.max(1e-9),
                 table.len()
