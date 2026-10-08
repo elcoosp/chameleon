@@ -270,13 +270,14 @@ impl<'a> PcsIteration<'a> {
             None
         };
         let mut keys: Vec<u64> = Vec::with_capacity(n_actor);
-        let mut strat: Vec<Vec<f64>> = Vec::with_capacity(n_actor);
+        let mut strat: Vec<[f64; 12]> = Vec::with_capacity(n_actor);
         for i in 0..n_actor {
             let hole = Hand2::new(Card(actor_range[i][0]), Card(actor_range[i][1]));
             let obs_i = obs_base.with_hole(hole);
             let k = ctx.encoder.key_for(&obs_i, &seq, &slots).0;
             keys.push(k);
-            let s = ctx.table.row_mut(k, na).current_strategy();
+            let mut s = [0.0f64; 12];
+            ctx.table.row_mut(k, na).current_strategy_into(&mut s[..na]);
             strat.push(s);
         }
         if let Some(t) = __t_key {
@@ -347,12 +348,12 @@ impl<'a> PcsIteration<'a> {
             }
         }
 
-        let mut regret_delta: HashMap<u64, Vec<f64>> = HashMap::new();
+        let mut regret_delta: HashMap<u64, [f64; 12]> = HashMap::new();
         let mut reach_sum: HashMap<u64, f64> = HashMap::new();
-        let mut sigma_agg: HashMap<u64, Vec<f64>> = HashMap::new();
+        let mut sigma_agg: HashMap<u64, [f64; 12]> = HashMap::new();
         for i in 0..n_actor {
             let k = keys[i];
-            let entry = regret_delta.entry(k).or_insert_with(|| vec![0.0; na]);
+            let entry = regret_delta.entry(k).or_insert([0.0f64; 12]);
             for ai in 0..na {
                 let child_actor = if is_hero {
                     child_h[ai][i]
@@ -362,7 +363,7 @@ impl<'a> PcsIteration<'a> {
                 entry[ai] += child_actor - node_actor_cfv[i];
             }
             *reach_sum.entry(k).or_insert(0.0) += actor_reach[i];
-            sigma_agg.entry(k).or_insert_with(|| strat[i].clone());
+            sigma_agg.entry(k).or_insert(strat[i]);
         }
 
         for (k, deltas) in &regret_delta {
@@ -381,7 +382,7 @@ impl<'a> PcsIteration<'a> {
         // each public state appears once per tree walk for a fixed
         // board), so this is applied correctly.
         for (k, &rsum) in &reach_sum {
-            let sig = sigma_agg[k].clone();
+            let sig = sigma_agg[k];
             let row = ctx.table.row_mut(*k, na);
             for ai in 0..na {
                 row.strategy_sum[ai] = ctx.strat_w * row.strategy_sum[ai] + rsum * sig[ai];
