@@ -76,6 +76,49 @@ impl RegretTable {
     pub fn row(&self, key: u64) -> Option<&Row> {
         self.rows.get(&key)
     }
+
+    /// Iterate over every (key, row) pair. Used by the artifact bridge.
+    pub fn iter(&self) -> impl Iterator<Item = (u64, &Row)> + '_ {
+        self.rows.iter().map(|(&k, r)| (k, r))
+    }
+
+    /// Convert to the tabular `crate::table::RegretTable` so the artifact
+    /// writer (`BlueprintPolicy::build_artifact`) can consume it.
+    ///
+    /// The tabular table stores (regret, strat_sum, avg_weight, visits)
+    /// per row and normalizes `strat_sum` in `avg_strategy`. We populate
+    /// it with the PCS row's *normalized average strategy* as the strat
+    /// sum: since `avg_strategy` divides by the total (which is exactly
+    /// 1.0 here), the loaded distribution round-trips unchanged. Visits
+    /// are set from the PCS row's visit count, capped at u16::MAX by
+    /// `build_artifact` itself.
+    ///
+    /// Rows with width outside [1, 12] are dropped (`entry_or_insert`
+    /// debug-asserts that range). The tiny ladder produces widths 2-4,
+    /// so this only matters for hand-built toy trees.
+    pub fn to_tabular(&self, mode: crate::table::ThreadMode) -> crate::table::RegretTable {
+        let mut dst = crate::table::RegretTable::new(mode);
+        for (key, row) in self.iter() {
+            let w = row.strategy_sum.len();
+            if w == 0 || w > 12 {
+                continue;
+            }
+            let total: f64 = row.strategy_sum.iter().sum();
+            let avg: Vec<f64> = if total > 0.0 {
+                row.strategy_sum.iter().map(|&s| s / total).collect()
+            } else {
+                vec![1.0 / w as f64; w]
+            };
+            let (off, w_ret) = dst.entry_or_insert(key, w);
+            debug_assert_eq!(w, w_ret);
+            for (a, &p) in avg.iter().enumerate() {
+                dst.strat_add(off, w, a, p);
+            }
+            let v = row.visits.max(1).min(u32::MAX as u64) as u32;
+            dst.add_visits(off, w, v);
+        }
+        dst
+    }
 }
 
 #[cfg(test)]
