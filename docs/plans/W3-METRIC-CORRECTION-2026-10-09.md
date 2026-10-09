@@ -105,6 +105,36 @@ This is the width the live pipeline uses (via the cap), so it confirms
 the cap is not a workaround: the one-sided safety property holds at the
 width the bridge actually produces.
 
+## Width table — CORRECTED (2026-10-09, post 9627158)
+
+**The width table below was measured with a buggy `draw_range`**: it
+iterated `(i, i+1), (i, i+2), ...` so the first `n` combos all shared
+`avail[0]` — the same concentration as the D1 harness before `af1b635`.
+The fix (`9627158`) enumerates all pairs, seeded-shuffles, takes `n`.
+
+**Corrected numbers (40 boards each):**
+
+| width | agent-expl(bp) | agent-expl(res) | delta | z | status |
+|---|---|---|---|---|---|
+| 3 | pending | pending | pending | pending | not yet re-measured |
+| 8 | pending | pending | pending | pending | not yet re-measured |
+| **15** | **2.393 +/- 0.326** | **0.701 +/- 0.138** | **-1.692 +/- 0.222** | **-7.61** | re-measured |
+| 30 | pending | pending | pending | pending | not yet re-measured |
+
+The corrected 15/side number (**-1.69 bb, z=-7.61**) is smaller in
+magnitude than the buggy-range one (-2.22, z=-10.0) — the concentrated
+range was easier for the resolver to exploit. But the **direction and
+significance hold**: the one-sided gate passes at 15/side with uniform
+ranges.
+
+**The conclusion is unchanged:** the gate holds, the pipeline cap of 15
+is defensible. The exact per-width numbers below are from the buggy
+construction and should not be quoted.
+
+---
+
+## Width table — ORIGINAL (buggy draw_range; do not quote)
+
 ## Width table — the pipeline cap is optimal
 
 `combo_gadget_w3_sweep40.rs` at four range widths (40 boards each):
