@@ -278,3 +278,69 @@ fn solved_strategy_is_near_nash() {
         exploitability / 100.0
     );
 }
+
+#[test]
+fn gadget_terminates_when_blueprint_value_is_high() {
+    // v_bp_hero[j] = -200 chips means: if villain terminates, hero loses
+    // 200 (villain gains 200). Play gives the villain at most +100
+    // (calling a jam and winning). So terminate strictly dominates.
+    let s = state();
+    let jam_to = s.max_raise_to();
+    let t = tree(jam_to);
+
+    let hero = [[0u8, 1]];
+    let hero_rank = vec![100u32];
+    let villain = [[2u8, 3]];
+    let villain_rank = vec![200u32];
+
+    let v_bp: Vec<f64> = vec![-200.0];
+    let solver = RiverCfr::new(
+        &t,
+        &hero,
+        &hero_rank,
+        &villain,
+        &villain_rank,
+        s,
+        SB,
+        Some(v_bp),
+    );
+    let out = solver.solve(3000);
+
+    let root = out.gadget_root_strat.expect("gadget root");
+    let terminate = root[0][0];
+    eprintln!("gadget: terminate={terminate:.4} play={:.4}", root[0][1]);
+    assert!(terminate > 0.95, "should terminate, got {terminate}");
+}
+
+#[test]
+fn gadget_plays_when_blueprint_value_is_low() {
+    // v_bp_hero[j] = +200 chips: hero gains 200 if the villain terminates,
+    // so the villain loses 200. Playing gives the villain at worst -100
+    // (folding) and at best +100 (winning). Both beat -200.
+    let s = state();
+    let jam_to = s.max_raise_to();
+    let t = tree(jam_to);
+
+    let hero = [[0u8, 1]];
+    let hero_rank = vec![100u32];
+    let villain = [[2u8, 3]];
+    let villain_rank = vec![200u32];
+
+    let v_bp: Vec<f64> = vec![200.0];
+    let solver = RiverCfr::new(
+        &t,
+        &hero,
+        &hero_rank,
+        &villain,
+        &villain_rank,
+        s,
+        SB,
+        Some(v_bp),
+    );
+    let out = solver.solve(3000);
+
+    let root = out.gadget_root_strat.expect("gadget root");
+    let play = root[0][1];
+    eprintln!("gadget: play={play:.4}");
+    assert!(play > 0.95, "should play, got {play}");
+}

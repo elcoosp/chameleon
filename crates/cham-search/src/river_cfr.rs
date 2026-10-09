@@ -35,10 +35,11 @@ pub struct RiverCfr<'a> {
 
 #[derive(Clone, Debug, Default)]
 pub struct SolvedRiver {
-    /// per-node, per-combo action probabilities (hero), summed over iters
     pub hero_strat: Vec<Vec<Vec<f64>>>,
-    /// per-node, per-combo action probabilities (villain)
     pub villain_strat: Vec<Vec<Vec<f64>>>,
+    /// With the gadget: villain's virtual-root strategy per combo,
+    /// `[P(terminate), P(play)]`. `None` without a gadget.
+    pub gadget_root_strat: Option<Vec<[f64; 2]>>,
     pub iters: u32,
 }
 
@@ -120,10 +121,37 @@ impl<'a> RiverCfr<'a> {
 
         // Root reaches: uniform.
         let hero_reach = vec![1.0 / nh as f64; nh];
-        let villain_reach = vec![1.0 / nv as f64; nv];
+
+        // Safe-resolving gadget. When `v_bp_hero` is Some, a virtual
+        // root gives the villain [terminate | play]. Terminate pays the
+        // hero `v_bp_hero[j]` (so villain gets `-v_bp_hero[j]`). Play
+        // enters the tree.
+        let gadget = self.v_bp_hero.clone();
+        let mut gadget_root_regret: Vec<[f64; 2]> = vec![[0.0; 2]; nv];
+        let mut gadget_root_strat: Vec<[f64; 2]> = vec![[0.0; 2]; nv];
 
         for t in 1..=iters {
-            self.iterate(
+            let root_sigmas: Vec<[f64; 2]> = if gadget.is_some() {
+                gadget_root_regret
+                    .iter()
+                    .map(|r| {
+                        let sum: f64 = r.iter().filter(|&&x| x > 0.0).sum();
+                        if sum <= 0.0 {
+                            [0.5, 0.5]
+                        } else {
+                            [r[0].max(0.0) / sum, r[1].max(0.0) / sum]
+                        }
+                    })
+                    .collect()
+            } else {
+                vec![[0.5, 0.5]; nv]
+            };
+
+            let villain_reach: Vec<f64> = (0..nv)
+                .map(|j| (1.0 / nv as f64) * root_sigmas[j][1])
+                .collect();
+
+            let (_hero_cfv, villain_cfv) = self.iterate(
                 &mut rows,
                 self.tree.root,
                 self.root_state,
@@ -131,12 +159,47 @@ impl<'a> RiverCfr<'a> {
                 &villain_reach,
                 t as f64,
             );
+
+            if let Some(ref vbp) = gadget {
+                let mut node_v = vec![0.0; nv];
+                for j in 0..nv {
+                    let tv = -vbp[j];
+                    let pv = villain_cfv[j];
+                    node_v[j] = root_sigmas[j][0] * tv + root_sigmas[j][1] * pv;
+                }
+                let init_reach = 1.0 / nv as f64;
+                for j in 0..nv {
+                    let tv = -vbp[j];
+                    let pv = villain_cfv[j];
+                    gadget_root_regret[j][0] = (gadget_root_regret[j][0] + tv - node_v[j]).max(0.0);
+                    gadget_root_regret[j][1] = (gadget_root_regret[j][1] + pv - node_v[j]).max(0.0);
+                    gadget_root_strat[j][0] += t as f64 * init_reach * root_sigmas[j][0];
+                    gadget_root_strat[j][1] += t as f64 * init_reach * root_sigmas[j][1];
+                }
+            }
         }
 
         // Extract average strategies.
         let mut out = SolvedRiver {
             hero_strat: vec![Vec::new(); nnodes],
             villain_strat: vec![Vec::new(); nnodes],
+            gadget_root_strat: if gadget.is_some() {
+                Some(
+                    gadget_root_strat
+                        .iter()
+                        .map(|s| {
+                            let sum: f64 = s.iter().sum();
+                            if sum > 0.0 {
+                                [s[0] / sum, s[1] / sum]
+                            } else {
+                                [0.5, 0.5]
+                            }
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            },
             iters,
         };
         for node in 0..nnodes {
