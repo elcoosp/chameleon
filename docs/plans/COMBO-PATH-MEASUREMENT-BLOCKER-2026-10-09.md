@@ -1,3 +1,47 @@
+## Resolved: dispatch verified (2026-10-09)
+
+`combo_pipeline_smoke.rs` (commit e82993d) now drives `act_with_state`
+on a real river state and confirms the trace:
+
+    search trace = ("combo-cfr-gadget", true, "live", 400, false, 0.0)
+
+The pipeline dispatches to the combo solver when
+`CHAM_SEARCH_IMPL=combo-gadget` is set. That closes the earlier "cannot
+be measured" concern at the plumbing level.
+
+## The remaining blocker is runtime, not dispatch
+
+A **single** `act_with_state` call with the combo solver takes ~20.9
+seconds (combo_pipeline_smoke finished in 20.88s, and it makes exactly
+one such call). The class path's equivalent solve is ~35 ms.
+
+The reasons, in order:
+
+1. **`build_from_state` per call** — rebuilds the ~200-node `PublicTree`
+   from the live `State` and the full action seq. Fresh allocation.
+2. **`build_blueprint_strategy_table` per call** — walks the tree and
+   clones the encoder once per (node, combo). This is the flagged cost.
+3. **`solve(4000)` per call** — the CFR+ loop itself.
+
+For the exploitability harness (`search_exploitability_combo.rs`) — which
+calls the closure ~100k+ times — 20 s/call means 20+ days, not 50 min.
+That is why the earlier smoke run timed out at 15 min: the run wasn't
+hung, it was doing 20-second solves.
+
+## What to fix
+
+1. **Cache the PublicTree by (board, seq-prefix).** The tree is a pure
+   function of those. Same board across many decisions → one build.
+2. **Drop the encoder clone in `build_blueprint_strategy_table`.** Pass
+   an `&mut Encoder` through the walk rather than cloning per call. The
+   `Encoder` needs `&mut self` for its caches; a single mutable borrow
+   through the walk is enough.
+3. **Cache the blueprint table by (tree-id, hero-range, villain-range).**
+   Same inputs → same table.
+
+With 1-3, per-call cost should fall to ~50-100 ms — matching the class
+solver — and the exploitability harness becomes runnable.
+
 # Combo path measurement blocker — 2026-10-09
 
 ## The problem
