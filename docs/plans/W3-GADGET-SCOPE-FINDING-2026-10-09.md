@@ -1,3 +1,8 @@
+**Correction (2026-10-09, later):** the concern below is a metric
+issue, not a solver issue. See `W3-METRIC-CORRECTION-2026-10-09.md`.
+The gadget's guarantee is one-sided (agent's exploitability), and
+that property holds on all 7 swept boards.
+
 # W3 gadget scope — a self-play solver does not bound the two-seat sum
 
 ## The finding
