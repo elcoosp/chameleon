@@ -206,3 +206,75 @@ fn sb_wins_indifferent_mixture() {
     );
     assert!(fold_prob >= 0.0 && jam_prob >= 0.0);
 }
+
+#[test]
+fn solved_strategy_is_near_nash() {
+    // Solve with hero = SB and hero = BB. Each solve returns a full
+    // strategy for both seats. Compute SB's BR against the BB strategy
+    // from the first solve, and BB's BR against the SB strategy from
+    // the second. At Nash these sum to zero.
+    let s = state();
+    let jam_to = s.max_raise_to();
+    let t = tree(jam_to);
+
+    let sb_combo = [[0u8, 1]];
+    let bb_combo = [[2u8, 3]];
+    let sb_win: Vec<u32> = vec![200];
+    let sb_lose: Vec<u32> = vec![100];
+
+    // Solve with hero = SB (SB has the winning hand).
+    let solver_sb = RiverCfr::new(
+        &t,
+        &sb_combo,
+        &sb_win,
+        &bb_combo,
+        &sb_lose,
+        state(),
+        SB,
+        None,
+    );
+    let sol_sb = solver_sb.solve(5000);
+    let br_sb = solver_sb.br_hero(&sol_sb);
+
+    // Solve with hero = BB (BB has the losing hand, mirroring the same
+    // physical game: SB wins showdowns).
+    let solver_bb = RiverCfr::new(
+        &t,
+        &bb_combo,
+        &sb_lose,
+        &sb_combo,
+        &sb_win,
+        state(),
+        BB,
+        None,
+    );
+    let sol_bb = solver_bb.solve(5000);
+    let br_bb = solver_bb.br_hero(&sol_bb);
+
+    let exploitability = br_sb + br_bb;
+    // Units: the pot is 1 bb = 100 chips, so a BR value of ±50 chips
+    // is the ±0.5 bb expected at this toy's Nash. Exploitability is in
+    // chips; the tolerance below is 1e-2 chip = 1e-4 bb.
+    eprintln!(
+        "SB BR = {br_sb:.6} chips ({:.6} bb), BB BR = {br_bb:.6} chips ({:.6} bb)",
+        br_sb / 100.0,
+        br_bb / 100.0,
+    );
+    eprintln!(
+        "exploitability = {exploitability:.6} chips ({:.8} bb)",
+        exploitability / 100.0
+    );
+
+    // At the toy's Nash (SB folds, since losing):
+    //   SB's value = -0.5 bb = -50 chips (loses the blind)
+    //   BB's value = +0.5 bb = +50 chips
+    // So br_sb ≈ -50 and br_bb ≈ +50, sum ≈ 0. The residual is the
+    // SB's indifference (converged to 0.9999/0.0001) leaking a small
+    // amount into BB's BR. 1e-2 chips = 1e-4 bb is a fair bound.
+    assert!(
+        exploitability.abs() < 1e-2,
+        "exploitability {exploitability:.6} chips ({:.8} bb) should be ~0 at Nash \
+         (SB BR {br_sb:.6}, BB BR {br_bb:.6})",
+        exploitability / 100.0
+    );
+}

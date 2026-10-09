@@ -175,6 +175,72 @@ impl<'a> RiverCfr<'a> {
         out
     }
 
+    /// Hero's best-response value against the villain's average
+    /// strategy from `solved`. Positive = hero chips.
+    ///
+    /// At hero nodes: max over actions. At villain nodes: follow the
+    /// villain strategy vector. Returns the value in chips, weighted by
+    /// the hero's initial range weight (uniform, matching `solve`).
+    pub fn br_hero(&self, solved: &SolvedRiver) -> f64 {
+        let nh = self.hero_range.len();
+        let nv = self.villain_range.len();
+        let hero_reach = vec![1.0 / nh as f64; nh];
+        let villain_reach = vec![1.0 / nv as f64; nv];
+        let cfvs = self.br_walk(self.tree.root, self.root_state, &villain_reach, solved);
+        cfvs.iter().zip(hero_reach.iter()).map(|(c, w)| c * w).sum()
+    }
+
+    fn br_walk(
+        &self,
+        node: u32,
+        st: State,
+        villain_reach: &[f64],
+        solved: &SolvedRiver,
+    ) -> Vec<f64> {
+        let n = &self.tree.nodes[node as usize];
+        if n.terminal {
+            // Hero CFV only; the villain-side vector is computed but
+            // ignored (BR is from hero's perspective).
+            let zero_hero = vec![0.0; self.hero_range.len()];
+            let (h, _v) = self.terminal(&st, &zero_hero, villain_reach);
+            return h;
+        }
+        let is_hero = (n.player as usize) == self.hero_seat;
+        let nh = self.hero_range.len();
+        let nv = self.villain_range.len();
+        if is_hero {
+            let mut best: Option<Vec<f64>> = None;
+            for (ai, &a) in n.actions.iter().enumerate() {
+                let mut st2 = st;
+                if st2.apply(a).is_err() {
+                    continue;
+                }
+                let h = self.br_walk(n.children[ai], st2, villain_reach, solved);
+                best = Some(match best {
+                    None => h,
+                    Some(b) => b.iter().zip(h.iter()).map(|(x, y)| x.max(*y)).collect(),
+                });
+            }
+            best.unwrap_or_else(|| vec![f64::NEG_INFINITY; nh])
+        } else {
+            let strat = &solved.villain_strat[node as usize];
+            let mut total = vec![0.0; nh];
+            for (ai, &a) in n.actions.iter().enumerate() {
+                let mut st2 = st;
+                if st2.apply(a).is_err() {
+                    continue;
+                }
+                let new_reach: Vec<f64> =
+                    (0..nv).map(|j| villain_reach[j] * strat[j][ai]).collect();
+                let h = self.br_walk(n.children[ai], st2, &new_reach, solved);
+                for i in 0..nh {
+                    total[i] += h[i];
+                }
+            }
+            total
+        }
+    }
+
     /// One iteration. Returns (hero_cfv, villain_cfv) per combo, chips.
     fn iterate(
         &self,
