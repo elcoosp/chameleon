@@ -53,6 +53,20 @@ pub struct SearchOutcome {
     pub lbr: f64,
 }
 
+/// Which implementation to use for live river search.
+///
+/// `Class` is the historical class-conditioned solver (`try_solve`).
+/// `ComboGadget` uses the Phase D combo-level CFR+ solver with a
+/// safe-resolving gadget (`try_solve_combo_gadget`), which needs a live
+/// `State` — the pipeline call site that lacks one falls back to `Class`
+/// regardless.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SolverImpl {
+    #[default]
+    Class,
+    ComboGadget,
+}
+
 /// Configuration captured at decision time from `AgentMode`. Kept
 /// separate from `cham_search::trigger::SearchConfig` so the agent does
 /// not have to link the full trigger module into the hot path type.
@@ -63,6 +77,9 @@ pub struct SearchBridgeCfg {
     pub iters: u32,
     pub min_pot_bb: f64,
     pub river_only: bool,
+    /// Which search implementation to run. Default `Class` keeps the
+    /// historical behavior; `ComboGadget` is the Phase D path.
+    pub impl_kind: SolverImpl,
 }
 
 impl SearchBridgeCfg {
@@ -86,6 +103,13 @@ impl SearchBridgeCfg {
             iters: 400,
             min_pot_bb: 2.0,
             river_only: true,
+            impl_kind: std::env::var("CHAM_SEARCH_IMPL")
+                .ok()
+                .map(|s| match s.as_str() {
+                    "combo-gadget" | "combo_gadget" => SolverImpl::ComboGadget,
+                    _ => SolverImpl::Class,
+                })
+                .unwrap_or_default(),
         })
     }
 }

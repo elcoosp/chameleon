@@ -98,6 +98,7 @@ fn combo_gadget_returns_valid_outcome() {
         iters: 400,
         min_pot_bb: 0.5,
         river_only: true,
+        impl_kind: cham_agent::search_bridge::SolverImpl::default(),
     };
     // Symmetric 3-class fallback (same shape the tracker uses when it
     // has no history).

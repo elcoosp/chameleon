@@ -74,6 +74,7 @@ fn combo_solve_returns_valid_outcome() {
         iters: 200,
         min_pot_bb: 0.5,
         river_only: true,
+        impl_kind: cham_agent::search_bridge::SolverImpl::default(),
     };
 
     // Symmetric 3-class villain range (the same fallback the tracker uses
@@ -124,6 +125,7 @@ fn combo_solve_refuses_when_disabled() {
         iters: 200,
         min_pot_bb: 0.5,
         river_only: true,
+        impl_kind: cham_agent::search_bridge::SolverImpl::default(),
     };
     let villain_classes: Vec<(f64, f64)> = vec![(1.0, 0.5)];
     let out = try_solve_combo(&bridge_cfg, &ladder, &obs, &seq, &st, &villain_classes);
@@ -155,6 +157,7 @@ fn combo_solve_refuses_preflop() {
         iters: 200,
         min_pot_bb: 0.5,
         river_only: true,
+        impl_kind: cham_agent::search_bridge::SolverImpl::default(),
     };
     let villain_classes: Vec<(f64, f64)> = vec![(1.0, 0.5)];
     let out = try_solve_combo(&bridge_cfg, &ladder, &obs, &seq, &st, &villain_classes);
