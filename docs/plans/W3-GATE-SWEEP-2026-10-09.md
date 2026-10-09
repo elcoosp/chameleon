@@ -22,6 +22,13 @@ range/board collision filter), shipped blueprint `agent-honest-19dim`:
 
 ## What this settles
 
+**Correction (2026-10-09, later):** the property the code actually
+enforces is weaker than the sweep's headline claim. The gadget bounds
+the VILLAIN's exploitability, not the two-seat sum. See
+`W3-GADGET-SCOPE-FINDING-2026-10-09.md`. The mean improvement is real
+for the self-play formulation; the plan's stated W3 gate requires a
+hero-vs-fixed-villain rewrite.
+
 The single-board result (`W3-GATE-RESULT-2026-10-09.md`: 2.45→1.56 bb)
 generalizes. Across boards the gadget-bounded combo solve is **-4.69 bb
 less exploitable** than the shipped blueprint, at z = -2.18 (about 1.5%
