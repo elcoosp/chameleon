@@ -1014,9 +1014,43 @@ impl ChameleonAgent {
         let mut search_trace: Option<(String, bool, String, u32, bool, f64)> = None;
         if let Some(cfg) = crate::search_bridge::SearchBridgeCfg::from_mode(mode) {
             if crate::search_bridge::would_trigger(&cfg, obs) {
-                match crate::search_bridge::try_solve(
-                    &cfg, tracker, encoder, robust, obs, seq, state,
-                ) {
+                // Phase D: dispatch on `impl_kind`. `Class` keeps the
+                // historical solver; `ComboGadget` uses the combo-level
+                // CFR+ with a safe-resolving gadget sized against the
+                // blueprint. The combo path needs a live `State`; when
+                // it's absent (tests / callers without one) it falls
+                // back to `Class`.
+                let outcome_opt = match cfg.impl_kind {
+                    crate::search_bridge::SolverImpl::Class => crate::search_bridge::try_solve(
+                        &cfg, tracker, encoder, robust, obs, seq, state,
+                    ),
+                    crate::search_bridge::SolverImpl::ComboGadget => match state {
+                        Some(st) => {
+                            let classes = crate::search_bridge::villain_range_from_tracker(tracker);
+                            let class_tuples: Vec<(f64, f64)> =
+                                classes.iter().map(|c| (c.weight, c.strength)).collect();
+                            crate::search_bridge::try_solve_combo_gadget(
+                                &cfg,
+                                &encoder.ladder,
+                                obs,
+                                seq,
+                                st,
+                                &class_tuples,
+                                robust,
+                                encoder,
+                            )
+                            .or_else(|| {
+                                crate::search_bridge::try_solve(
+                                    &cfg, tracker, encoder, robust, obs, seq, state,
+                                )
+                            })
+                        }
+                        None => crate::search_bridge::try_solve(
+                            &cfg, tracker, encoder, robust, obs, seq, state,
+                        ),
+                    },
+                };
+                match outcome_opt {
                     Some(outcome) => {
                         // §3.1: the solver emits an AVERAGE strategy — sample
                         // it, never take its mode. EXCEPT under the
