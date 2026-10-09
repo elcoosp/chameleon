@@ -42,27 +42,30 @@ fn board_from_seed(seed: u64) -> [Card; 5] {
 }
 
 /// Draw `n` disjoint combos from `pool` after excluding cards in `used`.
-fn draw_range(pool: &[u8], used: &mut [bool; 52], n: usize) -> Vec<[u8; 2]> {
-    // Draw `n` combos from `pool`, skipping any card that overlaps the
-    // BOARD (`used`). The drawn combos MAY share cards with each other —
-    // real ranges do. The prior version marked each drawn card as used,
-    // which forced disjoint combos and capped the draw at floor(pool/2);
-    // that made 15/side impossible and the sweep reported 0 boards.
+fn draw_range(pool: &[u8], used: &mut [bool; 52], n: usize, seed: u64) -> Vec<[u8; 2]> {
+    // Enumerate ALL pairs, shuffle them with a seeded RNG, take `n`.
+    // The prior version iterated `(i, i+1), (i, i+2), ...` so the first
+    // `n` combos all shared `avail[0]` — the same concentration bug the
+    // D1 harness had before af1b635. Shuffled: a genuine uniform draw.
+    use cham_core::rng::{next_f64, rng_from_seed};
     let avail: Vec<u8> = pool
         .iter()
         .copied()
         .filter(|c| !used[*c as usize])
         .collect();
-    let mut out = Vec::with_capacity(n);
-    'outer: for i in 0..avail.len() {
+    let mut all: Vec<[u8; 2]> = Vec::with_capacity(avail.len() * avail.len() / 2);
+    for i in 0..avail.len() {
         for j in (i + 1)..avail.len() {
-            out.push([avail[i], avail[j]]);
-            if out.len() == n {
-                break 'outer;
-            }
+            all.push([avail[i], avail[j]]);
         }
     }
-    out
+    let mut rng = rng_from_seed(seed);
+    for i in (1..all.len()).rev() {
+        let j = (next_f64(&mut rng) * (i + 1) as f64) as usize;
+        all.swap(i, j);
+    }
+    all.truncate(n);
+    all
 }
 
 fn river_state_and_seq(ladder: &ActionLadder, board: &[Card; 5]) -> (State, ActionSeq) {
@@ -161,8 +164,8 @@ fn w3_gate_sweep_40_boards() {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(3);
-        let hero = draw_range(&half, &mut used, n_side);
-        let villain = draw_range(&other, &mut used, n_side);
+        let hero = draw_range(&half, &mut used, n_side, 0x5AE3_u64 + bseed);
+        let villain = draw_range(&other, &mut used, n_side, 0xA1B2_u64 + bseed);
         if hero.len() < n_side || villain.len() < n_side {
             continue;
         }
