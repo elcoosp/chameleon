@@ -803,16 +803,36 @@ impl<'a> RiverCfr<'a> {
 /// solver: the caller iterates the returned combos with the returned
 /// weights as the initial `hero_reach`/`villain_reach` vectors.
 pub fn expand_classes_to_combos(
-    classes: &[(f64, f64)], // (weight, strength) — see subgame::Class
+    classes: &[(f64, f64)],
     hole_cards: &[[u8; 2]],
     equity_of: &dyn Fn(&[u8; 2]) -> f64,
 ) -> (Vec<[u8; 2]>, Vec<f64>) {
-    if classes.is_empty() || hole_cards.is_empty() {
+    expand_classes_to_combos_capped(classes, hole_cards, equity_of, usize::MAX)
+}
+
+/// Capped variant: keep at most `max_per_class` combos per class, the
+/// ones closest to the class's strength (minimises intra-class equity
+/// variance). `max_per_class = usize::MAX` behaves like the uncapped
+/// version.
+///
+/// The cap exists because the pipeline's tracker range feeds ~1300 combos
+/// per side into `build_blueprint_strategy_table` and `RiverCfr::solve`,
+/// each of which scale with range width. Capping at ~10-30 per class
+/// (3 classes → 30-90 combos) matches the W3 sweep setup and brings
+/// per-decision cost from ~20 s to sub-second.
+pub fn expand_classes_to_combos_capped(
+    classes: &[(f64, f64)],
+    hole_cards: &[[u8; 2]],
+    equity_of: &dyn Fn(&[u8; 2]) -> f64,
+    max_per_class: usize,
+) -> (Vec<[u8; 2]>, Vec<f64>) {
+    if classes.is_empty() || hole_cards.is_empty() || max_per_class == 0 {
         return (Vec::new(), Vec::new());
     }
-    // Assign every combo to its nearest class by |equity - strength|.
+    // Assign every combo to its nearest class by |equity - strength|,
+    // keeping the distance so we can sort by closeness per class.
     let nclasses = classes.len();
-    let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); nclasses];
+    let mut buckets: Vec<Vec<(usize, f64)>> = vec![Vec::new(); nclasses];
     for (i, combo) in hole_cards.iter().enumerate() {
         let e = equity_of(combo);
         let mut best = 0usize;
@@ -824,24 +844,26 @@ pub fn expand_classes_to_combos(
                 best = k;
             }
         }
-        buckets[best].push(i);
+        buckets[best].push((i, best_d));
     }
-    // Split each class's weight across its members.
+    // Split each class's weight across its (capped) members.
     let mut out_range: Vec<[u8; 2]> = Vec::with_capacity(hole_cards.len());
     let mut out_weight: Vec<f64> = Vec::with_capacity(hole_cards.len());
-    for (k, members) in buckets.iter().enumerate() {
+    for (k, members) in buckets.iter_mut().enumerate() {
         if members.is_empty() {
             continue;
         }
+        if members.len() > max_per_class {
+            members.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            members.truncate(max_per_class);
+        }
         let w = classes[k].0 / members.len() as f64;
-        for &i in members {
+        for &(i, _) in members.iter() {
             out_range.push(hole_cards[i]);
             out_weight.push(w);
         }
     }
-    // Renormalize: classes with no assigned members drop their weight,
-    // so the sum can fall below the input total. The caller uses these
-    // weights as a probability distribution, so rescale to 1.
+    // Renormalize.
     let total: f64 = out_weight.iter().sum();
     if total > 0.0 {
         for w in out_weight.iter_mut() {
