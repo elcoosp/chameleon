@@ -21,8 +21,10 @@
 ///
 /// For each hand `i`:
 ///
-///     out[i] = sum_j opp_reach[j] * sign(rank[i] - rank[j])
-///                        * [hands i and j share no card]
+/// ```text
+/// out[i] = sum_j opp_reach[j] * sign(rank[i] - rank[j])
+///                    * [hands i and j share no card]
+/// ```
 ///
 /// where `sign` is +1 for a win, -1 for a loss, 0 for a tie.
 ///
@@ -106,7 +108,9 @@ pub fn showdown_cfv(hands: &[[u8; 2]], rank: &[u32], opp_reach: &[f64], out: &mu
 /// If the opponent folds, the acting player wins the opponent's
 /// contribution to the pot. In CFV terms, for each hand `i`:
 ///
-///     out[i] = -hero_invested * (mass of opponent hands disjoint from i)
+/// ```text
+/// out[i] = -hero_invested * (mass of opponent hands disjoint from i)
+/// ```
 ///
 /// The sign is negative because `hero_invested` is what the hero has
 /// already put in and loses by folding — the terminal value of a fold
@@ -158,8 +162,10 @@ pub fn fold_cfv(hands: &[[u8; 2]], opp_reach: &[f64], hero_invested: f64, out: &
 ///
 /// For each hero hand `i`:
 ///
-///     out[i] = sum_j villain_reach[j] * sign(rank_h[i] - rank_v[j])
-///                        * [hero[i] and villain[j] share no card]
+/// ```text
+/// out[i] = sum_j villain_reach[j] * sign(rank_h[i] - rank_v[j])
+///                    * [hero[i] and villain[j] share no card]
+/// ```
 ///
 /// Ties contribute 0. `out` has length `hero.len()`. Ranks must be
 /// ascending with ties equal on both sides.
