@@ -507,6 +507,139 @@ pub fn would_trigger(cfg: &SearchBridgeCfg, obs: &Observables<'_>) -> bool {
         && obs.to_call == 0
 }
 
+/// Combo-level river solve (Phase D / W3), the combo counterpart to
+/// `try_solve`.
+///
+/// Builds a `PublicTree` from the live `State`, expands the caller's
+/// villain classes to combos, and runs `RiverCfr`. Returns the hero's
+/// sampled action plus the distribution, or `None` if any guard fails.
+///
+/// **No safe-resolving gadget yet.** Wiring it needs a per-combo
+/// blueprint CFV (`v_bp_hero`), which the caller must supply. `RiverCfr`
+/// already accepts it; this wrapper passes `None`.
+pub fn try_solve_combo(
+    cfg: &SearchBridgeCfg,
+    ladder: &cham_engine::ladder::ActionLadder,
+    obs: &Observables<'_>,
+    seq: &ActionSeq,
+    state: &cham_core::engine::State,
+    villain_classes: &[(f64, f64)],
+) -> Option<SearchOutcome> {
+    if !cfg.enabled {
+        return None;
+    }
+    if cfg.river_only && obs.street != cham_core::engine::Street::River {
+        return None;
+    }
+    if obs.pot_bb() < cfg.min_pot_bb {
+        return None;
+    }
+    if obs.to_call != 0 {
+        return None;
+    }
+    if obs.board_len < 5 {
+        return None;
+    }
+
+    let tree = cham_search::pubtree::PublicTree::build_from_state(*state, *seq, ladder, 200_000);
+    let root = tree.nodes.get(tree.root as usize)?;
+    if root.terminal {
+        return None;
+    }
+    if (root.player as usize) != obs.player.as_usize() {
+        // Hero does not act at this node — refuse (safe default).
+        return None;
+    }
+
+    let board5 = obs.board;
+    let hero_cards = obs.hole.cards();
+    let hero_combo = [hero_cards[0].idx(), hero_cards[1].idx()];
+    let hero_range: Vec<[u8; 2]> = vec![hero_combo];
+    let hero_rank: Vec<u32> =
+        vec![(cham_engine::tables::river_equity(obs.hole, &board5) * 1e6) as u32];
+
+    // Every combo disjoint from the board.
+    let mut used = [false; 52];
+    for c in &board5 {
+        used[c.idx() as usize] = true;
+    }
+    let mut all_combos: Vec<[u8; 2]> = Vec::new();
+    for a in 0..52u8 {
+        if used[a as usize] {
+            continue;
+        }
+        for b in (a + 1)..52u8 {
+            if used[b as usize] {
+                continue;
+            }
+            all_combos.push([a, b]);
+        }
+    }
+    let equity_of = |c: &[u8; 2]| -> f64 {
+        cham_engine::tables::river_equity(
+            cham_core::card::Hand2::new(cham_core::card::Card(c[0]), cham_core::card::Card(c[1])),
+            &board5,
+        )
+    };
+
+    let (villain_range, _villain_weights) =
+        cham_search::river_cfr::expand_classes_to_combos(villain_classes, &all_combos, &equity_of);
+    if villain_range.is_empty() {
+        return None;
+    }
+    let villain_rank: Vec<u32> = villain_range
+        .iter()
+        .map(|c| (equity_of(c) * 1e6) as u32)
+        .collect();
+
+    let solver = cham_search::river_cfr::RiverCfr::new(
+        &tree,
+        &hero_range,
+        &hero_rank,
+        &villain_range,
+        &villain_rank,
+        *state,
+        obs.player.as_usize(),
+        None,
+    );
+    let solved = solver.solve(cfg.iters);
+
+    let root_idx = tree.root as usize;
+    let hero_strat = solved
+        .hero_strat
+        .get(root_idx)
+        .and_then(|rows| rows.first())
+        .cloned()?;
+
+    let dist: Vec<(Action, f64)> = root
+        .actions
+        .iter()
+        .copied()
+        .zip(hero_strat.iter().copied())
+        .collect();
+    if dist.is_empty() {
+        return None;
+    }
+    // Argmax with first-legal tie-break.
+    let mut best = 0usize;
+    let mut best_p = dist[0].1;
+    for (i, (_, p)) in dist.iter().enumerate().skip(1) {
+        if *p > best_p {
+            best = i;
+            best_p = *p;
+        }
+    }
+    let action = dist[best].0;
+
+    Some(SearchOutcome {
+        action,
+        distribution: dist,
+        solver: "combo-cfr".into(),
+        iters: cfg.iters,
+        truncated: false,
+        lbr: 0.0,
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::*;
