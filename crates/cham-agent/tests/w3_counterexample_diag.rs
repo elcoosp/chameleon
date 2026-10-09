@@ -183,12 +183,13 @@ fn dump_counterexamples() {
             hero_seat,
             None,
         );
-        let vbr_bp = helper.exploitability(&SolvedRiver {
+        let (bp_br_h, bp_br_v) = helper.exploitability_split(&SolvedRiver {
             hero_strat: bp_hero.clone(),
             villain_strat: bp_villain.clone(),
             gadget_root_strat: None,
             iters: 0,
         });
+        let vbr_bp = bp_br_h + bp_br_v;
 
         let villain_cfv = helper.villain_cfv_under_strategy(&bp_hero, &bp_villain);
         let v_bp_hero: Vec<f64> = villain_cfv.iter().map(|v| -v).collect();
@@ -204,7 +205,8 @@ fn dump_counterexamples() {
             Some(v_bp_hero.clone()),
         );
         let solved = gadget_solver.solve(4000);
-        let vbr_res = gadget_solver.exploitability(&solved);
+        let (res_br_h, res_br_v) = gadget_solver.exploitability_split(&solved);
+        let vbr_res = res_br_h + res_br_v;
 
         let (hu, ht) = count_uniform_rows(&bp_hero);
         let (vu, vt) = count_uniform_rows(&bp_villain);
@@ -219,9 +221,21 @@ fn dump_counterexamples() {
         eprintln!("  villain combos: {:?}", villain);
         eprintln!("  hero ranks: {:?}", hero_rank);
         eprintln!("  villain ranks: {:?}", villain_rank);
-        eprintln!("  VBR(bp)  = {vbr_bp:>10.3} chips");
-        eprintln!("  VBR(res) = {vbr_res:>10.3} chips");
+        eprintln!(
+            "  VBR(bp)  = {vbr_bp:>10.3} chips (hero BR {bp_br_h:>8.3}, villain BR {bp_br_v:>8.3})"
+        );
+        eprintln!(
+            "  VBR(res) = {vbr_res:>10.3} chips (hero BR {res_br_h:>8.3}, villain BR {res_br_v:>8.3})"
+        );
         eprintln!("  delta    = {:>+10.3} chips", vbr_res - vbr_bp);
+        eprintln!(
+            "    hero-side delta:    {:>+10.3} chips",
+            res_br_h - bp_br_h
+        );
+        eprintln!(
+            "    villain-side delta: {:>+10.3} chips",
+            res_br_v - bp_br_v
+        );
         eprintln!(
             "  v_bp_hero (per villain combo): {:?}",
             v_bp_hero

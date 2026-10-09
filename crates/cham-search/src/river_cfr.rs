@@ -422,6 +422,33 @@ impl<'a> RiverCfr<'a> {
         (total_h, total_v)
     }
 
+    /// Two-seat exploitability, split into (br_hero, br_villain).
+    /// At Nash both are equal and opposite in sign; sum ≈ 0. The gadget
+    /// bounds the VILLAIN's side (villain can always terminate for their
+    /// blueprint CFV), not the hero's. On boards where hero's side is
+    /// large, the two-seat sum can exceed the blueprint's.
+    pub fn exploitability_split(&self, solved: &SolvedRiver) -> (f64, f64) {
+        let br_hero = self.br_hero(solved);
+        let mirror = RiverCfr {
+            tree: self.tree,
+            hero_range: self.villain_range,
+            hero_rank: self.villain_rank,
+            villain_range: self.hero_range,
+            villain_rank: self.hero_rank,
+            root_state: self.root_state,
+            hero_seat: 1 - self.hero_seat,
+            v_bp_hero: None,
+        };
+        let mirrored = SolvedRiver {
+            hero_strat: solved.villain_strat.clone(),
+            villain_strat: solved.hero_strat.clone(),
+            gadget_root_strat: None,
+            iters: solved.iters,
+        };
+        let br_villain = mirror.br_hero(&mirrored);
+        (br_hero, br_villain)
+    }
+
     /// Two-seat exploitability: `BR_hero(villain_strat) + BR_villain(hero_strat)`.
     /// At Nash this is 0; positive means the average strategy is exploitable.
     /// Returns chips.
