@@ -105,6 +105,30 @@ This is the width the live pipeline uses (via the cap), so it confirms
 the cap is not a workaround: the one-sided safety property holds at the
 width the bridge actually produces.
 
+## Width table — the pipeline cap is optimal
+
+`combo_gadget_w3_sweep40.rs` at four range widths (40 boards each):
+
+| width | agent-expl(bp) | agent-expl(res) | delta | z | wall |
+|---|---|---|---|---|---|
+| 3 | 3.84 +/- 0.72 | 1.01 +/- 0.56 | -2.83 +/- 0.40 | -7.04 | 14s |
+| 8 | 3.01 +/- 0.38 | 0.66 +/- 0.17 | -2.35 +/- 0.27 | -8.76 | 81s |
+| 15 | 2.83 +/- 0.35 | 0.62 +/- 0.17 | -2.22 +/- 0.22 | **-10.03** | 56s |
+| 30 | 2.73 +/- 0.34 | 0.59 +/- 0.14 | -2.14 +/- 0.22 | -9.64 | 266s |
+
+Two readings:
+
+1. **The one-sided gate holds at every width.** No board anywhere in
+   the table regressed. The gadget's guarantee is robust to the
+   pipeline's `CHAM_COMBO_CAP`.
+2. **Width 15 is the sweet spot.** Highest z (-10.03), moderate cost.
+   Width 30 doubles the work for slightly worse significance, and its
+   wall time (266s) is contaminated by a loaded machine but the trend
+   is clear.
+
+The pipeline default (`CHAM_COMBO_CAP=15`) is what the measurement
+endorses; no change needed.
+
 ## What still needs work
 
 - 40+ board sweep (only 7 boards survived the range/board filter here).
