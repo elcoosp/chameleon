@@ -458,3 +458,136 @@ where
         se_bb: se,
     })
 }
+
+/// Variant of `tabular_br` whose closure also receives the live `State`
+/// at each non-BR-seat decision. Used by the combo-gadget exploitability
+/// harness: the combo solver needs a `State` to build its `PublicTree`.
+///
+/// Same semantics as `tabular_br` otherwise.
+#[allow(clippy::too_many_arguments)]
+pub fn tabular_br_with_state<F>(
+    engine_cfg: cham_core::engine::config::EngineConfig,
+    br_seat: usize,
+    policy: &mut F,
+    enc: &mut cham_engine::Encoder,
+    deals: u32,
+    seed: u64,
+) -> Result<LbrReport, BlueprintError>
+where
+    F: FnMut(
+        &Observables<'_>,
+        &ActionSeq,
+        &cham_core::engine::State,
+    ) -> Vec<(cham_core::engine::Action, f64)>,
+{
+    // Same shape as `tabular_br` but the closure sees the state.
+    // SE is computed via batching (10 batches) like `tabular_br`.
+    use cham_core::rng::child;
+    let batches = 10u32;
+    let per = (deals / batches).max(1);
+    let mut batch_means: Vec<f64> = Vec::with_capacity(batches as usize);
+    for b in 0..batches {
+        let mut total = 0f64;
+        for d in 0..per {
+            let rng = &mut child(seed ^ 0x9E37_79B9_7F4A_7C15, &format!("bs{b}_deal{d}"));
+            let mut state = State::new(engine_cfg, Deck::shuffled(rng))
+                .map_err(|e| BlueprintError::Training(format!("engine: {e}")))?;
+            let mut seq = ActionSeq::default();
+            total += br_walk_with_state(&mut state, br_seat, policy, enc, &mut seq, rng);
+        }
+        batch_means.push(total / per as f64);
+    }
+    let n = batch_means.len() as f64;
+    let mean = batch_means.iter().sum::<f64>() / n;
+    let var = batch_means.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
+    let se = (var / n).sqrt();
+    Ok(LbrReport {
+        lbr_bb_per_hand: mean,
+        lbr_mb_per_hand: mean * 1000.0,
+        deals_sampled: per * batches,
+        depth_bb: engine_cfg.depth_bb(),
+        se_bb: se,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::only_used_in_recursion)]
+fn br_walk_with_state<F>(
+    state: &mut State,
+    br_seat: usize,
+    policy: &mut F,
+    enc: &mut cham_engine::Encoder,
+    seq: &mut ActionSeq,
+    rng: &mut Rng,
+) -> f64
+where
+    F: FnMut(
+        &Observables<'_>,
+        &ActionSeq,
+        &cham_core::engine::State,
+    ) -> Vec<(cham_core::engine::Action, f64)>,
+{
+    if state.is_terminal() {
+        return state.payoffs()[br_seat] as f64 / 100.0;
+    }
+    let p = state.to_act();
+    let obs = Observables::view(state, Player::from_usize(p));
+    if p != br_seat {
+        // Opponent: expectation over the fixed policy's distribution.
+        // The closure gets the CURRENT state so the combo solver can
+        // build its tree from the exact node.
+        let dist = policy(&obs, seq, state);
+        let mut ev = 0f64;
+        let mut total_p = 0f64;
+        for (a, prob) in &dist {
+            if *prob <= 1e-12 {
+                continue;
+            }
+            let mut s2 = *state;
+            let mut seq2 = *seq;
+            enc.record(&obs, Player::from_usize(p), *a, &mut seq2);
+            if s2.apply(*a).is_err() {
+                continue;
+            }
+            total_p += prob;
+            ev += prob * br_walk_with_state(&mut s2, br_seat, policy, enc, &mut seq2, rng);
+        }
+        if total_p <= 1e-12 {
+            let fallback = if obs.legal.is_empty() {
+                cham_core::engine::Action::Check
+            } else {
+                obs.legal[0].action
+            };
+            enc.record(&obs, Player::from_usize(p), fallback, seq);
+            state.apply(fallback).expect("legal fallback");
+            return br_walk_with_state(state, br_seat, policy, enc, seq, rng);
+        }
+        return ev / total_p;
+    }
+    // BR seat: enumerate slots, take the max.
+    let slots = enc.slots(&obs, seq);
+    let mut best = f64::NEG_INFINITY;
+    for s in slots.iter() {
+        let mut s2 = *state;
+        let mut seq2 = *seq;
+        enc.record(&obs, Player::from_usize(p), s.action, &mut seq2);
+        if s2.apply(s.action).is_err() {
+            continue;
+        }
+        let v = br_walk_with_state(&mut s2, br_seat, policy, enc, &mut seq2, rng);
+        if v > best {
+            best = v;
+        }
+    }
+    if best.is_infinite() {
+        let fallback = obs
+            .legal
+            .first()
+            .map(|l| l.action)
+            .unwrap_or(cham_core::engine::Action::Check);
+        enc.record(&obs, Player::from_usize(p), fallback, seq);
+        state.apply(fallback).expect("legal fallback");
+        return br_walk_with_state(state, br_seat, policy, enc, seq, rng);
+    }
+    best
+}
