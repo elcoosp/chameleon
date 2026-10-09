@@ -562,3 +562,36 @@ fn real_tree_exploitability_is_bounded() {
         "real-tree exploitability {e:.3} chips is suspiciously high"
     );
 }
+
+#[test]
+fn villain_cfv_at_equilibrium() {
+    // Nash toy where SB (villain, seat 0) loses showdowns. Equilibrium:
+    // SB folds, BB calls. Villain's value = -0.5 bb = -50 chips.
+    //
+    // Build a solved strategy from `RiverCfr::solve`, then feed it back
+    // through `villain_cfv_under_strategy`. The result should be ~-50
+    // chips for the villain's single combo.
+    let s = state();
+    let jam_to = s.max_raise_to();
+    let t = tree(jam_to);
+
+    let hero = [[0u8, 1]]; // SB hand (losing)
+    let hero_rank = vec![100u32];
+    let villain = [[2u8, 3]]; // BB hand (winning)
+    let villain_rank = vec![200u32];
+
+    let solver = RiverCfr::new(&t, &hero, &hero_rank, &villain, &villain_rank, s, SB, None);
+    let out = solver.solve(3000);
+
+    let villain_cfv = solver.villain_cfv_under_strategy(&out.hero_strat, &out.villain_strat);
+    eprintln!("villain CFV under equilibrium = {:?} chips", villain_cfv);
+    assert_eq!(villain_cfv.len(), 1);
+    // Villain value: hero folds SB blind, so villain nets +0.5 bb = +50.
+    // Wait — hero (SB) loses, so hero folds. Villain wins +0.5 bb.
+    // Hero-relative, villain gains = hero loses. So villain CFV = +50.
+    assert!(
+        (villain_cfv[0] - 50.0).abs() < 1.0,
+        "expected villain CFV ~50 chips, got {}",
+        villain_cfv[0],
+    );
+}

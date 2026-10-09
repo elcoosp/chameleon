@@ -12,7 +12,7 @@
 
 use crate::kernel::showdown_cfv_two;
 use crate::pubtree::PublicTree;
-use cham_core::engine::State;
+use cham_core::engine::{Action, State};
 
 /// One CFR+ solver over a fixed river tree.
 pub struct RiverCfr<'a> {
@@ -157,6 +157,8 @@ impl<'a> RiverCfr<'a> {
                 self.root_state,
                 &hero_reach,
                 &villain_reach,
+                None,
+                None,
                 t as f64,
             );
 
@@ -249,8 +251,174 @@ impl<'a> RiverCfr<'a> {
         let nv = self.villain_range.len();
         let hero_reach = vec![1.0 / nh as f64; nh];
         let villain_reach = vec![1.0 / nv as f64; nv];
-        let cfvs = self.br_walk(self.tree.root, self.root_state, &villain_reach, solved);
+        let cfvs = self.br_walk(
+            self.tree.root,
+            self.root_state,
+            &villain_reach,
+            solved,
+            None,
+            None,
+        );
         cfvs.iter().zip(hero_reach.iter()).map(|(c, w)| c * w).sum()
+    }
+
+    /// Per-villain-combo CFV under a FIXED strategy for both seats.
+    /// Unlike `br_walk`, hero does not take a max — both seats follow the
+    /// supplied average strategy. This is what the safe-resolving gadget
+    /// needs: the villain's opt-out value is their counterfactual value
+    /// under the blueprint, not under a best response.
+    ///
+    /// `hero_strat[node][combo][action]` and `villain_strat[node][combo][action]`
+    /// must be valid distributions (sum ~1) for every non-terminal node.
+    /// Empty rows are treated as uniform.
+    ///
+    /// Returns one f64 per villain combo, in chips (positive = villain
+    /// gains). Hero-relative caller should negate: `v_bp_hero = -villain_cfv`.
+    pub fn villain_cfv_under_strategy(
+        &self,
+        hero_strat: &[Vec<Vec<f64>>],
+        villain_strat: &[Vec<Vec<f64>>],
+    ) -> Vec<f64> {
+        let nv = self.villain_range.len();
+        let nh = self.hero_range.len();
+        let hero_reach = vec![1.0 / nh as f64; nh];
+        let villain_reach = vec![1.0 / nv as f64; nv];
+        let (_, v) = self.cfv_walk(
+            self.tree.root,
+            self.root_state,
+            &hero_reach,
+            &villain_reach,
+            hero_strat,
+            villain_strat,
+            None,
+            None,
+        );
+        v
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
+    fn cfv_walk(
+        &self,
+        node: u32,
+        st: State,
+        hero_reach: &[f64],
+        villain_reach: &[f64],
+        hero_strat: &[Vec<Vec<f64>>],
+        villain_strat: &[Vec<Vec<f64>>],
+        last_action: Option<Action>,
+        last_actor: Option<usize>,
+    ) -> (Vec<f64>, Vec<f64>) {
+        let n = &self.tree.nodes[node as usize];
+        if n.terminal {
+            return self.terminal(&st, hero_reach, villain_reach, last_action, last_actor);
+        }
+        let is_hero = (n.player as usize) == self.hero_seat;
+        let na = n.actions.len();
+        let nh = self.hero_range.len();
+        let nv = self.villain_range.len();
+
+        let mut child_h: Vec<Vec<f64>> = Vec::with_capacity(na);
+        let mut child_v: Vec<Vec<f64>> = Vec::with_capacity(na);
+        for (ai, &a) in n.actions.iter().enumerate() {
+            let mut st2 = st;
+            if st2.apply(a).is_err() {
+                child_h.push(vec![0.0; nh]);
+                child_v.push(vec![0.0; nv]);
+                continue;
+            }
+            let (h, v) = if is_hero {
+                let new_reach: Vec<f64> = (0..nh)
+                    .map(|i| {
+                        let row = &hero_strat[node as usize][i];
+                        let p = if row.is_empty() {
+                            1.0 / na as f64
+                        } else {
+                            row[ai]
+                        };
+                        hero_reach[i] * p
+                    })
+                    .collect();
+                self.cfv_walk(
+                    n.children[ai],
+                    st2,
+                    &new_reach,
+                    villain_reach,
+                    hero_strat,
+                    villain_strat,
+                    Some(a),
+                    Some(n.player as usize),
+                )
+            } else {
+                let new_reach: Vec<f64> = (0..nv)
+                    .map(|j| {
+                        let row = &villain_strat[node as usize][j];
+                        let p = if row.is_empty() {
+                            1.0 / na as f64
+                        } else {
+                            row[ai]
+                        };
+                        villain_reach[j] * p
+                    })
+                    .collect();
+                self.cfv_walk(
+                    n.children[ai],
+                    st2,
+                    hero_reach,
+                    &new_reach,
+                    hero_strat,
+                    villain_strat,
+                    Some(a),
+                    Some(n.player as usize),
+                )
+            };
+            child_h.push(h);
+            child_v.push(v);
+        }
+
+        // Sum children weighted by the acting player's strategy at THIS
+        // node (mirror of what `iterate` does with `node_actor`). Without
+        // this weighting, the CFV is the sum over all children rather than
+        // the strategy-weighted expectation — wrong by roughly a factor of
+        // `na`, and the gadget's `v_bp` would be mis-sized.
+        let mut total_h = vec![0.0; nh];
+        let mut total_v = vec![0.0; nv];
+        if is_hero {
+            for i in 0..nh {
+                let row = &hero_strat[node as usize][i];
+                for ai in 0..na {
+                    let p = if row.is_empty() {
+                        1.0 / na as f64
+                    } else {
+                        row[ai]
+                    };
+                    total_h[i] += p * child_h[ai][i];
+                }
+            }
+            for ai in 0..na {
+                for j in 0..nv {
+                    total_v[j] += child_v[ai][j];
+                }
+            }
+        } else {
+            for j in 0..nv {
+                let row = &villain_strat[node as usize][j];
+                for ai in 0..na {
+                    let p = if row.is_empty() {
+                        1.0 / na as f64
+                    } else {
+                        row[ai]
+                    };
+                    total_v[j] += p * child_v[ai][j];
+                }
+            }
+            for ai in 0..na {
+                for i in 0..nh {
+                    total_h[i] += child_h[ai][i];
+                }
+            }
+        }
+        (total_h, total_v)
     }
 
     /// Two-seat exploitability: `BR_hero(villain_strat) + BR_villain(hero_strat)`.
@@ -290,19 +458,22 @@ impl<'a> RiverCfr<'a> {
         br_hero + br_villain
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn br_walk(
         &self,
         node: u32,
         st: State,
         villain_reach: &[f64],
         solved: &SolvedRiver,
+        last_action: Option<Action>,
+        last_actor: Option<usize>,
     ) -> Vec<f64> {
         let n = &self.tree.nodes[node as usize];
         if n.terminal {
             // Hero CFV only; the villain-side vector is computed but
             // ignored (BR is from hero's perspective).
             let zero_hero = vec![0.0; self.hero_range.len()];
-            let (h, _v) = self.terminal(&st, &zero_hero, villain_reach);
+            let (h, _v) = self.terminal(&st, &zero_hero, villain_reach, last_action, last_actor);
             return h;
         }
         let is_hero = (n.player as usize) == self.hero_seat;
@@ -315,7 +486,14 @@ impl<'a> RiverCfr<'a> {
                 if st2.apply(a).is_err() {
                     continue;
                 }
-                let h = self.br_walk(n.children[ai], st2, villain_reach, solved);
+                let h = self.br_walk(
+                    n.children[ai],
+                    st2,
+                    villain_reach,
+                    solved,
+                    Some(a),
+                    Some(n.player as usize),
+                );
                 best = Some(match best {
                     None => h,
                     Some(b) => b.iter().zip(h.iter()).map(|(x, y)| x.max(*y)).collect(),
@@ -332,7 +510,14 @@ impl<'a> RiverCfr<'a> {
                 }
                 let new_reach: Vec<f64> =
                     (0..nv).map(|j| villain_reach[j] * strat[j][ai]).collect();
-                let h = self.br_walk(n.children[ai], st2, &new_reach, solved);
+                let h = self.br_walk(
+                    n.children[ai],
+                    st2,
+                    &new_reach,
+                    solved,
+                    Some(a),
+                    Some(n.player as usize),
+                );
                 for i in 0..nh {
                     total[i] += h[i];
                 }
@@ -342,6 +527,7 @@ impl<'a> RiverCfr<'a> {
     }
 
     /// One iteration. Returns (hero_cfv, villain_cfv) per combo, chips.
+    #[allow(clippy::too_many_arguments)]
     fn iterate(
         &self,
         rows: &mut Rows,
@@ -349,11 +535,13 @@ impl<'a> RiverCfr<'a> {
         st: State,
         hero_reach: &[f64],
         villain_reach: &[f64],
+        last_action: Option<Action>,
+        last_actor: Option<usize>,
         t: f64,
     ) -> (Vec<f64>, Vec<f64>) {
         let n = &self.tree.nodes[node as usize];
         if n.terminal {
-            return self.terminal(&st, hero_reach, villain_reach);
+            return self.terminal(&st, hero_reach, villain_reach, last_action, last_actor);
         }
         let is_hero = (n.player as usize) == self.hero_seat;
         let na = n.actions.len();
@@ -396,9 +584,27 @@ impl<'a> RiverCfr<'a> {
                 .map(|i| actor_reach[i] * sigmas[i][ai])
                 .collect();
             let (h, v) = if is_hero {
-                self.iterate(rows, n.children[ai], st2, &new_reach, villain_reach, t)
+                self.iterate(
+                    rows,
+                    n.children[ai],
+                    st2,
+                    &new_reach,
+                    villain_reach,
+                    Some(a),
+                    Some(n.player as usize),
+                    t,
+                )
             } else {
-                self.iterate(rows, n.children[ai], st2, hero_reach, &new_reach, t)
+                self.iterate(
+                    rows,
+                    n.children[ai],
+                    st2,
+                    hero_reach,
+                    &new_reach,
+                    Some(a),
+                    Some(n.player as usize),
+                    t,
+                )
             };
             child_h.push(h);
             child_v.push(v);
@@ -469,11 +675,14 @@ impl<'a> RiverCfr<'a> {
         (hero_cfv, villain_cfv)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn terminal(
         &self,
         st: &State,
         hero_reach: &[f64],
         villain_reach: &[f64],
+        last_action: Option<Action>,
+        last_actor: Option<usize>,
     ) -> (Vec<f64>, Vec<f64>) {
         let nh = self.hero_range.len();
         let nv = self.villain_range.len();
@@ -527,11 +736,16 @@ impl<'a> RiverCfr<'a> {
             // Cheap and correct: if the state is not at showdown and not
             // all-in, exactly one player folded. We read the last actor
             // by position — the to_act is the winner of the fold.
-            let to_act = st.to_act();
-            let folder = if to_act == self.hero_seat {
-                vill_seat
-            } else {
-                self.hero_seat
+            let folder = match (last_action, last_actor) {
+                (Some(Action::Fold), Some(a)) => a,
+                _ => {
+                    let to_act = st.to_act();
+                    if to_act == self.hero_seat {
+                        vill_seat
+                    } else {
+                        self.hero_seat
+                    }
+                }
             };
             if folder == self.hero_seat {
                 let h = mass_hero.iter().map(|m| -hero_inv * m).collect();
