@@ -640,6 +640,180 @@ pub fn try_solve_combo(
         lbr: 0.0,
     })
 }
+
+/// Combo-level river solve with the safe-resolving gadget sized against
+/// a real `BlueprintPolicy`.
+///
+/// Same shape as `try_solve_combo`, plus:
+///
+/// 1. Build the blueprint's per-(node, combo) strategy table by querying
+///    `robust.strategy` at each tree node. Fallback: uniform at nodes
+///    the blueprint does not cover.
+/// 2. Compute the villain's counterfactual value under that table via
+///    `RiverCfr::villain_cfv_under_strategy`. Negate to get the
+///    hero-relative `v_bp_hero`.
+/// 3. Pass `Some(v_bp_hero)` to `RiverCfr::new` — the gadget.
+///
+/// Bounds the resolved strategy's exploitability by the blueprint's
+/// (Burch/Brown-Sandholm). Without this the resolved strategy can be
+/// *more* exploitable than the blueprint (see
+/// DEFINITIVE-RESULTS-2026-10-06.md).
+///
+/// Cost note: the encoder is cloned once per (node, combo) to satisfy
+/// `Encoder`'s `&mut self` API. For a live solve at 200k-node trees this
+/// is the dominant cost; the next optimization pass will pre-size an
+/// encoder per seat.
+#[allow(clippy::too_many_arguments)]
+pub fn try_solve_combo_gadget(
+    cfg: &SearchBridgeCfg,
+    ladder: &cham_engine::ladder::ActionLadder,
+    obs: &Observables<'_>,
+    seq: &ActionSeq,
+    state: &cham_core::engine::State,
+    villain_classes: &[(f64, f64)],
+    robust: &cham_blueprint::policy::BlueprintPolicy,
+    encoder: &cham_engine::encoder::Encoder,
+) -> Option<SearchOutcome> {
+    if !cfg.enabled {
+        return None;
+    }
+    if cfg.river_only && obs.street != cham_core::engine::Street::River {
+        return None;
+    }
+    if obs.pot_bb() < cfg.min_pot_bb {
+        return None;
+    }
+    if obs.to_call != 0 {
+        return None;
+    }
+    if obs.board_len < 5 {
+        return None;
+    }
+
+    let tree = cham_search::pubtree::PublicTree::build_from_state(*state, *seq, ladder, 200_000);
+    let root = tree.nodes.get(tree.root as usize)?;
+    if root.terminal || (root.player as usize) != obs.player.as_usize() {
+        return None;
+    }
+
+    let board5 = obs.board;
+    let hero_cards = obs.hole.cards();
+    let hero_combo = [hero_cards[0].idx(), hero_cards[1].idx()];
+    let hero_range: Vec<[u8; 2]> = vec![hero_combo];
+    let hero_rank: Vec<u32> =
+        vec![(cham_engine::tables::river_equity(obs.hole, &board5) * 1e6) as u32];
+
+    // Every combo disjoint from the board.
+    let mut used = [false; 52];
+    for c in &board5 {
+        used[c.idx() as usize] = true;
+    }
+    let mut all_combos: Vec<[u8; 2]> = Vec::new();
+    for a in 0..52u8 {
+        if used[a as usize] {
+            continue;
+        }
+        for b in (a + 1)..52u8 {
+            if used[b as usize] {
+                continue;
+            }
+            all_combos.push([a, b]);
+        }
+    }
+    let equity_of = |c: &[u8; 2]| -> f64 {
+        cham_engine::tables::river_equity(
+            cham_core::card::Hand2::new(cham_core::card::Card(c[0]), cham_core::card::Card(c[1])),
+            &board5,
+        )
+    };
+    let (villain_range, _villain_weights) =
+        cham_search::river_cfr::expand_classes_to_combos(villain_classes, &all_combos, &equity_of);
+    if villain_range.is_empty() {
+        return None;
+    }
+    let villain_rank: Vec<u32> = villain_range
+        .iter()
+        .map(|c| (equity_of(c) * 1e6) as u32)
+        .collect();
+
+    // Blueprint table: hero side = seat 1 (BB by convention), villain
+    // side = seat 0. `hero_seat` matches the caller's seat.
+    let hero_seat = obs.player.as_usize();
+    let bp_policy = |o: &Observables<'_>, s: &ActionSeq| -> Option<Vec<f64>> {
+        let mut enc = encoder.clone();
+        robust.strategy(o, &mut enc, s)
+    };
+    let (bp_hero, bp_villain) = cham_search::river_cfr::build_blueprint_strategy_table(
+        &tree,
+        *state,
+        *seq,
+        ladder,
+        &hero_range,
+        &villain_range,
+        hero_seat,
+        bp_policy,
+    );
+
+    // Hero-relative v_bp: villain's CFV under blueprint, negated.
+    let helper = cham_search::river_cfr::RiverCfr::new(
+        &tree,
+        &hero_range,
+        &hero_rank,
+        &villain_range,
+        &villain_rank,
+        *state,
+        hero_seat,
+        None,
+    );
+    let villain_cfv = helper.villain_cfv_under_strategy(&bp_hero, &bp_villain);
+    let v_bp_hero: Vec<f64> = villain_cfv.iter().map(|v| -v).collect();
+
+    let solver = cham_search::river_cfr::RiverCfr::new(
+        &tree,
+        &hero_range,
+        &hero_rank,
+        &villain_range,
+        &villain_rank,
+        *state,
+        hero_seat,
+        Some(v_bp_hero),
+    );
+    let solved = solver.solve(cfg.iters);
+
+    let root_idx = tree.root as usize;
+    let hero_strat = solved
+        .hero_strat
+        .get(root_idx)
+        .and_then(|rows| rows.first())
+        .cloned()?;
+    let dist: Vec<(Action, f64)> = root
+        .actions
+        .iter()
+        .copied()
+        .zip(hero_strat.iter().copied())
+        .collect();
+    if dist.is_empty() {
+        return None;
+    }
+    let mut best = 0usize;
+    let mut best_p = dist[0].1;
+    for (i, (_, p)) in dist.iter().enumerate().skip(1) {
+        if *p > best_p {
+            best = i;
+            best_p = *p;
+        }
+    }
+
+    Some(SearchOutcome {
+        action: dist[best].0,
+        distribution: dist,
+        solver: "combo-cfr-gadget".into(),
+        iters: cfg.iters,
+        truncated: false,
+        lbr: 0.0,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
