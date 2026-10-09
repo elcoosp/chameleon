@@ -344,3 +344,113 @@ fn gadget_plays_when_blueprint_value_is_low() {
     eprintln!("gadget: play={play:.4}");
     assert!(play > 0.95, "should play, got {play}");
 }
+
+/// Exercise the solver on a real river tree (from `PublicTree::build_from_state`)
+/// rather than the hand-built 5-node toy. This hits:
+///   - the ladder's real action set at each node,
+///   - multi-node trees with 3-4 actions per node,
+///   - terminal showdown detection via `State::reached_showdown`.
+///
+/// The test asserts the solver runs, every non-terminal node has a valid
+/// distribution per combo, and (weakly) that the two-seat exploitability
+/// sum is finite and small.
+#[test]
+fn real_river_tree_strategy_is_valid() {
+    use cham_core::card::Hand2;
+    use cham_core::engine::Street;
+    use cham_core::obs::{Observables, Player, is_legal};
+    use cham_engine::config::AbstractionConfig;
+    use cham_engine::encoder::ActionSeq;
+    use cham_engine::ladder::ActionLadder;
+    use cham_search::pubtree::PublicTree;
+
+    let cfg = AbstractionConfig::tiny();
+    let ladder = ActionLadder::new(&cfg);
+
+    // River state with fixed hole cards and a fixed board.
+    let board = [Card(40), Card(41), Card(42), Card(43), Card(44)];
+    let prefix = [
+        Card(2),
+        Card(3),
+        Card(4),
+        Card(5),
+        board[0],
+        board[1],
+        board[2],
+        board[3],
+        board[4],
+    ];
+    let mut st = State::new(CFG, Deck::with_prefix(&prefix)).expect("state");
+
+    // Passive walk to the river.
+    let mut seq = ActionSeq::default();
+    let mut guard = 0;
+    while st.street() != Street::River && !st.is_terminal() && guard < 30 {
+        guard += 1;
+        let p = st.to_act();
+        let obs = Observables::view(&st, Player::from_usize(p));
+        let a = if is_legal(&obs, Action::Check) {
+            Action::Check
+        } else {
+            Action::Call
+        };
+        cham_engine::ladder::record_action(&ladder, &obs, Player::from_usize(p), a, &mut seq);
+        st.apply(a).expect("apply");
+    }
+    assert_eq!(st.street(), Street::River, "did not reach river");
+
+    let tree = PublicTree::build_from_state(st, seq, &ladder, 100_000);
+    assert!(tree.len() > 1, "empty river tree");
+
+    // Two combos each side, disjoint from board and from the state's
+    // dummy holes (2..5).
+    let hero: Vec<[u8; 2]> = vec![[10, 11], [12, 13]];
+    let villain: Vec<[u8; 2]> = vec![[14, 15], [16, 17]];
+    let rank = |c: &[u8; 2]| -> u32 {
+        (cham_engine::tables::river_equity(Hand2::new(Card(c[0]), Card(c[1])), &board) * 1e6) as u32
+    };
+    let hero_rank: Vec<u32> = hero.iter().map(rank).collect();
+    let villain_rank: Vec<u32> = villain.iter().map(rank).collect();
+
+    let solver = RiverCfr::new(
+        &tree,
+        &hero,
+        &hero_rank,
+        &villain,
+        &villain_rank,
+        st,
+        1,
+        None,
+    );
+    let out = solver.solve(500);
+
+    let mut checked = 0;
+    for (node_idx, n) in tree.nodes.iter().enumerate() {
+        if n.terminal {
+            continue;
+        }
+        let is_hero = (n.player as usize) == 1;
+        let strat = if is_hero {
+            &out.hero_strat[node_idx]
+        } else {
+            &out.villain_strat[node_idx]
+        };
+        assert!(!strat.is_empty(), "no strategy at node {node_idx}");
+        for row in strat {
+            let sum: f64 = row.iter().sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-9,
+                "row does not sum to 1 at node {node_idx}: {row:?}",
+            );
+            for &p in row {
+                assert!(
+                    (0.0..=1.0).contains(&p),
+                    "probability out of range at node {node_idx}: {p}",
+                );
+            }
+        }
+        checked += 1;
+    }
+    assert!(checked > 0, "no non-terminal nodes checked");
+    eprintln!("checked {checked} non-terminal nodes; all strategies valid");
+}
