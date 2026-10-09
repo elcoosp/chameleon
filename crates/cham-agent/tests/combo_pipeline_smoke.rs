@@ -1,22 +1,25 @@
-//! Pipeline smoke: does the combo-gadget dispatch fire on a live agent?
+//! Pipeline smoke: does `act_with_state` (the state-aware path) dispatch
+//! to the combo-gadget solver when `CHAM_SEARCH_IMPL=combo-gadget`?
 //!
-//! Runs N hands with the shipped bundle through `ChameleonAgent`, with
-//! search enabled and `SolverImpl::ComboGadget`. Asserts the combo path
-//! is taken at least once and produces a valid distribution.
+//! The earlier version of this test called `action_distribution` — which
+//! is the state-LESS path (`try_solve` only, no combo dispatch). The
+//! pipeline dispatch lives in `act_impl`, which `act_with_state` reaches.
 //!
-//! This is a plumbing test, not an exploitability measurement. It answers
-//! "does the pipeline actually dispatch to the combo solver when
-//! configured" — which the full exploitability harness cannot (it drives
-//! the closure directly, not the pipeline).
+//! This test builds a river state directly (so the trigger conditions
+//! `river && pot >= min_pot_bb && to_call == 0` are met), calls
+//! `act_with_state`, and asserts the trace's solver string is
+//! `combo-cfr-gadget`.
 
 use cham_agent::pipeline::ChameleonAgent;
 use cham_agent::search_bridge::SolverImpl;
 use cham_blueprint::policy::BlueprintPolicy;
+use cham_core::card::{Card, Deck};
 use cham_core::engine::config::EngineConfig;
-use cham_core::engine::{Action, State};
-use cham_core::obs::{Observables, Player, is_legal};
+use cham_core::engine::{Action, State, Street};
+use cham_core::obs::{Agent as _, Observables, Player, is_legal};
+use cham_core::rng::rng_from_seed;
 use cham_engine::config::AbstractionConfig;
-use cham_engine::encoder::Encoder;
+use cham_engine::encoder::{ActionSeq, Encoder};
 use cham_engine::ladder::ActionLadder;
 use cham_router::model::SoftmaxModel;
 use cham_router::runtime::RouterRuntime;
@@ -28,9 +31,41 @@ const CFG: EngineConfig = EngineConfig {
     bb: 100,
 };
 
+fn river_state(ladder: &ActionLadder) -> (State, ActionSeq) {
+    let board = [Card(40), Card(41), Card(42), Card(43), Card(44)];
+    let prefix = [
+        Card(2),
+        Card(3),
+        Card(4),
+        Card(5),
+        board[0],
+        board[1],
+        board[2],
+        board[3],
+        board[4],
+    ];
+    let mut st = State::new(CFG, Deck::with_prefix(&prefix)).expect("state");
+    let mut seq = ActionSeq::default();
+    let mut guard = 0;
+    while st.street() != Street::River && !st.is_terminal() && guard < 30 {
+        guard += 1;
+        let p = st.to_act();
+        let obs = Observables::view(&st, Player::from_usize(p));
+        let a = if is_legal(&obs, Action::Check) {
+            Action::Check
+        } else {
+            Action::Call
+        };
+        cham_engine::ladder::record_action(ladder, &obs, Player::from_usize(p), a, &mut seq);
+        st.apply(a).expect("apply");
+    }
+    assert_eq!(st.street(), Street::River, "did not reach river");
+    (st, seq)
+}
+
 #[test]
 #[ignore = "plumbing smoke; needs shipped bundle"]
-fn combo_dispatch_fires_on_live_agent() {
+fn combo_dispatch_fires_through_act_with_state() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let bundle = std::env::var("CHAM_SEARCH_BUNDLE").unwrap_or_else(|_| {
         root.join("artifacts/agent-honest-19dim")
@@ -46,35 +81,22 @@ fn combo_dispatch_fires_on_live_agent() {
     let enc = Encoder::from_artifacts_dir(&b.join("buckets"), cfg.clone())
         .unwrap_or_else(|_| Encoder::cfg_only(cfg.clone()).expect("enc"));
     let robust = BlueprintPolicy::load(&b.join("robust"), 0).expect("load robust");
-    let _ladder = ActionLadder::new(&cfg);
+    let ladder = ActionLadder::new(&cfg);
 
-    // Search enabled, ComboGadget impl. `from_mode` reads the env var
-    // only for the impl_kind; we construct the cfg directly so the test
-    // is deterministic regardless of env.
     let mut mode = cham_agent::modes::AgentMode::full_search_off();
     mode.search.enabled = true;
     mode.search.solver = "ReachGadget".into();
-    // G4 lockout (SPECS/06 §7): enabled search requires a non-empty
-    // audit token. `modes.rs::validate` refuses otherwise.
     mode.search.g4_ledger_ref = "EXP-COMBO-SMOKE".into();
 
-    // The launcher sets CHAM_SEARCH_IMPL=combo-gadget in the environment
-    // (`env -i ... CHAM_SEARCH_IMPL=combo-gadget`). The pipeline reads it
-    // through `SearchBridgeCfg::from_mode`. No in-test env mutation:
-    // the workspace forbids `unsafe`, and `std::env::set_var` is unsafe
-    // in Rust 2024.
-    let probe_cfg = cham_agent::search_bridge::SearchBridgeCfg::from_mode(&mode).expect("cfg");
-    eprintln!(
-        "dispatch impl_kind = {:?} (expect ComboGadget when env is set)",
-        probe_cfg.impl_kind
-    );
+    // Assert the env var reaches `from_mode`.
+    let probe = cham_agent::search_bridge::SearchBridgeCfg::from_mode(&mode).expect("cfg");
+    eprintln!("dispatch impl_kind = {:?}", probe.impl_kind);
     assert_eq!(
-        probe_cfg.impl_kind,
+        probe.impl_kind,
         SolverImpl::ComboGadget,
-        "CHAM_SEARCH_IMPL was not picked up; set it in the launcher",
+        "CHAM_SEARCH_IMPL was not picked up; the launcher must set it",
     );
 
-    // Build the agent.
     let router = RouterRuntime::new(SoftmaxModel::new(20, 4), 0.7, 8.0, 0.5, -1.5);
     let mut agent = ChameleonAgent::new(
         mode,
@@ -92,75 +114,36 @@ fn combo_dispatch_fires_on_live_agent() {
     )
     .expect("agent");
 
-    // Play N hands against a scripted opponent. The opponent is the other
-    // seat; the agent plays both via duplication, but for this test we
-    // drive both seats in a simple loop.
-    // Simple deterministic opponent: check/call when legal, else fold.
-    // Avoids depending on a specific scripted-opponent constructor.
-    let opp_pick = |obs: &Observables<'_>| -> Action {
-        if is_legal(obs, Action::Check) {
-            Action::Check
-        } else if is_legal(obs, Action::Call) {
-            Action::Call
-        } else {
-            Action::Fold
-        }
-    };
-    let mut combo_fired = 0usize;
-    let mut total_decisions = 0usize;
+    let (st, _seq) = river_state(&ladder);
+    // Sanity: trigger conditions — river, to_call == 0.
+    assert_eq!(st.street(), Street::River);
+    assert_eq!(st.to_act(), 1, "hero (BB) to act at river root");
 
-    for hand in 0..20u64 {
-        let mut st = State::new(
-            CFG,
-            cham_core::card::Deck::shuffled(&mut cham_core::rng::rng_from_seed(hand)),
-        )
-        .expect("state");
-        let mut guard = 0;
-        while !st.is_terminal() && guard < 40 {
-            guard += 1;
-            let p = st.to_act();
-            let obs = Observables::view(&st, Player::from_usize(p));
-            let a: Action = if p == 0 {
-                // opponent seat: scripted
-                opp_pick(&obs)
-            } else {
-                // agent seat
-                let dist = agent.action_distribution(&obs);
-                total_decisions += 1;
-                dist.as_ref()
-                    .and_then(|d| {
-                        d.iter()
-                            .max_by(|x, y| x.1.partial_cmp(&y.1).unwrap())
-                            .map(|(a, _)| *a)
-                    })
-                    .unwrap_or_else(|| obs.legal.first().map(|l| l.action).unwrap_or(Action::Check))
-            };
-            if !is_legal(&obs, a) {
-                break;
-            }
-            st.apply(a).expect("apply");
-        }
-        if let Some(trace) = agent.last_trace.as_ref() {
-            if let Some(s) = trace.search.as_ref() {
-                if s.0.contains("combo") {
-                    combo_fired += 1;
-                }
-            }
-        }
+    let obs = Observables::view(&st, Player::from_usize(1));
+    eprintln!("pot_bb = {:.3}", obs.pot_bb());
+
+    let mut rng = rng_from_seed(0xC0FFEE);
+    let action = agent.act_with_state(&obs, &mut rng, Some(&st));
+    eprintln!("action chosen = {:?}", action);
+
+    // Read the trace.
+    let trace = agent.last_trace.as_ref().expect("trace populated");
+    if let Some(s) = trace.search.as_ref() {
+        eprintln!("search trace = {:?}", s);
+        assert!(
+            s.0.contains("combo"),
+            "expected the combo-gadget dispatch, got {:?}",
+            s.0,
+        );
+    } else {
+        // No search fired at all: either trigger guard (pot below
+        // min_pot_bb) or something else refused. That's a legit outcome
+        // to report.
+        eprintln!(
+            "no search trace at all — trigger did not fire (pot_bb={:.3}, min={})",
+            obs.pot_bb(),
+            probe.min_pot_bb,
+        );
+        panic!("search did not fire even though river + to_call==0");
     }
-
-    eprintln!("hands=20 decisions={total_decisions} combo_fired={combo_fired}");
-    // What this test proves: the pipeline DISPATCHES to ComboGadget when
-    // CHAM_SEARCH_IMPL=combo-gadget is set (asserted above via
-    // `SearchBridgeCfg::from_mode`). The trigger itself requires
-    // (river, pot >= 8 bb, to_call == 0); this short loop does not drive
-    // the game to those conditions, so `combo_fired == 0` is expected.
-    //
-    // The search ITSELF (does the combo solver produce a good strategy at
-    // a real river node) is verified by `combo_solve_gadget_smoke.rs`
-    // and the 40-board `combo_gadget_w3_sweep40.rs`. The remaining
-    // end-to-end measurement (pipeline + trigger + combo, on real hands)
-    // is blocked on the harness runtime (see
-    // `COMBO-PATH-MEASUREMENT-BLOCKER-2026-10-09.md`).
-    let _ = combo_fired;
 }
