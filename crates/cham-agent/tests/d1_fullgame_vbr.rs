@@ -51,6 +51,12 @@ fn board_from_seed(seed: u64) -> [Card; 5] {
 }
 
 fn split_ranges(board: &[Card; 5], n: usize) -> (Vec<[u8; 2]>, Vec<[u8; 2]>) {
+    // Seeded shuffle of ALL combos in each half-deck, then take the
+    // first n. Lexicographic enumeration (the prior version) produced
+    // ranges where 25 of 30 combos shared a card — see
+    // docs/plans/D1-HARNESS-RANGE-FINDING-2026-10-09.md.
+    use cham_core::rng::{next_f64, rng_from_seed};
+
     let mut avail: Vec<u8> = Vec::new();
     for c in 0..52u8 {
         if !board.iter().any(|b| b.idx() as usize == c as usize) {
@@ -58,19 +64,33 @@ fn split_ranges(board: &[Card; 5], n: usize) -> (Vec<[u8; 2]>, Vec<[u8; 2]>) {
         }
     }
     let half = avail.len() / 2;
-    fn take(pool: &[u8], n: usize) -> Vec<[u8; 2]> {
-        let mut out = Vec::new();
-        'outer: for i in 0..pool.len() {
+
+    fn all_combos(pool: &[u8]) -> Vec<[u8; 2]> {
+        let mut out = Vec::with_capacity(pool.len() * (pool.len() - 1) / 2);
+        for i in 0..pool.len() {
             for j in (i + 1)..pool.len() {
                 out.push([pool[i], pool[j]]);
-                if out.len() == n {
-                    break 'outer;
-                }
             }
         }
         out
     }
-    (take(&avail[..half], n), take(&avail[half..], n))
+    fn shuffled(mut v: Vec<[u8; 2]>, seed: u64) -> Vec<[u8; 2]> {
+        let mut rng = rng_from_seed(seed);
+        for i in (1..v.len()).rev() {
+            let j = (next_f64(&mut rng) * (i + 1) as f64) as usize;
+            v.swap(i, j);
+        }
+        v
+    }
+
+    let hero_all = all_combos(&avail[..half]);
+    let vill_all = all_combos(&avail[half..]);
+    let hero = shuffled(hero_all, 0xD1_2026_1009);
+    let vill = shuffled(vill_all, 0xD1_2026_1009 ^ 0x5A5A);
+    (
+        hero.into_iter().take(n).collect(),
+        vill.into_iter().take(n).collect(),
+    )
 }
 
 fn norm_na(mut v: Vec<f64>, na: usize) -> Vec<f64> {
@@ -265,4 +285,36 @@ fn d1_fullgame_vbr() {
     eprintln!("  mean VBR:    {:.4} +/- {:.4} bb/hand", mean, se);
     eprintln!("  (positive = perfect full-game player beats the blueprint by this much)");
     eprintln!();
+}
+
+#[test]
+fn split_ranges_is_spread() {
+    // Regression: the lexicographic construction gave 25 of 30 combos
+    // the same shared card. The shuffled one should not.
+    let board = [Card(40), Card(41), Card(42), Card(43), Card(44)];
+    let (hero, vill) = split_ranges(&board, 30);
+    assert_eq!(hero.len(), 30);
+    assert_eq!(vill.len(), 30);
+
+    fn max_single_card_share(range: &[[u8; 2]]) -> usize {
+        let mut counts = [0usize; 52];
+        for c in range {
+            counts[c[0] as usize] += 1;
+            counts[c[1] as usize] += 1;
+        }
+        counts.iter().copied().max().unwrap_or(0)
+    }
+
+    let hero_max = max_single_card_share(&hero);
+    let vill_max = max_single_card_share(&vill);
+    // 30 random combos from 26 cards: no card should appear in more
+    // than half. The old code gave 25.
+    assert!(
+        hero_max < 15,
+        "hero range still concentrated: max card share = {hero_max}"
+    );
+    assert!(
+        vill_max < 15,
+        "villain range still concentrated: max card share = {vill_max}"
+    );
 }
