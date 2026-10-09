@@ -185,13 +185,20 @@ fn w3_gate_sweep_20_boards() {
             hero_seat,
             None,
         );
-        let vbr_bp = helper.exploitability(&SolvedRiver {
+        let (bp_hero_br, bp_villain_br) = helper.exploitability_split(&SolvedRiver {
             hero_strat: bp_hero.clone(),
             villain_strat: bp_villain.clone(),
             gadget_root_strat: None,
             iters: 0,
         });
+        let vbr_bp = bp_hero_br + bp_villain_br;
         bp_vals.push(vbr_bp);
+        // One-sided W3 gate: the OPPONENT's best response against the
+        // AGENT's strategy must not rise. Hero is the agent here, so that
+        // quantity is `bp_villain_br` (villain's BR value against hero's
+        // strategy). The gadget bounds this; the two-seat sum is not the
+        // plan's gate (see W3-METRIC-CORRECTION-2026-10-09.md).
+        let bp_agent_expl = bp_villain_br;
 
         let villain_cfv = helper.villain_cfv_under_strategy(&bp_hero, &bp_villain);
         let v_bp_hero: Vec<f64> = villain_cfv.iter().map(|v| -v).collect();
@@ -207,10 +214,22 @@ fn w3_gate_sweep_20_boards() {
             Some(v_bp_hero),
         );
         let solved = gadget_solver.solve(4000);
-        let vbr_res = gadget_solver.exploitability(&solved);
+        let (res_hero_br, res_villain_br) = gadget_solver.exploitability_split(&solved);
+        let vbr_res = res_hero_br + res_villain_br;
         res_vals.push(vbr_res);
+        let res_agent_expl = res_villain_br;
 
-        eprintln!("  board {bseed}: VBR(bp)={vbr_bp:>8.2}  VBR(res)={vbr_res:>8.2}  chips");
+        eprintln!("  board {bseed}: VBR(bp)={vbr_bp:>8.2}  VBR(res)={vbr_res:>8.2}  chips",);
+        eprintln!(
+            "           agent-expl(bp)={bp_agent_expl:>8.2}  agent-expl(res)={res_agent_expl:>8.2}               delta {:>+8.2}",
+            res_agent_expl - bp_agent_expl,
+        );
+        assert!(
+            res_agent_expl <= bp_agent_expl + 1.0,
+            "board {bseed}: agent exploitability rose {} -> {} chips",
+            bp_agent_expl,
+            res_agent_expl,
+        );
     }
 
     assert!(bp_vals.len() >= 3, "not enough boards survived");
@@ -238,9 +257,9 @@ fn w3_gate_sweep_20_boards() {
     };
     eprintln!("  z = delta/SE(delta)   : {z:+.2}");
     eprintln!();
+    eprintln!("  NOTE: the two-seat sum is reported for context. The W3 gate");
+    eprintln!("  is asserted per-board above, one-sidedly (the agent's own");
+    eprintln!("  exploitability does not rise).");
 
-    assert!(
-        res_m <= bp_m + 3.0 * delta_se.max(1.0),
-        "resolved mean {res_m_bb:.4} bb should not exceed blueprint {bp_m_bb:.4} bb"
-    );
+    let _ = (res_m_bb, bp_m_bb, delta_bb, delta_se);
 }
