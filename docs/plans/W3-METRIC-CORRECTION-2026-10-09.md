@@ -87,6 +87,24 @@ Every other board improves.
 This settles the one-sided W3 finding: the combo+gadget solve reduces
 the agent's own exploitability by 3.3 bb on a 40-board sweep, z=-7.5.
 
+## 40-board at 15/side (the pipeline's cap width)
+
+`combo_gadget_w3_sweep40.rs` with `CHAM_SWEEP_COMBOS=15` — the width
+`expand_classes_to_combos_capped(.., 15)` produces in the live bridge:
+
+    agent-expl(bp)   = 2.833 +/- 0.346 bb
+    agent-expl(res)  = 0.616 +/- 0.167 bb
+    delta (res - bp) = -2.217 +/- 0.221 bb
+    z = delta/SE     = -10.03
+
+**40/40 boards pass**, mean improvement -2.2 bb. The magnitude falls
+from the 3/side case (-3.3 bb) as the blueprint gets better with a
+wider range, but the effect is *more* significant (z=-10.0 vs -7.5).
+
+This is the width the live pipeline uses (via the cap), so it confirms
+the cap is not a workaround: the one-sided safety property holds at the
+width the bridge actually produces.
+
 ## What still needs work
 
 - 40+ board sweep (only 7 boards survived the range/board filter here).
