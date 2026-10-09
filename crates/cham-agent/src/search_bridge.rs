@@ -787,11 +787,12 @@ pub fn try_solve_combo_gadget(
     // Blueprint table: hero side = seat 1 (BB by convention), villain
     // side = seat 0. `hero_seat` matches the caller's seat.
     let hero_seat = obs.player.as_usize();
-    let bp_policy = |o: &Observables<'_>, s: &ActionSeq| -> Option<Vec<f64>> {
-        let mut enc = encoder.clone();
-        robust.strategy(o, &mut enc, s)
-    };
-    let (bp_hero, bp_villain) = cham_search::river_cfr::build_blueprint_strategy_table(
+    let mut enc_warm = encoder.clone();
+    let bp_policy = |o: &Observables<'_>,
+                     s: &ActionSeq,
+                     enc: &mut cham_engine::encoder::Encoder|
+     -> Option<Vec<f64>> { robust.strategy(o, enc, s) };
+    let (bp_hero, bp_villain) = cham_search::river_cfr::build_blueprint_strategy_table_warm(
         &tree,
         *state,
         *seq,
@@ -799,6 +800,7 @@ pub fn try_solve_combo_gadget(
         &hero_range,
         &villain_range,
         hero_seat,
+        &mut enc_warm,
         bp_policy,
     );
 
