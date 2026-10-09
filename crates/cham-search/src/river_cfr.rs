@@ -13,6 +13,7 @@
 use crate::kernel::showdown_cfv_two;
 use crate::pubtree::PublicTree;
 use cham_core::engine::{Action, State};
+use cham_engine::encoder::ActionSeq;
 
 /// One CFR+ solver over a fixed river tree.
 pub struct RiverCfr<'a> {
@@ -838,4 +839,152 @@ fn disjoint_mass(range_i: &[[u8; 2]], range_j: &[[u8; 2]], reach_j: &[f64]) -> V
         .iter()
         .map(|h| total - card[h[0] as usize] - card[h[1] as usize])
         .collect()
+}
+
+// =====================================================================
+// Blueprint strategy table (Phase D wiring support).
+//
+// Given a real `PublicTree` rooted at a river state, walk the tree and
+// query a caller-supplied policy once per (node, combo). The result is
+// two `Vec<Vec<Vec<f64>>>` (hero, villain) indexed
+// [node_idx][combo_idx][action_idx].
+//
+// The policy closure receives `Observables` with the combo's hole
+// already swapped in via `Observables::with_hole`, and the action
+// history `seq` to this node. The caller wraps `BlueprintPolicy::strategy`
+// (or any other per-combo policy) into this shape.
+//
+// These tables are the input to `RiverCfr::villain_cfv_under_strategy`,
+// which produces the safe-resolving gadget's `v_bp_hero`.
+// =====================================================================
+
+/// Build the per-(node, combo) strategy table for both players by
+/// walking the tree and querying `policy` at each non-terminal node.
+///
+/// `hero_seat` is the seat whose combos come from `hero_range`; the
+/// other seat's combos come from `villain_range`. A combo is a pair of
+/// card indices `[u8; 2]`. If the policy returns `None` for a combo at
+/// a node, the row is filled with the uniform distribution.
+#[allow(clippy::type_complexity)]
+pub fn build_blueprint_strategy_table<F>(
+    tree: &PublicTree,
+    root_state: State,
+    root_seq: ActionSeq,
+    ladder: &cham_engine::ladder::ActionLadder,
+    hero_range: &[[u8; 2]],
+    villain_range: &[[u8; 2]],
+    hero_seat: usize,
+    mut policy: F,
+) -> (Vec<Vec<Vec<f64>>>, Vec<Vec<Vec<f64>>>)
+where
+    F: FnMut(&cham_core::obs::Observables<'_>, &ActionSeq) -> Option<Vec<f64>>,
+{
+    let nnodes = tree.nodes.len();
+    let mut hero_strat: Vec<Vec<Vec<f64>>> = vec![Vec::new(); nnodes];
+    let mut villain_strat: Vec<Vec<Vec<f64>>> = vec![Vec::new(); nnodes];
+    build_bp_walk(
+        tree,
+        tree.root,
+        root_state,
+        root_seq,
+        ladder,
+        hero_range,
+        villain_range,
+        hero_seat,
+        &mut policy,
+        &mut hero_strat,
+        &mut villain_strat,
+    );
+    (hero_strat, villain_strat)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_bp_walk<F>(
+    tree: &PublicTree,
+    node: u32,
+    st: State,
+    seq: ActionSeq,
+    ladder: &cham_engine::ladder::ActionLadder,
+    hero_range: &[[u8; 2]],
+    villain_range: &[[u8; 2]],
+    hero_seat: usize,
+    policy: &mut F,
+    hero_strat: &mut [Vec<Vec<f64>>],
+    villain_strat: &mut [Vec<Vec<f64>>],
+) where
+    F: FnMut(&cham_core::obs::Observables<'_>, &ActionSeq) -> Option<Vec<f64>>,
+{
+    use cham_core::card::{Card, Hand2};
+    use cham_core::obs::{Observables, Player};
+
+    let n = &tree.nodes[node as usize];
+    if n.terminal {
+        return;
+    }
+    let p = n.player as usize;
+    let is_hero = p == hero_seat;
+    let na = n.actions.len();
+    let range: &[[u8; 2]] = if is_hero { hero_range } else { villain_range };
+
+    let obs_base = Observables::view(&st, Player::from_usize(p));
+    let slots = ladder.slots(&obs_base, &seq);
+
+    let mut rows: Vec<Vec<f64>> = Vec::with_capacity(range.len());
+    for combo in range {
+        let hole = Hand2::new(Card(combo[0]), Card(combo[1]));
+        let obs_i = obs_base.with_hole(hole);
+        let mut probs = vec![0.0; na];
+        match policy(&obs_i, &seq) {
+            Some(d) => {
+                for (ai, &a) in n.actions.iter().enumerate() {
+                    if let Some(si) = slots.iter().position(|s| s.action == a) {
+                        probs[ai] = d.get(si).copied().unwrap_or(0.0);
+                    }
+                }
+                let tot: f64 = probs.iter().sum();
+                if tot > 1e-9 {
+                    for x in probs.iter_mut() {
+                        *x /= tot;
+                    }
+                } else {
+                    for x in probs.iter_mut() {
+                        *x = 1.0 / na as f64;
+                    }
+                }
+            }
+            None => {
+                for x in probs.iter_mut() {
+                    *x = 1.0 / na as f64;
+                }
+            }
+        }
+        rows.push(probs);
+    }
+    if is_hero {
+        hero_strat[node as usize] = rows;
+    } else {
+        villain_strat[node as usize] = rows;
+    }
+
+    for (ai, &a) in n.actions.iter().enumerate() {
+        let mut st2 = st;
+        let mut seq2 = seq;
+        cham_engine::ladder::record_action(ladder, &obs_base, Player::from_usize(p), a, &mut seq2);
+        if st2.apply(a).is_err() {
+            continue;
+        }
+        build_bp_walk(
+            tree,
+            n.children[ai],
+            st2,
+            seq2,
+            ladder,
+            hero_range,
+            villain_range,
+            hero_seat,
+            policy,
+            hero_strat,
+            villain_strat,
+        );
+    }
 }
