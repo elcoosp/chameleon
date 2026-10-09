@@ -606,8 +606,20 @@ pub fn try_solve_combo(
         )
     };
 
-    let (villain_range, _villain_weights) =
-        cham_search::river_cfr::expand_classes_to_combos(villain_classes, &all_combos, &equity_of);
+    // Cap combos per class: without this the tracker range feeds ~1300
+    // combos into the table walk and the solver, at ~20 s per pipeline
+    // call. 15 per class * 3 classes = 45 combos, matching the W3
+    // sweep's per-decision cost. Env-overridable (`CHAM_COMBO_CAP`).
+    let combo_cap: usize = std::env::var("CHAM_COMBO_CAP")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(15);
+    let (villain_range, _villain_weights) = cham_search::river_cfr::expand_classes_to_combos_capped(
+        villain_classes,
+        &all_combos,
+        &equity_of,
+        combo_cap,
+    );
     if villain_range.is_empty() {
         return None;
     }
@@ -750,8 +762,20 @@ pub fn try_solve_combo_gadget(
             &board5,
         )
     };
-    let (villain_range, _villain_weights) =
-        cham_search::river_cfr::expand_classes_to_combos(villain_classes, &all_combos, &equity_of);
+    // Cap combos per class: without this the tracker range feeds ~1300
+    // combos into the table walk and the solver, at ~20 s per pipeline
+    // call. 15 per class * 3 classes = 45 combos, matching the W3
+    // sweep's per-decision cost. Env-overridable (`CHAM_COMBO_CAP`).
+    let combo_cap: usize = std::env::var("CHAM_COMBO_CAP")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(15);
+    let (villain_range, _villain_weights) = cham_search::river_cfr::expand_classes_to_combos_capped(
+        villain_classes,
+        &all_combos,
+        &equity_of,
+        combo_cap,
+    );
     if villain_range.is_empty() {
         return None;
     }
