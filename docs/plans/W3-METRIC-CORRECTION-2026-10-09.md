@@ -114,22 +114,37 @@ The fix (`9627158`) enumerates all pairs, seeded-shuffles, takes `n`.
 
 **Corrected numbers (40 boards each):**
 
-| width | agent-expl(bp) | agent-expl(res) | delta | z | status |
-|---|---|---|---|---|---|
-| 3 | pending | pending | pending | pending | not yet re-measured |
-| 8 | pending | pending | pending | pending | not yet re-measured |
-| **15** | **2.393 +/- 0.326** | **0.701 +/- 0.138** | **-1.692 +/- 0.222** | **-7.61** | re-measured |
-| 30 | pending | pending | pending | pending | not yet re-measured |
+| width | agent-expl(bp) | agent-expl(res) | delta | z |
+|---|---|---|---|---|
+| 3 | 2.937 +/- 0.371 | 0.586 +/- 0.163 | -2.350 +/- 0.243 | -9.66 |
+| 8 | 2.658 +/- 0.336 | 0.865 +/- 0.171 | -1.794 +/- 0.225 | -7.97 |
+| 15 | 2.393 +/- 0.326 | 0.701 +/- 0.138 | -1.692 +/- 0.222 | -7.61 |
+| 30 | 2.236 +/- 0.272 | 0.815 +/- 0.131 | -1.421 +/- 0.180 | -7.87 |
 
-The corrected 15/side number (**-1.69 bb, z=-7.61**) is smaller in
-magnitude than the buggy-range one (-2.22, z=-10.0) — the concentrated
-range was easier for the resolver to exploit. But the **direction and
-significance hold**: the one-sided gate passes at 15/side with uniform
-ranges.
+All 40/40 boards pass at every width. Two readings:
 
-**The conclusion is unchanged:** the gate holds, the pipeline cap of 15
-is defensible. The exact per-width numbers below are from the buggy
-construction and should not be quoted.
+1. **The delta shrinks monotonically with range width.** 3/side:
+   -2.35 bb. 30/side: -1.42 bb. As the blueprint improves (wider range
+   = more info per decision), the resolver has less to fix. This is the
+   expected direction, not a defect.
+2. **z is roughly flat (7.6 to 9.7).** The margin per unit of noise is
+   stable; the absolute improvement is smaller at wider ranges, but the
+   significance does not collapse.
+
+**The "15 is optimal" claim was too strong.** z peaks at width 3
+(degenerate — 3 combos per class is not a realistic range), and is
+essentially flat from 8 to 30. Width 15 is a reasonable *operational*
+choice (matches the W3 sweep's earlier numbers, moderate cost) rather
+than the empirically-best width. The gate holds regardless.
+
+**The pipeline cap of 15 is defensible:** it maximizes neither z nor
+delta, but it is on the flat part of both curves.
+
+---
+
+## Width table — ORIGINAL (buggy draw_range; do not quote)
+
+
 
 ---
 
