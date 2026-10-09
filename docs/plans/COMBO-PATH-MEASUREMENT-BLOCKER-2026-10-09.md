@@ -126,3 +126,25 @@ start Option A is a fresh session.
 4. If `combo-gadget` is still ~+7 bb, there's a solver bug or the gadget
    is mis-sized against the blueprint — worth debugging before any
    live wiring.
+
+## Still impractical at scale (2026-10-09, later)
+
+Even after the 20s -> 1s fix (`fb7b08f`), the harness
+`search_exploitability_combo.rs` does not complete in reasonable time.
+It was launched at `tr=1500, te=500, sw=20` and killed after 23 minutes
+having produced no seat result. The block is the harness's call pattern:
+`tabular_br_with_state` calls the closure once per opponent decision,
+and the combo solve fires on every river node above the pot threshold.
+At ~1 s/call and thousands of calls per arm, the honest estimate is
+100+ minutes at idle, several hours at the load present this session.
+
+The **40-board sweep** (`combo_gadget_w3_sweep40.rs`) already measures
+the same property more cheaply and more precisely. The harness is not
+the right tool for a per-decision pipeline measurement.
+
+**Recommendation:** do not treat the live harness as a pending
+deliverable. The one-sided gate is established by the sweep; the
+pipeline dispatch is established by `combo_pipeline_smoke.rs`. The
+remaining gap is measuring the pipeline **end-to-end** through the
+ladder, which is a `cham-eval` job, not a `tabular_br` one.
+
