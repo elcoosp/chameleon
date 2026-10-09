@@ -43,18 +43,24 @@ fn board_from_seed(seed: u64) -> [Card; 5] {
 
 /// Draw `n` disjoint combos from `pool` after excluding cards in `used`.
 fn draw_range(pool: &[u8], used: &mut [bool; 52], n: usize) -> Vec<[u8; 2]> {
+    // Draw `n` combos from `pool`, skipping any card that overlaps the
+    // BOARD (`used`). The drawn combos MAY share cards with each other —
+    // real ranges do. The prior version marked each drawn card as used,
+    // which forced disjoint combos and capped the draw at floor(pool/2);
+    // that made 15/side impossible and the sweep reported 0 boards.
     let avail: Vec<u8> = pool
         .iter()
         .copied()
         .filter(|c| !used[*c as usize])
         .collect();
     let mut out = Vec::with_capacity(n);
-    let mut i = 0usize;
-    while out.len() < n && i + 1 < avail.len() {
-        out.push([avail[i], avail[i + 1]]);
-        used[avail[i] as usize] = true;
-        used[avail[i + 1] as usize] = true;
-        i += 2;
+    'outer: for i in 0..avail.len() {
+        for j in (i + 1)..avail.len() {
+            out.push([avail[i], avail[j]]);
+            if out.len() == n {
+                break 'outer;
+            }
+        }
     }
     out
 }
@@ -151,9 +157,13 @@ fn w3_gate_sweep_40_boards() {
         for c in &board {
             used[c.idx() as usize] = true;
         }
-        let hero = draw_range(&half, &mut used, 3);
-        let villain = draw_range(&other, &mut used, 3);
-        if hero.len() < 3 || villain.len() < 3 {
+        let n_side: usize = std::env::var("CHAM_SWEEP_COMBOS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(3);
+        let hero = draw_range(&half, &mut used, n_side);
+        let villain = draw_range(&other, &mut used, n_side);
+        if hero.len() < n_side || villain.len() < n_side {
             continue;
         }
 
