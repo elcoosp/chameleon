@@ -22,6 +22,7 @@ pub mod kernel;
 pub mod oracle;
 pub mod prior;
 pub mod pubtree;
+pub mod river_cfr;
 pub mod solve;
 pub mod subgame;
 pub mod trigger;
