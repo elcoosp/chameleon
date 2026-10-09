@@ -70,6 +70,23 @@ it holds on all 7 boards. The latter is the correct interpretation.
 available via `RiverCfr::exploitability_split(s).1` when the hero is the
 agent.
 
+## 40-board confirmation (2026-10-09)
+
+`combo_gadget_w3_sweep40.rs` — per-board disjoint ranges so all 40
+survive:
+
+    agent-expl(bp)   = 5.819 +/- 0.884 bb
+    agent-expl(res)  = 2.516 +/- 0.701 bb
+    delta (res - bp) = -3.303 +/- 0.441 bb
+    z = delta/SE     = -7.49
+
+**40/40 boards pass the one-sided gate.** One board (32) has delta 0.0
+(both values -100 chips; the blueprint is already optimal there).
+Every other board improves.
+
+This settles the one-sided W3 finding: the combo+gadget solve reduces
+the agent's own exploitability by 3.3 bb on a 40-board sweep, z=-7.5.
+
 ## What still needs work
 
 - 40+ board sweep (only 7 boards survived the range/board filter here).
