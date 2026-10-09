@@ -1014,12 +1014,22 @@ impl ChameleonAgent {
         let mut search_trace: Option<(String, bool, String, u32, bool, f64)> = None;
         if let Some(cfg) = crate::search_bridge::SearchBridgeCfg::from_mode(mode) {
             if crate::search_bridge::would_trigger(&cfg, obs) {
-                // Phase D: dispatch on `impl_kind`. `Class` keeps the
-                // historical solver; `ComboGadget` uses the combo-level
-                // CFR+ with a safe-resolving gadget sized against the
-                // blueprint. The combo path needs a live `State`; when
-                // it's absent (tests / callers without one) it falls
-                // back to `Class`.
+                // Phase D: dispatch on `impl_kind`.
+                //
+                // `Class` is the historical class-conditioned solver,
+                // measured at +7.36 bb MORE exploitable than search-off
+                // (`SEARCH-ON-OFF-EXPLOITABILITY-2026-10-09.md`).
+                //
+                // `ComboGadget` is the combo-level CFR+ with a
+                // safe-resolving gadget; the one-sided gate holds on
+                // 40/40 boards at every range width (W3-METRIC-CORRECTION).
+                //
+                // IMPORTANT: `ComboGadget` never falls back to `Class`.
+                // If the combo call refuses (no state, or the solver
+                // returned `None`), we return `None` and the caller keeps
+                // its base policy — harm-free. Falling back to the class
+                // solver would silently apply the solver we measured to
+                // be worse than doing nothing.
                 let outcome_opt = match cfg.impl_kind {
                     crate::search_bridge::SolverImpl::Class => crate::search_bridge::try_solve(
                         &cfg, tracker, encoder, robust, obs, seq, state,
@@ -1039,15 +1049,8 @@ impl ChameleonAgent {
                                 robust,
                                 encoder,
                             )
-                            .or_else(|| {
-                                crate::search_bridge::try_solve(
-                                    &cfg, tracker, encoder, robust, obs, seq, state,
-                                )
-                            })
                         }
-                        None => crate::search_bridge::try_solve(
-                            &cfg, tracker, encoder, robust, obs, seq, state,
-                        ),
+                        None => None,
                     },
                 };
                 match outcome_opt {
