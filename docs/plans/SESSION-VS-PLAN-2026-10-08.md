@@ -32,7 +32,7 @@ Plan gate: kernel parity tests bit-close to brute force; VBR(uniform)
 | Tree (public betting tree) | **DONE** | `cham-search/src/pubtree.rs`, `pubtree_card_independent.rs`, commit `79d5363` |
 | Full-game VBR | **DONE** | `cham-search/src/fullgame.rs`; validated via `fullgame_brute_force.rs` (diff = 0e0) and `fullgame_fold.rs` (+0.5 bb exact) |
 | Kernel parity bit-close | **DONE** | brute-force diff = 0 (exact) |
-| VBR of hand-built Nash toy ≈ 0 | **PARTIAL** | `fullgame_fold` pins +0.5 bb on a fold-to-known winner; there is no *equilibrium* toy comparison against `vbr` yet |
+| VBR of hand-built Nash toy ≈ 0 | **DONE** | `vbr_nash_toy.rs` (3a885ee): exploitability 0.000000 bb in both rank cases |
 | D1 on `agent-honest-19dim` | **DONE** | 5.77 ± 0.55 bb (180 boards); ledger entry `ts=1791476675` |
 | **D1 on `tiny-full`** | **DONE** | 7.65 +/- 0.92 bb at 1.06% miss; needs `CHAM_SLOT_BUCKET=1` (bundle trained with it); ledger entry `ts=...` appended |
 | D1 verdict interpretation | **PARTIAL → addressed** | D1's third outcome applies to `agent-honest-19dim` (5.77 ≪ 8.19). The mapping of which past decisions need VBR re-measurement is in `D1-RERANK-2026-10-08.md`. The three VBR re-measurements themselves are the next session's work. |
