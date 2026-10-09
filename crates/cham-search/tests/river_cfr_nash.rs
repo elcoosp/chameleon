@@ -454,3 +454,111 @@ fn real_river_tree_strategy_is_valid() {
     assert!(checked > 0, "no non-terminal nodes checked");
     eprintln!("checked {checked} non-terminal nodes; all strategies valid");
 }
+
+#[test]
+fn nash_toy_exploitability_is_zero() {
+    // Same toy as before, now via the two-seat helper. The number is
+    // the plan's W3 acceptance quantity (0 at Nash, positive if
+    // exploitable).
+    let s = state();
+    let jam_to = s.max_raise_to();
+    let t = tree(jam_to);
+
+    let hero = [[0u8, 1]];
+    let hero_rank = vec![100u32];
+    let villain = [[2u8, 3]];
+    let villain_rank = vec![200u32];
+
+    let solver = RiverCfr::new(&t, &hero, &hero_rank, &villain, &villain_rank, s, SB, None);
+    let out = solver.solve(5000);
+    let e = solver.exploitability(&out);
+    eprintln!(
+        "two-seat exploitability = {e:.6} chips ({:.8} bb)",
+        e / 100.0
+    );
+    assert!(
+        e.abs() < 1e-2,
+        "exploitability should be ~0 chips at Nash, got {e}"
+    );
+}
+
+#[test]
+fn real_tree_exploitability_is_bounded() {
+    // On a real river tree, the exploitability of the CFR+ solution
+    // should be small in absolute terms (bounded by the pot+stack, well
+    // under the fold-the-blind baseline of 1.5 bb = 150 chips).
+    use cham_core::card::Hand2;
+    use cham_core::engine::Street;
+    use cham_core::obs::{Observables, Player, is_legal};
+    use cham_engine::config::AbstractionConfig;
+    use cham_engine::encoder::ActionSeq;
+    use cham_engine::ladder::ActionLadder;
+    use cham_search::pubtree::PublicTree;
+
+    let cfg = AbstractionConfig::tiny();
+    let ladder = ActionLadder::new(&cfg);
+
+    let board = [Card(40), Card(41), Card(42), Card(43), Card(44)];
+    let prefix = [
+        Card(2),
+        Card(3),
+        Card(4),
+        Card(5),
+        board[0],
+        board[1],
+        board[2],
+        board[3],
+        board[4],
+    ];
+    let mut st = State::new(CFG, Deck::with_prefix(&prefix)).expect("state");
+    let mut seq = ActionSeq::default();
+    let mut guard = 0;
+    while st.street() != Street::River && !st.is_terminal() && guard < 30 {
+        guard += 1;
+        let p = st.to_act();
+        let obs = Observables::view(&st, Player::from_usize(p));
+        let a = if is_legal(&obs, Action::Check) {
+            Action::Check
+        } else {
+            Action::Call
+        };
+        cham_engine::ladder::record_action(&ladder, &obs, Player::from_usize(p), a, &mut seq);
+        st.apply(a).expect("apply");
+    }
+    assert_eq!(st.street(), Street::River);
+
+    let tree = PublicTree::build_from_state(st, seq, &ladder, 100_000);
+
+    let hero: Vec<[u8; 2]> = vec![[10, 11], [12, 13]];
+    let villain: Vec<[u8; 2]> = vec![[14, 15], [16, 17]];
+    let rank = |c: &[u8; 2]| -> u32 {
+        (cham_engine::tables::river_equity(Hand2::new(Card(c[0]), Card(c[1])), &board) * 1e6) as u32
+    };
+    let hero_rank: Vec<u32> = hero.iter().map(rank).collect();
+    let villain_rank: Vec<u32> = villain.iter().map(rank).collect();
+
+    let solver = RiverCfr::new(
+        &tree,
+        &hero,
+        &hero_rank,
+        &villain,
+        &villain_rank,
+        st,
+        1,
+        None,
+    );
+    let out = solver.solve(2000);
+    let e = solver.exploitability(&out);
+    eprintln!(
+        "real-tree exploitability = {e:.3} chips ({:.5} bb)",
+        e / 100.0
+    );
+    // Baseline: folding the blind loses 0.5 bb = 50 chips; a strategy
+    // worse than 150 chips exploitability is "worse than anything the
+    // solver should produce." This bound is loose on purpose — the test
+    // is a sanity check, not a tight tolerance.
+    assert!(
+        e.abs() < 300.0,
+        "real-tree exploitability {e:.3} chips is suspiciously high"
+    );
+}

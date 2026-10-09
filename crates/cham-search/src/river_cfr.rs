@@ -253,6 +253,43 @@ impl<'a> RiverCfr<'a> {
         cfvs.iter().zip(hero_reach.iter()).map(|(c, w)| c * w).sum()
     }
 
+    /// Two-seat exploitability: `BR_hero(villain_strat) + BR_villain(hero_strat)`.
+    /// At Nash this is 0; positive means the average strategy is exploitable.
+    /// Returns chips.
+    ///
+    /// The villain's BR is computed by mirroring the seat roles: construct
+    /// a swapped `RiverCfr` (hero<->villain) and call `br_hero` on the
+    /// hero strategy it was given. The sign convention matches `br_hero`:
+    /// the swapped call returns the villain's value in the original game.
+    pub fn exploitability(&self, solved: &SolvedRiver) -> f64 {
+        let br_hero = self.br_hero(solved);
+
+        // Mirror: seat roles swapped. hero_seat = 1 - self.hero_seat,
+        // ranges swapped, ranks swapped. The gadget (if any) is dropped —
+        // the mirrored call only measures BR against the hero's strategy
+        // inside the tree, it does not re-solve.
+        let mirror = RiverCfr {
+            tree: self.tree,
+            hero_range: self.villain_range,
+            hero_rank: self.villain_rank,
+            villain_range: self.hero_range,
+            villain_rank: self.hero_rank,
+            root_state: self.root_state,
+            hero_seat: 1 - self.hero_seat,
+            v_bp_hero: None,
+        };
+        // Swap the solved strategy: villain's view becomes the mirror's
+        // hero's view.
+        let mirrored = SolvedRiver {
+            hero_strat: solved.villain_strat.clone(),
+            villain_strat: solved.hero_strat.clone(),
+            gadget_root_strat: None,
+            iters: solved.iters,
+        };
+        let br_villain = mirror.br_hero(&mirrored);
+        br_hero + br_villain
+    }
+
     fn br_walk(
         &self,
         node: u32,
