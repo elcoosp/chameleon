@@ -546,6 +546,69 @@ impl<'a> RiverCfr<'a> {
     }
 }
 
+/// Expand a class-level range (as used by `subgame::Class`) into a
+/// combo-level range compatible with `RiverCfr`.
+///
+/// Each class contributes the combos whose river equity is closest to
+/// `class.strength`. The class's weight is split evenly across those
+/// combos, so the total mass is preserved.
+///
+/// `hole_cards` is the full 1326-combo list for the board (or any
+/// candidate list); combos whose cards collide with the board are
+/// skipped. `equity_of` computes river equity in `[0,1]`.
+///
+/// This is the bridge between the tracker's class range and the combo
+/// solver: the caller iterates the returned combos with the returned
+/// weights as the initial `hero_reach`/`villain_reach` vectors.
+pub fn expand_classes_to_combos(
+    classes: &[(f64, f64)], // (weight, strength) — see subgame::Class
+    hole_cards: &[[u8; 2]],
+    equity_of: &dyn Fn(&[u8; 2]) -> f64,
+) -> (Vec<[u8; 2]>, Vec<f64>) {
+    if classes.is_empty() || hole_cards.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    // Assign every combo to its nearest class by |equity - strength|.
+    let nclasses = classes.len();
+    let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); nclasses];
+    for (i, combo) in hole_cards.iter().enumerate() {
+        let e = equity_of(combo);
+        let mut best = 0usize;
+        let mut best_d = f64::INFINITY;
+        for (k, &(_, s)) in classes.iter().enumerate() {
+            let d = (e - s).abs();
+            if d < best_d {
+                best_d = d;
+                best = k;
+            }
+        }
+        buckets[best].push(i);
+    }
+    // Split each class's weight across its members.
+    let mut out_range: Vec<[u8; 2]> = Vec::with_capacity(hole_cards.len());
+    let mut out_weight: Vec<f64> = Vec::with_capacity(hole_cards.len());
+    for (k, members) in buckets.iter().enumerate() {
+        if members.is_empty() {
+            continue;
+        }
+        let w = classes[k].0 / members.len() as f64;
+        for &i in members {
+            out_range.push(hole_cards[i]);
+            out_weight.push(w);
+        }
+    }
+    // Renormalize: classes with no assigned members drop their weight,
+    // so the sum can fall below the input total. The caller uses these
+    // weights as a probability distribution, so rescale to 1.
+    let total: f64 = out_weight.iter().sum();
+    if total > 0.0 {
+        for w in out_weight.iter_mut() {
+            *w /= total;
+        }
+    }
+    (out_range, out_weight)
+}
+
 /// For each combo `i` in `range_i`, the mass of combos in `range_j`
 /// disjoint from it, weighted by `reach_j`.
 fn disjoint_mass(range_i: &[[u8; 2]], range_j: &[[u8; 2]], reach_j: &[f64]) -> Vec<f64> {
