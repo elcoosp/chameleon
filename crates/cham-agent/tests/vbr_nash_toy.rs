@@ -3,6 +3,15 @@
 //! Jam-or-fold toy, two opposite rank configurations. At each
 //! configuration the equilibrium is analytically known; the walker's
 //! exploitability (sum of both seats' best responses) must be ≈ 0.
+//!
+//! Hands are physical: the SB holds one hand, the BB holds another,
+//! fixed across the two seat-perspective BR computations. The rank
+//! passed to `br` is the RANK OF THE HERO'S HAND, not a constant:
+//! swapping the hero seat swaps which rank is "hero".
+//!
+//! Prior bug (fixed here): a single `hero_rank` was passed to both
+//! calls, so the hero always held the same (winning) hand regardless
+//! of seat. Case A then reported 100.5 instead of 0.
 
 use arrayvec::ArrayVec;
 use cham_core::card::{Card, Deck};
@@ -89,6 +98,7 @@ fn probe_state() -> State {
     State::new(CFG, Deck::with_prefix(&prefix)).expect("state")
 }
 
+/// Hero's BR, holding `hero_rank` against a villain holding `vill_rank`.
 fn br(
     tree: &PublicTree,
     ladder: &ActionLadder,
@@ -105,6 +115,7 @@ fn br(
     let hr = vec![hero_rank];
     let vr = vec![vill_rank];
     let mut pol = |_st: &State, path: &[Action], _seq: &ActionSeq, na: usize, _c: usize| {
+        // SB acts at the root only; BB acts at the non-root decision node.
         let p = if path.is_empty() { sb_p } else { bb_p };
         p[..na.min(2)].to_vec()
     };
@@ -124,25 +135,36 @@ fn br(
     v.best_response(&board()).expect("BR")
 }
 
-fn exploit(sb_p: [f64; 2], bb_p: [f64; 2], hr: u32, vr: u32) -> f64 {
+/// Exploitability = BR(SB) + BR(BB), where `rank_sb` and `rank_bb` are
+/// the PHYSICAL ranks of each seat's hand (fixed regardless of who is
+/// the hero).
+fn exploit(sb_p: [f64; 2], bb_p: [f64; 2], rank_sb: u32, rank_bb: u32) -> f64 {
     let cfg = AbstractionConfig::tiny();
     let ladder = ActionLadder::new(&cfg);
     let jam_to = probe_state().max_raise_to();
     let t = tree(jam_to);
-    let br_bb = br(&t, &ladder, BB, hr, vr, sb_p, bb_p);
-    let br_sb = br(&t, &ladder, SB, hr, vr, sb_p, bb_p);
+    // Hero = BB: hero holds the BB's hand.
+    let br_bb = br(&t, &ladder, BB, rank_bb, rank_sb, sb_p, bb_p);
+    // Hero = SB: hero holds the SB's hand. THIS is the line the prior
+    // version got wrong — it passed rank_bb for both.
+    let br_sb = br(&t, &ladder, SB, rank_sb, rank_bb, sb_p, bb_p);
     br_bb + br_sb
 }
 
 #[test]
 #[ignore = "plan gate; --ignored --nocapture"]
 fn nash_toy_exploitability_zero() {
-    // A: hero (BB) wins showdown -> SB folds, BB calls.
-    let a = exploit([1.0, 0.0], [0.0, 1.0], 200, 100);
-    eprintln!("A (hero wins):  exploit = {a:.6} bb");
-    // B: hero loses -> SB jams, BB folds.
-    let b = exploit([0.0, 1.0], [1.0, 0.0], 100, 200);
-    eprintln!("B (hero loses): exploit = {b:.6} bb");
+    // A: BB's hand wins the showdown. Equilibrium: SB folds, BB calls.
+    let a = exploit([1.0, 0.0], [0.0, 1.0], 100, 200);
+    eprintln!("A (BB hand wins): exploit = {a:.6} bb");
+
+    // B: SB's hand wins the showdown. Equilibrium: SB jams, BB folds.
+    let b = exploit([0.0, 1.0], [1.0, 0.0], 200, 100);
+    eprintln!("B (SB hand wins): exploit = {b:.6} bb");
+
+    // Tolerance: the walker's card-removal mass is f64; with one combo
+    // per side the arithmetic is exact up to a few ulps. 1e-6 is safe;
+    // anything above that is a real bug, not roundoff.
     assert!(a.abs() < 1e-6, "A not 0: {a}");
     assert!(b.abs() < 1e-6, "B not 0: {b}");
 }
