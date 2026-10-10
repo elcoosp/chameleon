@@ -210,7 +210,7 @@ pub fn run(
     println!("    target/debug/deps/d1_fullgame_vbr-<hash> --ignored --nocapture");
     println!();
     println!(
-        "The D2 baseline to beat is 5.77 +/- 0.55 bb (see docs/plans/D1-RESULT-2026-10-08.md)."
+        "The D2 baseline to beat is 8.52 +/- 0.62 bb (180-board shuffled; see docs/plans/D1-SUMMARY-2026-10-09.md)."
     );
     0
 }
