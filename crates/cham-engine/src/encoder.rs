@@ -503,6 +503,96 @@ impl Encoder {
         InfoSetKey(h | (1 << 63))
     }
 
+    /// The public part of the key: the v3 byte-stream hash with the
+    /// bucket bytes zeroed. Combine with a bucket via `key_from_public`
+    /// to reconstruct the full key:
+    ///
+    ///     key_from_public(key_for_public(obs, seq, slots), bucket(obs))
+    ///         == key_for(obs, seq, slots)
+    ///
+    /// Purpose (plan C-3): at one public node the byte stream is identical
+    /// for every hole card EXCEPT the bucket. A solver enumerating hole
+    /// cards computes `key_for_public` ONCE, then for each bucket value
+    /// calls `key_from_public` — turning a per-combo FNV hash into a
+    /// per-combo XOR over a small table. This is the primitive the plan
+    /// cites for the vector solver / PCS trainer.
+    ///
+    /// At v2 there is no split (the bucket is hashed inline): this
+    /// returns the same value as `key_for`, and `key_from_public` returns
+    /// its argument unchanged. Callers must not assume a bucket enters.
+    pub fn key_for_public(
+        &mut self,
+        obs: &Observables<'_>,
+        seq: &ActionSeq,
+        slots: &arrayvec::ArrayVec<crate::ladder::AbstractAction, 12>,
+    ) -> u64 {
+        if self.cfg.version < 3 {
+            // v2: no split exists. The full key IS the "public" value.
+            return self.key_for(obs, seq, slots).0;
+        }
+        let mut mask: u16 = 0;
+        for (i, s) in slots.iter().enumerate() {
+            if cham_core::obs::is_legal(obs, s.action) {
+                mask |= 1 << i;
+            }
+        }
+        let mut bytes = [0u8; 128];
+        let mut n = 0usize;
+        bytes[n] = obs.street.as_u8();
+        n += 1;
+        bytes[n] = obs.player.as_usize() as u8;
+        n += 1;
+        bytes[n] = self.spr_band(obs);
+        n += 1;
+        // bytes[n] and bytes[n+1] are the bucket — left zero here. That
+        // is the entire point of the split.
+        n += 2;
+        bytes[n] = self.belief_bin;
+        n += 1;
+        bytes[n] = (mask & 0xff) as u8;
+        bytes[n + 1] = (mask >> 8) as u8;
+        n += 2;
+        let cur = obs.street.as_u8() as usize;
+        let compressed = self.history_compression_enabled();
+        for street in 0..4usize {
+            if compressed && street != cur && street < cur {
+                let (n_agg, last_aggr) = Self::summarize_street(seq, street);
+                bytes[n] = n_agg.min(3);
+                bytes[n + 1] = last_aggr;
+                n += 2;
+                continue;
+            }
+            if compressed && street > cur {
+                continue;
+            }
+            let len = seq.lens[street] as usize;
+            bytes[n] = seq.lens[street];
+            n += 1;
+            bytes[n] = seq.overflow[street];
+            n += 1;
+            for i in 0..len {
+                let e = &seq.entries[street * 8 + i];
+                bytes[n] = e.actor;
+                bytes[n + 1] = e.class.as_u8();
+                bytes[n + 2] = e.size_bucket;
+                n += 3;
+            }
+        }
+        fnv1a(&bytes[..n])
+    }
+
+    /// Combine a `key_for_public` hash with a bucket into the full key.
+    /// At v3: `(public ^ bucket_mix(bucket)) | (1 << 63)`.
+    /// At v2: `public` is already the full key; returns it unchanged.
+    #[inline]
+    pub fn key_from_public(&self, public: u64, bucket: u16) -> InfoSetKey {
+        if self.cfg.version >= 3 {
+            InfoSetKey((public ^ Self::bucket_mix(bucket)) | (1 << 63))
+        } else {
+            InfoSetKey(public)
+        }
+    }
+
     /// C-3 key primitive: mix a bucket into a public-part hash. Injective in
     /// `bucket` (golden-ratio multiply), so distinct buckets => distinct keys.
     /// v3 keys are `hash(bucket-free public bytes) ^ bucket_mix(bucket)`, so a
