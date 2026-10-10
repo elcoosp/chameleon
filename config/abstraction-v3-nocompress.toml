@@ -1,0 +1,25 @@
+# v3 without history compression — the safer default. Compression is an
+# imperfect-recall approximation; enable it only if the fine-information
+# BR does not worsen (plan C-5). This variant keeps full 4-street history.
+version = 3
+spr_bands = [0.3, 0.37104, 0.45874, 0.56723, 0.70122, 0.86668, 1.07134, 1.32414, 1.63654, 2.02247, 2.49981, 3.08914, 3.81757, 4.71752, 5.82902, 7.20363, 40.0]
+seq_history_len = 8
+compress_history = false
+
+[buckets]
+preflop = "exact169"
+flop_k = 128
+turn_k = 64
+river_eq_bins = 64
+river_texture_classes = 8
+
+[ladder]
+preflop_open_bb = [2.5]
+preflop_levels_bb = [[2.5], [8.0], [20.0]]
+raise_fracs = [1.0]
+flop_bet_fracs = [0.5]
+turn_bet_fracs = [0.5]
+river_bet_fracs = [0.5, 1.25]
+raises_per_street_cap = 1
+all_in_always = true
+slot_bucket = true
